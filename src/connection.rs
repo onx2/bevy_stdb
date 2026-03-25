@@ -8,7 +8,7 @@ use crate::{
     },
     channel_bridge::register_channel,
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
-    table::TableRegistrar,
+    table::{TableRegistrar, TableRegistrarCallback},
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{resource::Resource, system::ResMut};
@@ -63,13 +63,7 @@ pub(crate) struct StdbConnectionConfig<
     /// Compression configuration for the connection.
     pub compression: Compression,
     /// Stored table registration closure for init and bind.
-    pub table_registrar: Option<
-        Arc<
-            dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView)
-                + Send
-                + Sync,
-        >,
-    >,
+    pub table_registrar: Option<Arc<TableRegistrarCallback<C>>>,
     /// Sender used by the SpacetimeDB on-connect callback.
     pub connected_tx: Sender<StdbConnectedMessage>,
     /// Sender used by the SpacetimeDB on-disconnect callback.
@@ -195,13 +189,7 @@ pub(crate) struct StdbConnectionPlugin<
     /// Compression configuration for the connection.
     pub compression: Compression,
     /// Stored table registration closure for init and bind.
-    pub table_registrar: Option<
-        Arc<
-            dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView)
-                + Send
-                + Sync,
-        >,
-    >,
+    pub table_registrar: Option<Arc<TableRegistrarCallback<C>>>,
 }
 
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>

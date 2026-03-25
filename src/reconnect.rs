@@ -20,7 +20,9 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
-use std::time::Duration;
+use std::{sync::Arc, thread::JoinHandle, time::Duration};
+
+type ReconnectAttempt<C> = Result<(Arc<C>, fn(&C) -> JoinHandle<()>), ()>;
 
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
@@ -182,9 +184,7 @@ fn ready_to_retry(world: &mut World) -> bool {
     timer.is_finished()
 }
 
-fn try_reconnect<C, M>(
-    world: &mut World,
-) -> Result<(std::sync::Arc<C>, fn(&C) -> std::thread::JoinHandle<()>), ()>
+fn try_reconnect<C, M>(world: &mut World) -> ReconnectAttempt<C>
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -200,11 +200,8 @@ where
     }
 }
 
-fn on_reconnect_success<C>(
-    world: &mut World,
-    conn: std::sync::Arc<C>,
-    run_fn: fn(&C) -> std::thread::JoinHandle<()>,
-) where
+fn on_reconnect_success<C>(world: &mut World, conn: Arc<C>, run_fn: fn(&C) -> JoinHandle<()>)
+where
     C: DbContext + Send + Sync + 'static,
 {
     run_fn(conn.as_ref());
@@ -233,15 +230,16 @@ fn on_reconnect_failure(world: &mut World) {
     reconnect.attempts += 1;
 
     if let Some(max_attempts) = reconnect_config.max_attempts
-        && reconnect.attempts >= max_attempts {
-            reconnect.timer = None;
+        && reconnect.attempts >= max_attempts
+    {
+        reconnect.timer = None;
 
-            world
-                .get_resource_mut::<NextState<StdbConnectionState>>()
-                .expect("NextState<StdbConnectionState> should exist during reconnect exhaustion")
-                .set(StdbConnectionState::Exhausted);
-            return;
-        }
+        world
+            .get_resource_mut::<NextState<StdbConnectionState>>()
+            .expect("NextState<StdbConnectionState> should exist during reconnect exhaustion")
+            .set(StdbConnectionState::Exhausted);
+        return;
+    }
 
     let next_delay = reconnect
         .current_delay

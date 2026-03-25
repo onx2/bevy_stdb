@@ -8,8 +8,12 @@ use crate::{
 };
 use bevy_app::App;
 use bevy_ecs::{message::Message, world::World};
+use spacetimedb_sdk::__codegen::DbContext;
 use spacetimedb_sdk::{EventTable, Table, TableWithPrimaryKey};
 use std::sync::mpsc::Sender;
+
+pub(crate) type TableRegistrarCallback<C> =
+    dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView) + Send + Sync;
 
 /// Registers SpacetimeDB table callbacks as Bevy messages.
 ///

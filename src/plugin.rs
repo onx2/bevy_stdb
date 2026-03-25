@@ -7,7 +7,7 @@ use crate::{
     connection::StdbConnectionPlugin,
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
     subscription::{StdbSubscriptions, SubscriptionsPlugin},
-    table::TableRegistrar,
+    table::{TableRegistrar, TableRegistrarCallback},
 };
 use bevy_app::{App, Plugin};
 use spacetimedb_sdk::{
@@ -15,6 +15,8 @@ use spacetimedb_sdk::{
     Compression, DbContext, SubscriptionHandle,
 };
 use std::{hash::Hash, sync::Arc, thread::JoinHandle};
+
+type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
 
 /// Builder-style plugin for configuring the Bevy-SpacetimeDB integration.
 pub struct StdbPlugin<
@@ -27,14 +29,8 @@ pub struct StdbPlugin<
     run_fn: Option<fn(&C) -> JoinHandle<()>>,
     compression: Option<Compression>,
     reconnect_options: Option<StdbReconnectOptions>,
-    subscriptions_initializer: Option<Arc<dyn Fn(&mut App) + Send + Sync>>,
-    table_registrar: Option<
-        Arc<
-            dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView)
-                + Send
-                + Sync,
-        >,
-    >,
+    subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
+    table_registrar: Option<Arc<TableRegistrarCallback<C>>>,
 }
 
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
