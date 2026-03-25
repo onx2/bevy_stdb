@@ -93,9 +93,11 @@ where
         let mut first_err = None;
 
         for (_, handle) in self.handles.drain() {
-            if let Err(err) = handle.unsubscribe()
-                && first_err.is_none()
-            {
+            let Err(err) = handle.unsubscribe() else {
+                continue;
+            };
+
+            if first_err.is_none() {
                 first_err = Some(err);
             }
         }
