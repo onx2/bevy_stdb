@@ -91,11 +91,10 @@ where
         let mut first_err = None;
 
         for (_, handle) in self.handles.drain() {
-            if let Err(err) = handle.unsubscribe() {
-                if first_err.is_none() {
+            if let Err(err) = handle.unsubscribe()
+                && first_err.is_none() {
                     first_err = Some(err);
                 }
-            }
         }
 
         self.sql_by_key.clear();

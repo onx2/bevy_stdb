@@ -76,11 +76,10 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) -> Sender<T> {
             drain: Box::new(move |world: &mut World| {
                 let rx = rx.lock().unwrap_or_else(|e| e.into_inner());
                 let msgs: Vec<T> = rx.try_iter().collect();
-                if !msgs.is_empty() {
-                    if let Some(mut messages) = world.get_resource_mut::<Messages<T>>() {
+                if !msgs.is_empty()
+                    && let Some(mut messages) = world.get_resource_mut::<Messages<T>>() {
                         messages.write_batch(msgs);
                     }
-                }
             }),
             clone_sender: Box::new(move || Box::new(tx_for_lookup.clone())),
         });

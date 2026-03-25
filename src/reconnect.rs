@@ -232,8 +232,8 @@ fn on_reconnect_failure(world: &mut World) {
 
     reconnect.attempts += 1;
 
-    if let Some(max_attempts) = reconnect_config.max_attempts {
-        if reconnect.attempts >= max_attempts {
+    if let Some(max_attempts) = reconnect_config.max_attempts
+        && reconnect.attempts >= max_attempts {
             reconnect.timer = None;
 
             world
@@ -242,7 +242,6 @@ fn on_reconnect_failure(world: &mut World) {
                 .set(StdbConnectionState::Exhausted);
             return;
         }
-    }
 
     let next_delay = reconnect
         .current_delay
