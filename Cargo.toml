@@ -2,7 +2,7 @@
 name = "bevy_stdb"
 version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.93"
 description = "A Bevy-native integration for SpacetimeDB with table messages, subscriptions, and reconnect support."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
