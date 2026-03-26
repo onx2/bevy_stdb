@@ -11,8 +11,11 @@ use crate::{
     table::{TableRegistrar, TableRegistrarCallback},
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{resource::Resource, schedule::IntoScheduleConfigs, system::ResMut};
-
+use bevy_ecs::{
+    resource::Resource,
+    schedule::IntoScheduleConfigs,
+    system::{Res, ResMut},
+};
 use bevy_state::{
     app::{AppExtStates, StatesPlugin},
     condition::in_state,
@@ -30,16 +33,12 @@ pub enum StdbConnectionState {
     /// The plugin hasn't initialized yet.
     #[default]
     Uninitialized,
-
     /// The connection is active.
     Connected,
-
     /// The connection is not active.
     Disconnected,
-
     /// A reconnect attempt is in progress.
     Reconnecting,
-
     /// Reconnect attempts have been exhausted.
     Exhausted,
 }
@@ -318,8 +317,8 @@ fn drive_connection_frame_tick<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 >(
-    conn: bevy_ecs::system::Res<StdbConnection<C>>,
-    config: bevy_ecs::system::Res<StdbConnectionConfig<C, M>>,
+    conn: Res<StdbConnection<C>>,
+    config: Res<StdbConnectionConfig<C, M>>,
 ) {
     let Some(frame_tick) = config.frame_tick else {
         return;
