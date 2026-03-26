@@ -23,12 +23,17 @@ pub struct StdbPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 > {
+    // Built-in SpacetimeDB fields
     module_name: Option<String>,
     uri: Option<String>,
     token: Option<String>,
-    frame_tick: Option<fn(&C) -> spacetimedb_sdk::Result<()>>,
-    background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
     compression: Option<Compression>,
+
+    // Options for how to process events from the websocket
+    frame_tick_driver: Option<fn(&C) -> spacetimedb_sdk::Result<()>>,
+    background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
+
+    // Custom options for reconnect and safely storing sub/table information
     reconnect_options: Option<StdbReconnectOptions>,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrar: Option<Arc<TableRegistrarCallback<C>>>,
@@ -42,7 +47,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             module_name: None,
             uri: None,
             token: None,
-            frame_tick: None,
+            frame_tick_driver: None,
             background_driver: None,
             compression: None,
             reconnect_options: None,
@@ -61,14 +66,14 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>,
     ) -> Self {
         assert!(
-            self.frame_tick.is_none(),
+            self.frame_tick_driver.is_none(),
             "`with_run_frame_tick()` may only be called once"
         );
         assert!(
             self.background_driver.is_none(),
             "`with_run_frame_tick()` cannot be used after `with_run_background()`"
         );
-        self.frame_tick = Some(frame_tick);
+        self.frame_tick_driver = Some(frame_tick);
         self
     }
 
@@ -82,7 +87,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_run_background()` may only be called once"
         );
         assert!(
-            self.frame_tick.is_none(),
+            self.frame_tick_driver.is_none(),
             "`with_run_background()` cannot be used after `with_run_frame_tick()`"
         );
         self.background_driver = Some(Arc::new(move |conn: &C| {
@@ -217,7 +222,7 @@ impl<
                 .expect("No module name set. Use with_module_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
-            frame_tick: self.frame_tick,
+            frame_tick: self.frame_tick_driver,
             background_driver: self.background_driver.clone(),
             compression: self.compression.unwrap_or_default(),
             table_registrar: self.table_registrar.clone(),

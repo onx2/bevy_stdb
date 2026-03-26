@@ -22,7 +22,23 @@ use spacetimedb_sdk::{
 };
 use std::{sync::Arc, time::Duration};
 
+#[cfg(feature = "browser")]
+use std::sync::{
+    Mutex,
+    mpsc::{Receiver, channel},
+};
+
+#[cfg(feature = "browser")]
 type ReconnectAttempt<C> = Result<(Arc<C>, Option<Arc<dyn Fn(&C) + Send + Sync>>), ()>;
+
+#[cfg(not(feature = "browser"))]
+type ReconnectAttempt<C> = Result<(Arc<C>, Option<Arc<dyn Fn(&C) + Send + Sync>>), ()>;
+
+#[cfg(feature = "browser")]
+#[derive(Resource)]
+pub(crate) struct PendingReconnectReceiver<C: DbContext + Send + Sync + 'static> {
+    pub rx: Mutex<Receiver<ReconnectAttempt<C>>>,
+}
 
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
@@ -134,7 +150,11 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            tick_reconnect_timer::<C, M>.run_if(in_state(StdbConnectionState::Reconnecting)),
+            (
+                tick_reconnect_timer::<C, M>.run_if(in_state(StdbConnectionState::Reconnecting)),
+                #[cfg(feature = "browser")]
+                finalize_pending_reconnect::<C>.run_if(in_state(StdbConnectionState::Reconnecting)),
+            ),
         );
     }
 }
@@ -151,6 +171,7 @@ fn begin_reconnect_on_disconnect(
     next_state.set(StdbConnectionState::Reconnecting);
 }
 
+#[cfg(not(feature = "browser"))]
 fn tick_reconnect_timer<C, M>(world: &mut World)
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
@@ -164,6 +185,38 @@ where
         Ok((conn, background_driver)) => on_reconnect_success(world, conn, background_driver),
         Err(_) => on_reconnect_failure(world),
     }
+}
+
+#[cfg(feature = "browser")]
+fn tick_reconnect_timer<C, M>(world: &mut World)
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    if !ready_to_retry(world) {
+        return;
+    }
+
+    if world.contains_resource::<PendingReconnectReceiver<C>>() {
+        return;
+    }
+
+    let config = world
+        .get_resource::<StdbConnectionConfig<C, M>>()
+        .expect("StdbConnectionConfig should exist during reconnect")
+        .clone();
+
+    let (tx, rx) = channel();
+
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = match config.build_connection().await {
+            Ok(conn) => Ok((conn, config.background_driver.clone())),
+            Err(_) => Err(()),
+        };
+        let _ = tx.send(result);
+    });
+
+    world.insert_resource(PendingReconnectReceiver::<C> { rx: Mutex::new(rx) });
 }
 
 fn ready_to_retry(world: &mut World) -> bool {
@@ -184,6 +237,7 @@ fn ready_to_retry(world: &mut World) -> bool {
     timer.is_finished()
 }
 
+#[cfg(not(feature = "browser"))]
 fn try_reconnect<C, M>(world: &mut World) -> ReconnectAttempt<C>
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
@@ -207,6 +261,9 @@ fn on_reconnect_success<C>(
 ) where
     C: DbContext + Send + Sync + 'static,
 {
+    #[cfg(feature = "browser")]
+    world.remove_resource::<PendingReconnectReceiver<C>>();
+
     if let Some(background_driver) = background_driver {
         background_driver(conn.as_ref());
     }
@@ -219,6 +276,40 @@ fn on_reconnect_success<C>(
         reconnect.attempts = 0;
         reconnect.current_delay = Duration::ZERO;
         reconnect.timer = None;
+    }
+}
+
+#[cfg(feature = "browser")]
+fn finalize_pending_reconnect<C>(world: &mut World)
+where
+    C: DbContext + Send + Sync + 'static,
+{
+    let result = {
+        let Some(receiver) = world.get_resource::<PendingReconnectReceiver<C>>() else {
+            return;
+        };
+
+        let rx = receiver.rx.lock().unwrap_or_else(|e| e.into_inner());
+
+        match rx.try_recv() {
+            Ok(result) => Some(result),
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                panic!("pending browser reconnect task disconnected before returning a result")
+            }
+        }
+    };
+
+    let Some(result) = result else {
+        return;
+    };
+
+    match result {
+        Ok((conn, background_driver)) => on_reconnect_success(world, conn, background_driver),
+        Err(_) => {
+            world.remove_resource::<PendingReconnectReceiver<C>>();
+            on_reconnect_failure(world);
+        }
     }
 }
 
