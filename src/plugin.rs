@@ -56,31 +56,34 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     StdbPlugin<C, M>
 {
     /// Sets the function used to drive the connection from the Bevy schedule.
-    pub fn with_frame_tick(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
+    pub fn with_run_frame_tick(
+        mut self,
+        frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>,
+    ) -> Self {
         assert!(
             self.frame_tick.is_none(),
-            "`with_frame_tick()` may only be called once"
+            "`with_run_frame_tick()` may only be called once"
         );
         assert!(
             self.background_driver.is_none(),
-            "`with_frame_tick()` cannot be used after `with_background()`"
+            "`with_run_frame_tick()` cannot be used after `with_run_background()`"
         );
         self.frame_tick = Some(frame_tick);
         self
     }
 
     /// Sets the function used to drive the connection in the background.
-    pub fn with_background<R>(mut self, background_driver: fn(&C) -> R) -> Self
+    pub fn with_run_background<R>(mut self, background_driver: fn(&C) -> R) -> Self
     where
         R: 'static,
     {
         assert!(
             self.background_driver.is_none(),
-            "`with_background()` may only be called once"
+            "`with_run_background()` may only be called once"
         );
         assert!(
             self.frame_tick.is_none(),
-            "`with_background()` cannot be used after `with_frame_tick()`"
+            "`with_run_background()` cannot be used after `with_run_frame_tick()`"
         );
         self.background_driver = Some(Arc::new(move |conn: &C| {
             let _ = background_driver(conn);
