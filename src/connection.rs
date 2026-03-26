@@ -265,11 +265,11 @@ impl<
                 let pending_config = config.clone();
                 let (tx, rx) = channel();
 
-                println!("bevy_stdb: spawning initial browser connection task");
+                tracing::info!("bevy_stdb: spawning initial browser connection task");
                 wasm_bindgen_futures::spawn_local(async move {
-                    println!("bevy_stdb: initial browser connection task started");
+                    tracing::info!("bevy_stdb: initial browser connection task started");
                     let result = pending_config.build_connection().await;
-                    println!(
+                    tracing::info!(
                         "bevy_stdb: initial browser connection task completed: success={}",
                         result.is_ok()
                     );
@@ -319,12 +319,14 @@ impl<
         {
             let result = state.result.lock().unwrap_or_else(|e| e.into_inner());
             if result.is_some() {
-                println!("bevy_stdb: initial connection ready() returning true from cached result");
+                tracing::info!(
+                    "bevy_stdb: initial connection ready() returning true from cached result"
+                );
                 return true;
             }
         }
 
-        println!("bevy_stdb: initial connection ready() polling task");
+        tracing::info!("bevy_stdb: initial connection ready() polling task");
         let next_result = {
             let rx = state.rx.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -338,11 +340,11 @@ impl<
         };
 
         let Some(next_result) = next_result else {
-            println!("bevy_stdb: initial connection ready() still pending");
+            tracing::info!("bevy_stdb: initial connection ready() still pending");
             return false;
         };
 
-        println!(
+        tracing::info!(
             "bevy_stdb: initial connection ready() received completed task result: success={}",
             next_result.is_ok()
         );
@@ -354,7 +356,7 @@ impl<
 
     /// Establishes the initial connection and registers table handlers.
     fn finish(&self, app: &mut App) {
-        println!("bevy_stdb: plugin finish() finalizing initial connection");
+        tracing::info!("bevy_stdb: plugin finish() finalizing initial connection");
         let conn = {
             let state = app
                 .world_mut()
@@ -387,11 +389,11 @@ impl<
         }
 
         if let Some(background_driver) = background_driver {
-            println!("bevy_stdb: starting configured background driver");
+            tracing::info!("bevy_stdb: starting configured background driver");
             background_driver(conn.as_ref());
         }
         app.insert_resource(StdbConnection::new(conn));
-        println!("bevy_stdb: initial connection resource inserted");
+        tracing::info!("bevy_stdb: initial connection resource inserted");
     }
 }
 
