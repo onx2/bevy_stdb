@@ -270,11 +270,9 @@ fn watch_connected<
     M: SpacetimeModule<DbConnection = C>,
 >(
     mut msgs: ReadStdbConnectedMessage,
-    mut config: ResMut<StdbConnectionConfig<C, M>>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
 ) {
-    for msg in msgs.read() {
-        config.token = Some(msg.access_token.clone());
+    for _ in msgs.read() {
         next_state.set(StdbConnectionState::Connected);
     }
 }
