@@ -14,7 +14,7 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, DbContext, SubscriptionHandle,
 };
-use std::{hash::Hash, sync::Arc, thread::JoinHandle};
+use std::{hash::Hash, sync::Arc};
 
 type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
 
@@ -26,7 +26,8 @@ pub struct StdbPlugin<
     module_name: Option<String>,
     uri: Option<String>,
     token: Option<String>,
-    run_fn: Option<fn(&C) -> JoinHandle<()>>,
+    frame_tick: Option<fn(&C) -> spacetimedb_sdk::Result<()>>,
+    background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
     compression: Option<Compression>,
     reconnect_options: Option<StdbReconnectOptions>,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
@@ -41,8 +42,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             module_name: None,
             uri: None,
             token: None,
-            run_fn: None,
-            compression: Some(Compression::default()),
+            frame_tick: None,
+            background_driver: None,
+            compression: None,
             reconnect_options: None,
             subscriptions_initializer: None,
             table_registrar: None,
@@ -53,13 +55,36 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
     StdbPlugin<C, M>
 {
-    /// Sets the function used to drive the connection.
-    pub fn with_run_fn(mut self, run_fn: fn(&C) -> JoinHandle<()>) -> Self {
+    /// Sets the function used to drive the connection from the Bevy schedule.
+    pub fn with_frame_tick(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
         assert!(
-            self.run_fn.is_none(),
-            "`with_run_fn()` may only be called once"
+            self.frame_tick.is_none(),
+            "`with_frame_tick()` may only be called once"
         );
-        self.run_fn = Some(run_fn);
+        assert!(
+            self.background_driver.is_none(),
+            "`with_frame_tick()` cannot be used after `with_background()`"
+        );
+        self.frame_tick = Some(frame_tick);
+        self
+    }
+
+    /// Sets the function used to drive the connection in the background.
+    pub fn with_background<R>(mut self, background_driver: fn(&C) -> R) -> Self
+    where
+        R: 'static,
+    {
+        assert!(
+            self.background_driver.is_none(),
+            "`with_background()` may only be called once"
+        );
+        assert!(
+            self.frame_tick.is_none(),
+            "`with_background()` cannot be used after `with_frame_tick()`"
+        );
+        self.background_driver = Some(Arc::new(move |conn: &C| {
+            let _ = background_driver(conn);
+        }));
         self
     }
 
@@ -189,7 +214,8 @@ impl<
                 .expect("No module name set. Use with_module_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
-            run_fn: self.run_fn.expect("No run function set. Use with_run_fn()"),
+            frame_tick: self.frame_tick,
+            background_driver: self.background_driver.clone(),
             compression: self.compression.unwrap_or_default(),
             table_registrar: self.table_registrar.clone(),
         });

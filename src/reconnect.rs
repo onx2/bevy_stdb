@@ -20,9 +20,9 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
-use std::{sync::Arc, thread::JoinHandle, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-type ReconnectAttempt<C> = Result<(Arc<C>, fn(&C) -> JoinHandle<()>), ()>;
+type ReconnectAttempt<C> = Result<(Arc<C>, Option<Arc<dyn Fn(&C) + Send + Sync>>), ()>;
 
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
@@ -161,7 +161,7 @@ where
     }
 
     match try_reconnect::<C, M>(world) {
-        Ok((conn, run_fn)) => on_reconnect_success(world, conn, run_fn),
+        Ok((conn, background_driver)) => on_reconnect_success(world, conn, background_driver),
         Err(_) => on_reconnect_failure(world),
     }
 }
@@ -193,18 +193,23 @@ where
         .get_resource::<StdbConnectionConfig<C, M>>()
         .expect("StdbConnectionConfig should exist during reconnect");
 
-    let run_fn = config.run_fn;
+    let background_driver = config.background_driver.clone();
     match config.build_connection() {
-        Ok(conn) => Ok((conn, run_fn)),
+        Ok(conn) => Ok((conn, background_driver)),
         Err(_) => Err(()),
     }
 }
 
-fn on_reconnect_success<C>(world: &mut World, conn: Arc<C>, run_fn: fn(&C) -> JoinHandle<()>)
-where
+fn on_reconnect_success<C>(
+    world: &mut World,
+    conn: Arc<C>,
+    background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
+) where
     C: DbContext + Send + Sync + 'static,
 {
-    run_fn(conn.as_ref());
+    if let Some(background_driver) = background_driver {
+        background_driver(conn.as_ref());
+    }
     world.insert_resource(StdbConnection::new(conn));
 
     {

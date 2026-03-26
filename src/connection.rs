@@ -11,20 +11,18 @@ use crate::{
     table::{TableRegistrar, TableRegistrarCallback},
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{resource::Resource, system::ResMut};
+use bevy_ecs::{resource::Resource, schedule::IntoScheduleConfigs, system::ResMut};
 
 use bevy_state::{
     app::{AppExtStates, StatesPlugin},
+    condition::in_state,
     state::{NextState, OnEnter, States},
 };
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
-use std::{
-    sync::{Arc, mpsc::Sender},
-    thread::JoinHandle,
-};
+use std::sync::{Arc, mpsc::Sender};
 
 /// Lifecycle state for the active SpacetimeDB connection.
 #[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
@@ -58,8 +56,10 @@ pub(crate) struct StdbConnectionConfig<
     pub uri: String,
     /// Optional authentication token.
     pub token: Option<String>,
-    /// The function used to drive the connection.
-    pub run_fn: fn(&C) -> JoinHandle<()>,
+    /// The function used to drive the connection from the Bevy schedule.
+    pub frame_tick: Option<fn(&C) -> Result<()>>,
+    /// The function used to start background connection processing.
+    pub background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
     /// Stored table registration closure for init and bind.
@@ -184,8 +184,10 @@ pub(crate) struct StdbConnectionPlugin<
     pub uri: String,
     /// Optional authentication token.
     pub token: Option<String>,
-    /// The function used to drive the connection.
-    pub run_fn: fn(&C) -> JoinHandle<()>,
+    /// The function used to drive the connection from the Bevy schedule.
+    pub frame_tick: Option<fn(&C) -> Result<()>>,
+    /// The function used to start background connection processing.
+    pub background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
     /// Stored table registration closure for init and bind.
@@ -206,7 +208,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
-            run_fn: self.run_fn,
+            frame_tick: self.frame_tick,
+            background_driver: self.background_driver.clone(),
             compression: self.compression,
             table_registrar: self.table_registrar.clone(),
             connected_tx: register_channel::<StdbConnectedMessage>(app),
@@ -217,7 +220,13 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
         app.add_systems(
             PreUpdate,
-            (watch_connected, watch_disconnected, watch_connection_error),
+            (
+                watch_connected::<C, M>,
+                watch_disconnected,
+                watch_connection_error,
+                drive_connection_frame_tick::<C, M>
+                    .run_if(in_state(StdbConnectionState::Connected)),
+            ),
         );
         app.add_systems(
             OnEnter(StdbConnectionState::Connected),
@@ -227,7 +236,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Establishes the initial connection and registers table handlers.
     fn finish(&self, app: &mut App) {
-        let (conn, table_registrar, run_fn) = {
+        let (conn, table_registrar, background_driver) = {
             let config = app
                 .world()
                 .get_resource::<StdbConnectionConfig<C, M>>()
@@ -237,7 +246,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 .build_connection()
                 .expect("Failed to establish initial connection");
 
-            (conn, config.table_registrar.clone(), config.run_fn)
+            (
+                conn,
+                config.table_registrar.clone(),
+                config.background_driver.clone(),
+            )
         };
 
         if let Some(register) = &table_registrar {
@@ -245,16 +258,23 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             register(&mut TableRegistrar::new_init(app), db);
         }
 
-        run_fn(conn.as_ref());
+        if let Some(background_driver) = background_driver {
+            background_driver(conn.as_ref());
+        }
         app.insert_resource(StdbConnection::new(conn));
     }
 }
 
-fn watch_connected(
+fn watch_connected<
+    C: DbConnection<Module = M> + DbContext + Send + Sync,
+    M: SpacetimeModule<DbConnection = C>,
+>(
     mut msgs: ReadStdbConnectedMessage,
+    mut config: ResMut<StdbConnectionConfig<C, M>>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
 ) {
-    for _ in msgs.read() {
+    for msg in msgs.read() {
+        config.token = Some(msg.access_token.clone());
         next_state.set(StdbConnectionState::Connected);
     }
 }
@@ -294,4 +314,18 @@ fn on_connected_bind<
     if let Some(register) = &config.table_registrar {
         register(&mut TableRegistrar::new_bind(&*world), db);
     }
+}
+
+fn drive_connection_frame_tick<
+    C: DbConnection<Module = M> + DbContext + Send + Sync,
+    M: SpacetimeModule<DbConnection = C>,
+>(
+    conn: bevy_ecs::system::Res<StdbConnection<C>>,
+    config: bevy_ecs::system::Res<StdbConnectionConfig<C, M>>,
+) {
+    let Some(frame_tick) = config.frame_tick else {
+        return;
+    };
+
+    let _ = frame_tick(conn.conn.as_ref());
 }
