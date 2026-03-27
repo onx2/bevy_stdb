@@ -290,14 +290,8 @@ impl<
                 let pending_config = config.clone();
                 let (tx, rx) = channel();
 
-                tracing::info!("bevy_stdb: spawning initial browser connection task");
                 wasm_bindgen_futures::spawn_local(async move {
-                    tracing::info!("bevy_stdb: initial browser connection task started");
                     let result = pending_config.build_connection().await;
-                    tracing::info!(
-                        "bevy_stdb: initial browser connection task completed: success={}",
-                        result.is_ok()
-                    );
                     let _ = tx.send(result);
                 });
 
@@ -346,41 +340,22 @@ impl<
         let mut status = state.status.lock().unwrap_or_else(|e| e.into_inner());
 
         match &mut *status {
-            InitialConnectionStatus::Ready(_) => {
-                tracing::info!(
-                    "bevy_stdb: initial connection ready() returning true from cached result"
-                );
-                true
-            }
-            InitialConnectionStatus::Pending(rx) => {
-                tracing::info!("bevy_stdb: initial connection ready() polling task");
-
-                match rx.try_recv() {
-                    Ok(result) => {
-                        tracing::info!(
-                            "bevy_stdb: initial connection ready() received completed task result: success={}",
-                            result.is_ok()
-                        );
-                        *status = InitialConnectionStatus::Ready(result);
-                        true
-                    }
-                    Err(TryRecvError::Empty) => {
-                        tracing::info!("bevy_stdb: initial connection ready() still pending");
-                        false
-                    }
-                    Err(TryRecvError::Disconnected) => {
-                        panic!(
-                            "pending browser connection task disconnected before returning a result"
-                        )
-                    }
+            InitialConnectionStatus::Ready(_) => true,
+            InitialConnectionStatus::Pending(rx) => match rx.try_recv() {
+                Ok(result) => {
+                    *status = InitialConnectionStatus::Ready(result);
+                    true
                 }
-            }
+                Err(TryRecvError::Empty) => false,
+                Err(TryRecvError::Disconnected) => {
+                    panic!("pending browser connection task disconnected before returning a result")
+                }
+            },
         }
     }
 
     /// Establishes the initial connection and registers table handlers.
     fn finish(&self, app: &mut App) {
-        tracing::info!("bevy_stdb: plugin finish() finalizing initial connection");
         let state = app
             .world_mut()
             .remove_resource::<InitialConnectionState<C>>()
@@ -410,12 +385,10 @@ impl<
         }
 
         if let Some(ConnectionDriver::Background(background_driver)) = driver {
-            tracing::info!("bevy_stdb: starting configured background driver");
             background_driver(conn.as_ref());
         }
 
         app.insert_resource(StdbConnection::new(conn));
-        tracing::info!("bevy_stdb: initial connection resource inserted");
     }
 }
 
