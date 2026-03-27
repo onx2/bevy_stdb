@@ -29,6 +29,12 @@ use std::{sync::Arc, time::Duration};
 
 type ReconnectAttempt<C> = Result<(Arc<C>, Option<Arc<dyn Fn(&C) + Send + Sync>>), ()>;
 
+/// Browser-only receiver for an in-flight reconnect attempt.
+///
+/// The browser reconnect path builds the replacement connection asynchronously
+/// and sends the result back through this resource so runtime systems can
+/// finalize success or failure on the Bevy world thread.
+
 #[cfg(feature = "browser")]
 #[derive(Resource)]
 pub(crate) struct PendingReconnectReceiver<C: DbContext + Send + Sync + 'static> {

@@ -28,11 +28,25 @@ use spacetimedb_sdk::{
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex, mpsc::Sender};
 
+/// Internal startup status for the initial SpacetimeDB connection.
+///
+/// On native targets this begins in the ready state with the completed
+/// initial connection result. On browser targets it begins pending and
+/// transitions to ready once [`Plugin::ready`] observes the async result.
+enum InitialConnectionStatus<C: DbContext + Send + Sync + 'static> {
+    Ready(Result<Arc<C>>),
+    #[cfg(feature = "browser")]
+    Pending(Receiver<Result<Arc<C>>>),
+}
+
+/// Internal startup state for the initial SpacetimeDB connection.
+///
+/// This wraps the current startup status in interior mutability so
+/// [`Plugin::ready`] can advance browser initialization before
+/// [`Plugin::finish`] finalizes insertion of the live [`StdbConnection`] resource.
 #[derive(Resource)]
 struct InitialConnectionState<C: DbContext + Send + Sync + 'static> {
-    result: Mutex<Option<Result<Arc<C>>>>,
-    #[cfg(feature = "browser")]
-    rx: Mutex<Receiver<Result<Arc<C>>>>,
+    status: Mutex<InitialConnectionStatus<C>>,
 }
 
 /// Lifecycle state for the active SpacetimeDB connection.
@@ -274,15 +288,14 @@ impl<
                 });
 
                 InitialConnectionState::<C> {
-                    result: Mutex::new(None),
-                    rx: Mutex::new(rx),
+                    status: Mutex::new(InitialConnectionStatus::Pending(rx)),
                 }
             }
 
             #[cfg(not(feature = "browser"))]
             {
                 InitialConnectionState::<C> {
-                    result: Mutex::new(Some(config.build_connection())),
+                    status: Mutex::new(InitialConnectionStatus::Ready(config.build_connection())),
                 }
             }
         };
@@ -317,43 +330,39 @@ impl<
             .get_resource::<InitialConnectionState<C>>()
             .expect("InitialConnectionState should be inserted during plugin build");
 
-        {
-            let result = state.result.lock().unwrap_or_else(|e| e.into_inner());
-            if result.is_some() {
+        let mut status = state.status.lock().unwrap_or_else(|e| e.into_inner());
+
+        match &mut *status {
+            InitialConnectionStatus::Ready(_) => {
                 tracing::info!(
                     "bevy_stdb: initial connection ready() returning true from cached result"
                 );
-                return true;
+                true
             }
-        }
+            InitialConnectionStatus::Pending(rx) => {
+                tracing::info!("bevy_stdb: initial connection ready() polling task");
 
-        tracing::info!("bevy_stdb: initial connection ready() polling task");
-        let next_result = {
-            let rx = state.rx.lock().unwrap_or_else(|e| e.into_inner());
-
-            match rx.try_recv() {
-                Ok(result) => Some(result),
-                Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => {
-                    // TBD on whether a panic makes sense here...
-                    panic!("pending browser connection task disconnected before returning a result")
+                match rx.try_recv() {
+                    Ok(result) => {
+                        tracing::info!(
+                            "bevy_stdb: initial connection ready() received completed task result: success={}",
+                            result.is_ok()
+                        );
+                        *status = InitialConnectionStatus::Ready(result);
+                        true
+                    }
+                    Err(TryRecvError::Empty) => {
+                        tracing::info!("bevy_stdb: initial connection ready() still pending");
+                        false
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        panic!(
+                            "pending browser connection task disconnected before returning a result"
+                        )
+                    }
                 }
             }
-        };
-
-        let Some(next_result) = next_result else {
-            tracing::info!("bevy_stdb: initial connection ready() still pending");
-            return false;
-        };
-
-        tracing::info!(
-            "bevy_stdb: initial connection ready() received completed task result: success={}",
-            next_result.is_ok()
-        );
-
-        let mut result = state.result.lock().unwrap_or_else(|e| e.into_inner());
-        *result = Some(next_result);
-        true
+        }
     }
 
     /// Establishes the initial connection and registers table handlers.
@@ -363,12 +372,16 @@ impl<
             .world_mut()
             .remove_resource::<InitialConnectionState<C>>()
             .expect("InitialConnectionState should exist before plugin finish");
-        let conn = state
-            .result
-            .into_inner()
-            .unwrap_or_else(|e| e.into_inner())
-            .expect("plugin finish should only run after ready() returns true")
-            .expect("Failed to establish initial connection");
+
+        let conn = match state.status.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            InitialConnectionStatus::Ready(result) => {
+                result.expect("Failed to establish initial connection")
+            }
+            #[cfg(feature = "browser")]
+            InitialConnectionStatus::Pending(_) => {
+                panic!("plugin finish should only run after ready() returns true")
+            }
+        };
 
         let config = app
             .world()
