@@ -86,7 +86,7 @@ fn on_player_info_insert(mut msgs: ReadInsertMessage<PlayerInfo>) {
 - `with_background_driver(...)`: start SpacetimeDB's background processing for the active connection
 - `with_frame_driver(...)`: drive SpacetimeDB from the Bevy schedule each frame
 
-These modes are mutually exclusive, typically you'll want to use `with_background_driver`. 
+Exactly one driver must be configured. These modes are mutually exclusive, and in most applications you'll want `with_background_driver(...)`.
 
 If WASM support is needed, you can enable the `browser` feature flag in both this crate and your `spacetimedb-sdk` crate using a target cfg:
 
@@ -159,7 +159,7 @@ fn main() {
 
 ### Bevy frame-tick driving
 
-Use `frame_tick` when you want Bevy to drive connection progress from Bevy's `Update` schedule:
+Use `frame_tick` when you want Bevy to drive connection progress from Bevy each frame. Internally, `bevy_stdb` runs this driver from `PreUpdate`:
 
 ```rust
 use bevy::prelude::*;

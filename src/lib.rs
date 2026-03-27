@@ -17,6 +17,10 @@ pub mod prelude {
             ReadUpdateMessage,
         },
         connection::{StdbConnection, StdbConnectionState},
+        message::{
+            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
+            StdbConnectionErrorMessage, StdbDisconnectedMessage, UpdateMessage,
+        },
         plugin::StdbPlugin,
         reconnect::StdbReconnectOptions,
         subscription::StdbSubscriptions,

@@ -29,16 +29,18 @@ use std::sync::{
 };
 use std::{sync::Arc, time::Duration};
 
+/// Browser-only reconnect result type.
+type ReconnectResult<C> = Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>;
+
 /// Browser-only receiver for an in-flight reconnect attempt.
 ///
 /// The browser reconnect path builds the replacement connection asynchronously
 /// and sends the result back through this resource so runtime systems can
 /// finalize success or failure on the Bevy world thread.
-
 #[cfg(feature = "browser")]
 #[derive(Resource)]
 pub(crate) struct PendingReconnectReceiver<C: DbContext + Send + Sync + 'static> {
-    pub rx: Mutex<Receiver<Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>>>,
+    pub rx: Mutex<Receiver<ReconnectResult<C>>>,
 }
 
 /// Reconnect options for a SpacetimeDB connection.
@@ -221,7 +223,7 @@ where
 }
 
 #[cfg(not(feature = "browser"))]
-fn try_reconnect<C, M>(world: &mut World) -> Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>
+fn try_reconnect<C, M>(world: &mut World) -> ReconnectResult<C>
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,

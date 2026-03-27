@@ -60,8 +60,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     StdbPlugin<C, M>
 {
     /// Sets the function used to drive the connection from the Bevy schedule.
+    ///
+    /// Exactly one connection driver must be configured for the plugin.
     pub fn with_frame_driver(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
-        debug_assert!(
+        assert!(
             self.driver.is_none(),
             "`with_frame_driver()` may only be called once"
         );
@@ -70,12 +72,13 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Sets the function used to drive the connection in the background.
-    /// `run_threaded` or `run_background_task` depending on the build target of the consumer.
+    ///
+    /// Exactly one connection driver must be configured for the plugin.
     pub fn with_background_driver<R>(mut self, background_driver: fn(&C) -> R) -> Self
     where
         R: 'static,
     {
-        debug_assert!(
+        assert!(
             self.driver.is_none(),
             "`with_background_driver()` may only be called once"
         );
@@ -88,7 +91,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the remote module name.
     pub fn with_module_name(mut self, name: impl Into<String>) -> Self {
-        debug_assert!(
+        assert!(
             self.module_name.is_none(),
             "`with_module_name()` may only be called once"
         );
@@ -99,7 +102,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the SpacetimeDB host URI.
     pub fn with_uri(mut self, uri: impl Into<String>) -> Self {
-        debug_assert!(self.uri.is_none(), "`with_uri()` may only be called once");
+        assert!(self.uri.is_none(), "`with_uri()` may only be called once");
         self.uri = Some(uri.into());
 
         self
@@ -107,7 +110,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the authentication token.
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
-        debug_assert!(
+        assert!(
             self.token.is_none(),
             "`with_token()` may only be called once"
         );
@@ -118,7 +121,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the connection compression mode.
     pub fn with_compression(mut self, compression: Compression) -> Self {
-        debug_assert!(
+        assert!(
             self.compression.is_none(),
             "`with_compression()` may only be called once"
         );
@@ -145,7 +148,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         + Sync
         + 'static,
     ) -> Self {
-        debug_assert!(
+        assert!(
             self.table_registrar.is_none(),
             "`with_tables()` may only be called once"
         );
@@ -168,7 +171,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             + Sync
             + 'static,
     {
-        debug_assert!(
+        assert!(
             self.subscriptions_initializer.is_none(),
             "`with_subscriptions()` may only be called once"
         );
@@ -187,7 +190,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Enables automatic reconnects with the given options.
     pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
-        debug_assert!(
+        assert!(
             self.reconnect_options.is_none(),
             "`with_reconnect()` may only be called once"
         );
@@ -203,6 +206,13 @@ impl<
 > Plugin for StdbPlugin<C, M>
 {
     /// Installs the configured `bevy_stdb` plugins and resources.
+    ///
+    /// A connection driver must be configured with exactly one of:
+    /// - `with_background_driver()`
+    /// - `with_frame_driver()`
+    ///
+    /// The configured driver determines how the active connection is progressed
+    /// after creation.
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<StatesPlugin>() {
             app.add_plugins(StatesPlugin);
@@ -224,7 +234,11 @@ impl<
                 .expect("No module name set. Use with_module_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
-            driver: self.driver.clone(),
+            driver: self.driver.clone().or_else(|| {
+                panic!(
+                    "No connection driver set. Use with_background_driver() or with_frame_driver()"
+                )
+            }),
             compression: self.compression.unwrap_or_default(),
             table_registrar: self.table_registrar.clone(),
         });
