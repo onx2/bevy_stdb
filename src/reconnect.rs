@@ -29,8 +29,6 @@ use std::sync::{
 };
 use std::{sync::Arc, time::Duration};
 
-type ReconnectAttempt<C> = Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>;
-
 /// Browser-only receiver for an in-flight reconnect attempt.
 ///
 /// The browser reconnect path builds the replacement connection asynchronously
@@ -40,7 +38,7 @@ type ReconnectAttempt<C> = Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>;
 #[cfg(feature = "browser")]
 #[derive(Resource)]
 pub(crate) struct PendingReconnectReceiver<C: DbContext + Send + Sync + 'static> {
-    pub rx: Mutex<Receiver<ReconnectAttempt<C>>>,
+    pub rx: Mutex<Receiver<Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>>>,
 }
 
 /// Reconnect options for a SpacetimeDB connection.
@@ -119,7 +117,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 {
-    config: ReconnectConfig,
+    reconnect_options: StdbReconnectOptions,
     _marker: std::marker::PhantomData<(C, M)>,
 }
 
@@ -129,9 +127,9 @@ where
     M: SpacetimeModule<DbConnection = C>,
 {
     /// Creates a reconnect plugin from the given options.
-    pub fn new(options: StdbReconnectOptions) -> Self {
+    pub fn new(reconnect_options: StdbReconnectOptions) -> Self {
         Self {
-            config: options.into(),
+            reconnect_options,
             _marker: std::marker::PhantomData,
         }
     }
@@ -143,7 +141,7 @@ impl<
 > Plugin for ReconnectPlugin<C, M>
 {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.config.clone());
+        app.insert_resource(ReconnectConfig::from(self.reconnect_options.clone()));
         app.init_resource::<ReconnectState>();
 
         app.add_systems(
@@ -223,7 +221,7 @@ where
 }
 
 #[cfg(not(feature = "browser"))]
-fn try_reconnect<C, M>(world: &mut World) -> ReconnectAttempt<C>
+fn try_reconnect<C, M>(world: &mut World) -> Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -261,9 +259,6 @@ fn on_reconnect_success<C>(world: &mut World, conn: Arc<C>, driver: Option<Conne
 where
     C: DbContext + Send + Sync + 'static,
 {
-    #[cfg(feature = "browser")]
-    world.remove_resource::<PendingReconnectReceiver<C>>();
-
     if let Some(ConnectionDriver::Background(background_driver)) = driver {
         background_driver(conn.as_ref());
     }
@@ -294,9 +289,9 @@ where
         match rx.try_recv() {
             Ok(result) => Some(result),
             Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => {
-                panic!("pending browser reconnect task disconnected before returning a result")
-            }
+            // The receiver is per reconnect attempt.
+            // If its sender drops before sending a result, treat that attempt as a normal reconnect failure.
+            Err(TryRecvError::Disconnected) => Some(Err(())),
         }
     };
 
@@ -304,12 +299,10 @@ where
         return;
     };
 
+    world.remove_resource::<PendingReconnectReceiver<C>>();
     match result {
         Ok((conn, driver)) => on_reconnect_success(world, conn, driver),
-        Err(_) => {
-            world.remove_resource::<PendingReconnectReceiver<C>>();
-            on_reconnect_failure(world);
-        }
+        Err(_) => on_reconnect_failure(world),
     }
 }
 
