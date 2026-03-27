@@ -11,7 +11,9 @@
 //! - `Reconnecting` while retry attempts are pending
 //! - `Exhausted` when retry attempts have been exhausted
 
-use crate::connection::{StdbConnection, StdbConnectionConfig, StdbConnectionState};
+use crate::connection::{
+    ConnectionDriver, StdbConnection, StdbConnectionConfig, StdbConnectionState,
+};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, World};
 use bevy_state::prelude::{NextState, OnEnter, in_state};
@@ -27,7 +29,7 @@ use std::sync::{
 };
 use std::{sync::Arc, time::Duration};
 
-type ReconnectAttempt<C> = Result<(Arc<C>, Option<Arc<dyn Fn(&C) + Send + Sync>>), ()>;
+type ReconnectAttempt<C> = Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>;
 
 /// Browser-only receiver for an in-flight reconnect attempt.
 ///
@@ -183,7 +185,7 @@ where
     }
 
     match try_reconnect::<C, M>(world) {
-        Ok((conn, background_driver)) => on_reconnect_success(world, conn, background_driver),
+        Ok((conn, driver)) => on_reconnect_success(world, conn, driver),
         Err(_) => on_reconnect_failure(world),
     }
 }
@@ -211,7 +213,7 @@ where
 
     wasm_bindgen_futures::spawn_local(async move {
         let result = match config.build_connection().await {
-            Ok(conn) => Ok((conn, config.background_driver.clone())),
+            Ok(conn) => Ok((conn, config.driver.clone())),
             Err(_) => Err(()),
         };
         let _ = tx.send(result);
@@ -230,9 +232,9 @@ where
         .get_resource::<StdbConnectionConfig<C, M>>()
         .expect("StdbConnectionConfig should exist during reconnect");
 
-    let background_driver = config.background_driver.clone();
+    let driver = config.driver.clone();
     match config.build_connection() {
-        Ok(conn) => Ok((conn, background_driver)),
+        Ok(conn) => Ok((conn, driver)),
         Err(_) => Err(()),
     }
 }
@@ -255,17 +257,14 @@ fn ready_to_retry(world: &mut World) -> bool {
     timer.is_finished()
 }
 
-fn on_reconnect_success<C>(
-    world: &mut World,
-    conn: Arc<C>,
-    background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
-) where
+fn on_reconnect_success<C>(world: &mut World, conn: Arc<C>, driver: Option<ConnectionDriver<C>>)
+where
     C: DbContext + Send + Sync + 'static,
 {
     #[cfg(feature = "browser")]
     world.remove_resource::<PendingReconnectReceiver<C>>();
 
-    if let Some(background_driver) = background_driver {
+    if let Some(ConnectionDriver::Background(background_driver)) = driver {
         background_driver(conn.as_ref());
     }
     world.insert_resource(StdbConnection::new(conn));
@@ -306,7 +305,7 @@ where
     };
 
     match result {
-        Ok((conn, background_driver)) => on_reconnect_success(world, conn, background_driver),
+        Ok((conn, driver)) => on_reconnect_success(world, conn, driver),
         Err(_) => {
             world.remove_resource::<PendingReconnectReceiver<C>>();
             on_reconnect_failure(world);

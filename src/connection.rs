@@ -65,6 +65,14 @@ pub enum StdbConnectionState {
     Exhausted,
 }
 
+/// Internal connection driver configuration.
+pub(crate) enum ConnectionDriver<C: DbContext + Send + Sync + 'static> {
+    /// Drive the connection from the Bevy schedule each frame.
+    FrameTick(fn(&C) -> Result<()>),
+    /// Start connection processing in the background.
+    Background(Arc<dyn Fn(&C) + Send + Sync>),
+}
+
 /// Runtime configuration for the active SpacetimeDB connection.
 #[derive(Resource)]
 pub(crate) struct StdbConnectionConfig<
@@ -77,10 +85,8 @@ pub(crate) struct StdbConnectionConfig<
     pub uri: String,
     /// Optional authentication token.
     pub token: Option<String>,
-    /// The function used to drive the connection from the Bevy schedule.
-    pub frame_tick: Option<fn(&C) -> Result<()>>,
-    /// The function used to start background connection processing.
-    pub background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
+    /// The configured connection driver.
+    pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
     /// Stored table registration closure for init and bind.
@@ -93,6 +99,18 @@ pub(crate) struct StdbConnectionConfig<
     pub error_tx: Sender<StdbConnectionErrorMessage>,
 }
 
+impl<C> Clone for ConnectionDriver<C>
+where
+    C: DbContext + Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        match self {
+            Self::FrameTick(frame_tick) => Self::FrameTick(*frame_tick),
+            Self::Background(background_driver) => Self::Background(background_driver.clone()),
+        }
+    }
+}
+
 impl<C, M> Clone for StdbConnectionConfig<C, M>
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync,
@@ -103,8 +121,7 @@ where
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
-            frame_tick: self.frame_tick,
-            background_driver: self.background_driver.clone(),
+            driver: self.driver.clone(),
             compression: self.compression,
             table_registrar: self.table_registrar.clone(),
             connected_tx: self.connected_tx.clone(),
@@ -238,10 +255,8 @@ pub(crate) struct StdbConnectionPlugin<
     pub uri: String,
     /// Optional authentication token.
     pub token: Option<String>,
-    /// The function used to drive the connection from the Bevy schedule.
-    pub frame_tick: Option<fn(&C) -> Result<()>>,
-    /// The function used to start background connection processing.
-    pub background_driver: Option<Arc<dyn Fn(&C) + Send + Sync>>,
+    /// The configured connection driver.
+    pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
     /// Stored table registration closure for init and bind.
@@ -261,8 +276,7 @@ impl<
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
-            frame_tick: self.frame_tick,
-            background_driver: self.background_driver.clone(),
+            driver: self.driver.clone(),
             compression: self.compression,
             table_registrar: self.table_registrar.clone(),
             connected_tx: register_channel::<StdbConnectedMessage>(app),
@@ -312,9 +326,8 @@ impl<
             on_connected_bind::<C, M>,
         );
 
-        // We only need this system if frame_tick is configured, which is a build time concern. The driver
-        // shouldn't be changed at runtime so a run condition makes less sense here.
-        if self.frame_tick.is_some() {
+        // We only need this system if frame tick driving is configured, which is a build time concern.
+        if matches!(self.driver, Some(ConnectionDriver::FrameTick(_))) {
             app.add_systems(
                 PreUpdate,
                 drive_connection_frame_tick::<C, M>
@@ -389,14 +402,14 @@ impl<
             .expect("StdbConnectionConfig should be inserted during plugin build");
 
         let table_registrar = config.table_registrar.clone();
-        let background_driver = config.background_driver.clone();
+        let driver = config.driver.clone();
 
         if let Some(register) = table_registrar {
             let db = conn.db();
             register(&mut TableRegistrar::new_init(app), db);
         }
 
-        if let Some(background_driver) = background_driver {
+        if let Some(ConnectionDriver::Background(background_driver)) = driver {
             tracing::info!("bevy_stdb: starting configured background driver");
             background_driver(conn.as_ref());
         }
@@ -454,6 +467,13 @@ fn drive_connection_frame_tick<
     conn: Res<StdbConnection<C>>,
     config: Res<StdbConnectionConfig<C, M>>,
 ) {
-    let frame_tick = config.frame_tick.expect("frame_tick is not configured");
+    let ConnectionDriver::FrameTick(frame_tick) = config
+        .driver
+        .as_ref()
+        .expect("frame tick system should only be added when a driver is configured")
+    else {
+        panic!("frame tick system should only be added when the frame tick driver is configured");
+    };
+
     let _ = frame_tick(conn.conn.as_ref());
 }
