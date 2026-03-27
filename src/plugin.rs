@@ -10,6 +10,7 @@ use crate::{
     table::{TableRegistrar, TableRegistrarCallback},
 };
 use bevy_app::{App, Plugin};
+use bevy_state::app::StatesPlugin;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, DbContext, SubscriptionHandle,
@@ -65,7 +66,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         mut self,
         frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>,
     ) -> Self {
-        assert!(
+        debug_assert!(
             self.frame_tick_driver.is_none(),
             "`with_run_frame_tick()` may only be called once"
         );
@@ -78,11 +79,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Sets the function used to drive the connection in the background.
+    /// `run_threaded` or `run_background_task` depending on the build target of the consumer.
     pub fn with_run_background<R>(mut self, background_driver: fn(&C) -> R) -> Self
     where
         R: 'static,
     {
-        assert!(
+        debug_assert!(
             self.background_driver.is_none(),
             "`with_run_background()` may only be called once"
         );
@@ -93,43 +95,48 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.background_driver = Some(Arc::new(move |conn: &C| {
             let _ = background_driver(conn);
         }));
+
         self
     }
 
     /// Sets the remote module name.
     pub fn with_module_name(mut self, name: impl Into<String>) -> Self {
-        assert!(
+        debug_assert!(
             self.module_name.is_none(),
             "`with_module_name()` may only be called once"
         );
         self.module_name = Some(name.into());
+
         self
     }
 
     /// Sets the SpacetimeDB host URI.
     pub fn with_uri(mut self, uri: impl Into<String>) -> Self {
-        assert!(self.uri.is_none(), "`with_uri()` may only be called once");
+        debug_assert!(self.uri.is_none(), "`with_uri()` may only be called once");
         self.uri = Some(uri.into());
+
         self
     }
 
     /// Sets the authentication token.
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
-        assert!(
+        debug_assert!(
             self.token.is_none(),
             "`with_token()` may only be called once"
         );
         self.token = Some(token.into());
+
         self
     }
 
     /// Sets the connection compression mode.
     pub fn with_compression(mut self, compression: Compression) -> Self {
-        assert!(
+        debug_assert!(
             self.compression.is_none(),
             "`with_compression()` may only be called once"
         );
         self.compression = Some(compression);
+
         self
     }
 
@@ -151,11 +158,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         + Sync
         + 'static,
     ) -> Self {
-        assert!(
+        debug_assert!(
             self.table_registrar.is_none(),
             "`with_tables()` may only be called once"
         );
         self.table_registrar = Some(Arc::new(register));
+
         self
     }
 
@@ -173,10 +181,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             + Sync
             + 'static,
     {
-        assert!(
+        debug_assert!(
             self.subscriptions_initializer.is_none(),
             "`with_subscriptions()` may only be called once"
         );
+
+        // This is a bit odd but allows us to not make the entire plugin generic over `K`, so that's nice.
         let init = Arc::new(init);
         self.subscriptions_initializer = Some(Arc::new(move |app: &mut App| {
             let init = init.clone();
@@ -184,16 +194,18 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 init(subs);
             }));
         }));
+
         self
     }
 
     /// Enables automatic reconnects with the given options.
     pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
-        assert!(
+        debug_assert!(
             self.reconnect_options.is_none(),
             "`with_reconnect()` may only be called once"
         );
         self.reconnect_options = Some(reconnect_config);
+
         self
     }
 }
@@ -205,6 +217,9 @@ impl<
 {
     /// Installs the configured `bevy_stdb` plugins and resources.
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<StatesPlugin>() {
+            app.add_plugins(StatesPlugin);
+        }
         app.add_plugins(ChannelBridgePlugin);
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {

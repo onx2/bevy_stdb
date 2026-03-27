@@ -16,7 +16,7 @@ use bevy_ecs::{
     system::{Res, ResMut},
 };
 use bevy_state::{
-    app::{AppExtStates, StatesPlugin},
+    app::AppExtStates,
     condition::in_state,
     state::{NextState, OnEnter, States},
 };
@@ -24,10 +24,9 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
-use std::sync::{Arc, Mutex, mpsc::Sender};
-
 #[cfg(feature = "browser")]
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::{Arc, Mutex, mpsc::Sender};
 
 #[derive(Resource)]
 struct InitialConnectionState<C: DbContext + Send + Sync + 'static> {
@@ -106,6 +105,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 {
+    /// Internal helper to build the [`DbConnectionBuilder`] for this connection, shared across targets.
     fn connection_builder(&self) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
@@ -130,7 +130,7 @@ where
             })
     }
 
-    /// Builds a SpacetimeDB connection from this config.
+    /// Synchronously builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
     #[cfg(not(feature = "browser"))]
@@ -138,7 +138,7 @@ where
         self.connection_builder().build().map(Arc::new)
     }
 
-    /// Builds a SpacetimeDB connection from this config.
+    /// Asynchronously builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
     #[cfg(feature = "browser")]
@@ -241,9 +241,6 @@ impl<
 {
     /// Initializes connection state, resources, and lifecycle systems.
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<StatesPlugin>() {
-            app.add_plugins(StatesPlugin);
-        }
         app.init_state::<StdbConnectionState>();
 
         let config = StdbConnectionConfig::<C, M> {
@@ -293,20 +290,24 @@ impl<
         app.insert_resource(config);
         app.insert_resource(initial_connection_state);
 
-        app.add_systems(
-            PreUpdate,
-            (
-                watch_connected::<C, M>,
-                watch_disconnected,
-                watch_connection_error,
-                drive_connection_frame_tick::<C, M>
-                    .run_if(in_state(StdbConnectionState::Connected)),
-            ),
-        );
+        // Set our StdbConnectionState based on the connection state messages from SpacetimeDB.
+        app.add_systems(PreUpdate, sync_connection_state);
+
+        // Bind table callbacks when a new connection is established.
         app.add_systems(
             OnEnter(StdbConnectionState::Connected),
             on_connected_bind::<C, M>,
         );
+
+        // We only need this system if frame_tick is configured, which is a build time concern. The driver
+        // shouldn't be changed at runtime so a run condition makes less sense here.
+        if self.frame_tick.is_some() {
+            app.add_systems(
+                PreUpdate,
+                drive_connection_frame_tick::<C, M>
+                    .run_if(in_state(StdbConnectionState::Connected)),
+            );
+        }
     }
 
     #[cfg(feature = "browser")]
@@ -332,8 +333,9 @@ impl<
 
             match rx.try_recv() {
                 Ok(result) => Some(result),
-                Err(std::sync::mpsc::TryRecvError::Empty) => None,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => {
+                    // TBD on whether a panic makes sense here...
                     panic!("pending browser connection task disconnected before returning a result")
                 }
             }
@@ -357,33 +359,26 @@ impl<
     /// Establishes the initial connection and registers table handlers.
     fn finish(&self, app: &mut App) {
         tracing::info!("bevy_stdb: plugin finish() finalizing initial connection");
-        let conn = {
-            let state = app
-                .world_mut()
-                .remove_resource::<InitialConnectionState<C>>()
-                .expect("InitialConnectionState should exist before plugin finish");
+        let state = app
+            .world_mut()
+            .remove_resource::<InitialConnectionState<C>>()
+            .expect("InitialConnectionState should exist before plugin finish");
+        let conn = state
+            .result
+            .into_inner()
+            .unwrap_or_else(|e| e.into_inner())
+            .expect("plugin finish should only run after ready() returns true")
+            .expect("Failed to establish initial connection");
 
-            state
-                .result
-                .into_inner()
-                .unwrap_or_else(|e| e.into_inner())
-                .expect("plugin finish should only run after ready() returns true")
-                .expect("Failed to establish initial connection")
-        };
+        let config = app
+            .world()
+            .get_resource::<StdbConnectionConfig<C, M>>()
+            .expect("StdbConnectionConfig should be inserted during plugin build");
 
-        let (table_registrar, background_driver) = {
-            let config = app
-                .world()
-                .get_resource::<StdbConnectionConfig<C, M>>()
-                .expect("StdbConnectionConfig should be inserted during plugin build");
+        let table_registrar = config.table_registrar.clone();
+        let background_driver = config.background_driver.clone();
 
-            (
-                config.table_registrar.clone(),
-                config.background_driver.clone(),
-            )
-        };
-
-        if let Some(register) = &table_registrar {
+        if let Some(register) = table_registrar {
             let db = conn.db();
             register(&mut TableRegistrar::new_init(app), db);
         }
@@ -392,41 +387,32 @@ impl<
             tracing::info!("bevy_stdb: starting configured background driver");
             background_driver(conn.as_ref());
         }
+
         app.insert_resource(StdbConnection::new(conn));
         tracing::info!("bevy_stdb: initial connection resource inserted");
     }
 }
 
-fn watch_connected<
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
->(
-    mut msgs: ReadStdbConnectedMessage,
+/// Synchronizes the connection state based on the connection state messages from SpacetimeDB.
+/// Disconnected state takes precedence over connected state in ambiguous cases (multiple events per frame)
+fn sync_connection_state(
+    mut connected_msgs: ReadStdbConnectedMessage,
+    mut disconnected_msgs: ReadStdbDisconnectedMessage,
+    mut connection_error_msgs: ReadStdbConnectionErrorMessage,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
 ) {
-    for _ in msgs.read() {
+    if connected_msgs.read().count() > 0 {
         next_state.set(StdbConnectionState::Connected);
     }
-}
-
-fn watch_disconnected(
-    mut msgs: ReadStdbDisconnectedMessage,
-    mut next_state: ResMut<NextState<StdbConnectionState>>,
-) {
-    for _ in msgs.read() {
+    if disconnected_msgs.read().count() > 0 {
+        next_state.set(StdbConnectionState::Disconnected);
+    }
+    if connection_error_msgs.read().count() > 0 {
         next_state.set(StdbConnectionState::Disconnected);
     }
 }
 
-fn watch_connection_error(
-    mut msgs: ReadStdbConnectionErrorMessage,
-    mut next_state: ResMut<NextState<StdbConnectionState>>,
-) {
-    for _ in msgs.read() {
-        next_state.set(StdbConnectionState::Disconnected);
-    }
-}
-
+/// Bind the table callbacks when a new connection is established.
 fn on_connected_bind<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
@@ -446,6 +432,8 @@ fn on_connected_bind<
     }
 }
 
+/// "tick" the connection frame, driving any pending operations. This is only used when the driver is `frame_tick`.
+/// Uncommon use case, but its available when you want to have events processed at the bevy frame rate.
 fn drive_connection_frame_tick<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
@@ -453,9 +441,6 @@ fn drive_connection_frame_tick<
     conn: Res<StdbConnection<C>>,
     config: Res<StdbConnectionConfig<C, M>>,
 ) {
-    let Some(frame_tick) = config.frame_tick else {
-        return;
-    };
-
+    let frame_tick = config.frame_tick.expect("frame_tick is not configured");
     let _ = frame_tick(conn.conn.as_ref());
 }

@@ -20,18 +20,13 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
-use std::{sync::Arc, time::Duration};
-
 #[cfg(feature = "browser")]
 use std::sync::{
     Mutex,
-    mpsc::{Receiver, channel},
+    mpsc::{Receiver, TryRecvError, channel},
 };
+use std::{sync::Arc, time::Duration};
 
-#[cfg(feature = "browser")]
-type ReconnectAttempt<C> = Result<(Arc<C>, Option<Arc<dyn Fn(&C) + Send + Sync>>), ()>;
-
-#[cfg(not(feature = "browser"))]
 type ReconnectAttempt<C> = Result<(Arc<C>, Option<Arc<dyn Fn(&C) + Send + Sync>>), ()>;
 
 #[cfg(feature = "browser")]
@@ -219,6 +214,23 @@ where
     world.insert_resource(PendingReconnectReceiver::<C> { rx: Mutex::new(rx) });
 }
 
+#[cfg(not(feature = "browser"))]
+fn try_reconnect<C, M>(world: &mut World) -> ReconnectAttempt<C>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    let config = world
+        .get_resource::<StdbConnectionConfig<C, M>>()
+        .expect("StdbConnectionConfig should exist during reconnect");
+
+    let background_driver = config.background_driver.clone();
+    match config.build_connection() {
+        Ok(conn) => Ok((conn, background_driver)),
+        Err(_) => Err(()),
+    }
+}
+
 fn ready_to_retry(world: &mut World) -> bool {
     let delta = world
         .get_resource::<Time>()
@@ -235,23 +247,6 @@ fn ready_to_retry(world: &mut World) -> bool {
 
     timer.tick(delta);
     timer.is_finished()
-}
-
-#[cfg(not(feature = "browser"))]
-fn try_reconnect<C, M>(world: &mut World) -> ReconnectAttempt<C>
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    let config = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist during reconnect");
-
-    let background_driver = config.background_driver.clone();
-    match config.build_connection() {
-        Ok(conn) => Ok((conn, background_driver)),
-        Err(_) => Err(()),
-    }
 }
 
 fn on_reconnect_success<C>(
@@ -293,8 +288,8 @@ where
 
         match rx.try_recv() {
             Ok(result) => Some(result),
-            Err(std::sync::mpsc::TryRecvError::Empty) => None,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => {
                 panic!("pending browser reconnect task disconnected before returning a result")
             }
         }
