@@ -332,10 +332,15 @@ impl<
 
     #[cfg(feature = "browser")]
     fn ready(&self, app: &App) -> bool {
-        let state = app
-            .world()
-            .get_resource::<InitialConnectionState<C>>()
-            .expect("InitialConnectionState should be inserted during plugin build");
+        let Some(state) = app.world().get_resource::<InitialConnectionState<C>>() else {
+            if app.world().get_resource::<StdbConnection<C>>().is_some() {
+                return true;
+            }
+
+            panic!(
+                "InitialConnectionState missing before connection resource insertion; plugin lifecycle invariant violated"
+            );
+        };
 
         let mut status = state.status.lock().unwrap_or_else(|e| e.into_inner());
 
