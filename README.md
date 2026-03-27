@@ -66,7 +66,7 @@ fn main() {
                     subs.subscribe_query(MySubKey::PlayerInfo, |q| q.from.player_info());
                 })
                 .with_reconnect(StdbReconnectOptions::default())
-                .with_run_background(DbConnection::run_threaded),
+                .with_background_driver(DbConnection::run_threaded),
         )
         .add_systems(Update, on_player_info_insert)
         .run();
@@ -83,20 +83,28 @@ fn on_player_info_insert(mut msgs: ReadInsertMessage<PlayerInfo>) {
 
 `bevy_stdb` supports two connection-driving modes:
 
-- `with_run_background(...)`: start SpacetimeDB's background processing for the active connection
-- `with_run_frame_tick(...)`: drive SpacetimeDB from the Bevy schedule each frame
+- `with_background_driver(...)`: start SpacetimeDB's background processing for the active connection
+- `with_frame_driver(...)`: drive SpacetimeDB from the Bevy schedule each frame
 
-These modes are mutually exclusive, typically you'll want to use `with_run_background`.
+These modes are mutually exclusive, typically you'll want to use `with_background_driver`. 
+
+If WASM support is needed, you can enable the `browser` feature flag in both this crate and your `spacetimedb-sdk` crate using a target cfg:
+
+```toml
+# Enable browser support for wasm builds.
+# Replace `*` with the versions you are using.
+[target.wasm32-unknown-unknown.dependencies]
+spacetimedb-sdk = { version = "*", features = ["browser"] }
+bevy_stdb = { version = "*", features = ["browser"] }
+```
+
+> I recommend checking out the [bevy_cli 2d template](https://github.com/TheBevyFlock/bevy_new_2d/) for a good starter example using WASM + native with nice Bevy features configured.
 
 ### Native background driving
 
 On native targets, the typical choice is `run_threaded`:
 
 ```rust
-use bevy::prelude::*;
-use bevy_stdb::prelude::*;
-use crate::module_bindings::{DbConnection, RemoteModule};
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -104,15 +112,54 @@ fn main() {
             StdbPlugin::<DbConnection, RemoteModule>::default()
                 .with_module_name("my_module")
                 .with_uri("http://localhost:3000")
-                .with_run_background(DbConnection::run_threaded),
+                .with_background_driver(DbConnection::run_threaded),
         )
         .run();
+}
+```
+
+### Browser / wasm background driving (async)
+
+On browser targets, use the generated background task helper instead:
+
+```rust
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(
+            StdbPlugin::<DbConnection, RemoteModule>::default()
+                .with_module_name("my_module")
+                .with_uri("http://localhost:3000")
+                .with_background_driver(DbConnection::run_background_task),
+        )
+        .run();
+}
+```
+
+If you target both native and browser, I recommend selecting the background driver with `cfg`:
+
+```rust
+fn main() {
+    let mut plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_module_name("my_module")
+        .with_uri("http://localhost:3000");
+    
+    #[cfg(target_arch = "wasm32")]
+    {
+        plugin = plugin.with_background_driver(DbConnection::run_background_task);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        plugin = plugin.with_background_driver(DbConnection::run_threaded);
+    }
+
+    App::new().add_plugins(DefaultPlugins).add_plugins(plugin).run();
 }
 ```
 
 ### Bevy frame-tick driving
 
-Use `frame_tick` when you want Bevy to drive connection progress from its normal schedule:
+Use `frame_tick` when you want Bevy to drive connection progress from Bevy's `Update` schedule:
 
 ```rust
 use bevy::prelude::*;
@@ -126,61 +173,9 @@ fn main() {
             StdbPlugin::<DbConnection, RemoteModule>::default()
                 .with_module_name("my_module")
                 .with_uri("http://localhost:3000")
-                .with_run_frame_tick(DbConnection::frame_tick),
+                .with_frame_driver(DbConnection::frame_tick),
         )
         .run();
-}
-```
-
-### Browser / wasm background driving
-
-On browser targets, use the generated background task helper instead:
-
-```rust
-use bevy::prelude::*;
-use bevy_stdb::prelude::*;
-use crate::module_bindings::{DbConnection, RemoteModule};
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_run_background(DbConnection::run_background_task),
-        )
-        .run();
-}
-```
-
-If you target both native and browser, selecting the background driver with `cfg` is a reasonable pattern:
-
-```rust
-use bevy::prelude::*;
-use bevy_stdb::prelude::*;
-use crate::module_bindings::{DbConnection, RemoteModule};
-
-fn main() {
-    let plugin = {
-        #[cfg(target_arch = "wasm32")]
-        {
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_run_background(DbConnection::run_background_task)
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_run_background(DbConnection::run_threaded)
-        }
-    };
-
-    App::new().add_plugins(DefaultPlugins).add_plugins(plugin).run();
 }
 ```
 
@@ -268,7 +263,7 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 | bevy_stdb | bevy   | spacetimedb_sdk |
 | --------- | ------ | --------------- |
 | 0.1 - 0.2 | 0.18   | 2.0             |
-| 0.3       | 0.18   | 2.1             |
+| 0.3 - 0.4 | 0.18   | 2.1             |
 
 ## Notes
 

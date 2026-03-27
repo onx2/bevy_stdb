@@ -60,13 +60,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     StdbPlugin<C, M>
 {
     /// Sets the function used to drive the connection from the Bevy schedule.
-    pub fn with_run_frame_tick(
-        mut self,
-        frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>,
-    ) -> Self {
+    pub fn with_frame_driver(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
         debug_assert!(
             self.driver.is_none(),
-            "`with_run_frame_tick()` may only be called once"
+            "`with_frame_driver()` may only be called once"
         );
         self.driver = Some(ConnectionDriver::FrameTick(frame_tick));
         self
@@ -74,13 +71,13 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the function used to drive the connection in the background.
     /// `run_threaded` or `run_background_task` depending on the build target of the consumer.
-    pub fn with_run_background<R>(mut self, background_driver: fn(&C) -> R) -> Self
+    pub fn with_background_driver<R>(mut self, background_driver: fn(&C) -> R) -> Self
     where
         R: 'static,
     {
         debug_assert!(
             self.driver.is_none(),
-            "`with_run_background()` may only be called once"
+            "`with_background_driver()` may only be called once"
         );
         self.driver = Some(ConnectionDriver::Background(Arc::new(move |conn: &C| {
             let _ = background_driver(conn);
@@ -176,7 +173,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_subscriptions()` may only be called once"
         );
 
-        // This is a bit odd but allows us to not make the entire plugin generic over `K`, so that's nice.
+        // Store a type-erased initializer here so StdbPlugin itself does not need to be generic over K.
         let init = Arc::new(init);
         self.subscriptions_initializer = Some(Arc::new(move |app: &mut App| {
             let init = init.clone();
