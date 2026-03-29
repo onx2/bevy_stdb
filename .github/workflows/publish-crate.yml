@@ -1,0 +1,41 @@
+name: Publish crate
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify release tag matches Cargo.toml version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION=$(grep '^version = "' Cargo.toml | head -n1 | sed 's/version = "\(.*\)"/\1/')
+          if [ "${TAG}" != "${CARGO_VERSION}" ]; then
+            echo "Release tag version (${TAG}) does not match Cargo.toml version (${CARGO_VERSION})"
+            exit 1
+          fi
+
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
