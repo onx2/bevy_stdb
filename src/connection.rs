@@ -20,13 +20,14 @@ use bevy_state::{
     condition::in_state,
     state::{NextState, OnEnter, States},
 };
+use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
 #[cfg(feature = "browser")]
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
-use std::sync::{Arc, Mutex, mpsc::Sender};
+use std::sync::{Arc, Mutex};
 
 /// Internal startup status for the initial SpacetimeDB connection.
 ///
