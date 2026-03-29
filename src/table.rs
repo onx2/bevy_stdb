@@ -168,38 +168,6 @@ impl<'a> TableRegistrar<'a> {
         }
     }
 
-    /// Registers insert forwarding for the given table.
-    fn register_insert<TRow>(&mut self)
-    where
-        TRow: Send + Sync + Clone + 'static,
-    {
-        register_channel::<InsertMessage<TRow>>(self.expect_init());
-    }
-
-    /// Registers delete forwarding for the given table.
-    fn register_delete<TRow>(&mut self)
-    where
-        TRow: Send + Sync + Clone + 'static,
-    {
-        register_channel::<DeleteMessage<TRow>>(self.expect_init());
-    }
-
-    /// Registers update forwarding for the given table.
-    fn register_update<TRow>(&mut self)
-    where
-        TRow: Send + Sync + Clone + 'static,
-    {
-        register_channel::<UpdateMessage<TRow>>(self.expect_init());
-    }
-
-    /// Registers insert-or-update forwarding for the given table.
-    fn register_insert_update<TRow>(&mut self)
-    where
-        TRow: Send + Sync + Clone + 'static,
-    {
-        register_channel::<InsertUpdateMessage<TRow>>(self.expect_init());
-    }
-
     /// Binds insert forwarding for the given table.
     fn bind_insert<TRow, TTable>(&mut self, table: &TTable)
     where
@@ -272,7 +240,9 @@ where
     /// Forwards inserts as [`InsertMessage`].
     pub fn insert(&mut self) -> &mut Self {
         match self.registrar.mode {
-            TableRegistrarMode::Init(_) => self.registrar.register_insert::<TRow>(),
+            TableRegistrarMode::Init(_) => {
+                register_channel::<InsertMessage<TRow>>(self.registrar.expect_init());
+            }
             TableRegistrarMode::Bind(_) => self.registrar.bind_insert::<TRow, TTable>(self.table),
         }
         self
@@ -288,7 +258,9 @@ where
     /// Forwards updates as [`UpdateMessage`].
     pub fn update(&mut self) -> &mut Self {
         match self.registrar.mode {
-            TableRegistrarMode::Init(_) => self.registrar.register_update::<TRow>(),
+            TableRegistrarMode::Init(_) => {
+                register_channel::<UpdateMessage<TRow>>(self.registrar.expect_init());
+            }
             TableRegistrarMode::Bind(_) => self.registrar.bind_update::<TRow, TTable>(self.table),
         }
         self
@@ -297,7 +269,9 @@ where
     /// Forwards inserts and updates as [`InsertUpdateMessage`].
     pub fn insert_update(&mut self) -> &mut Self {
         match self.registrar.mode {
-            TableRegistrarMode::Init(_) => self.registrar.register_insert_update::<TRow>(),
+            TableRegistrarMode::Init(_) => {
+                register_channel::<InsertUpdateMessage<TRow>>(self.registrar.expect_init());
+            }
             TableRegistrarMode::Bind(_) => self
                 .registrar
                 .bind_insert_update::<TRow, TTable>(self.table),
@@ -314,7 +288,9 @@ where
     /// Forwards deletes as [`DeleteMessage`].
     pub fn delete(&mut self) -> &mut Self {
         match self.registrar.mode {
-            TableRegistrarMode::Init(_) => self.registrar.register_delete::<TRow>(),
+            TableRegistrarMode::Init(_) => {
+                register_channel::<DeleteMessage<TRow>>(self.registrar.expect_init());
+            }
             TableRegistrarMode::Bind(_) => self.registrar.bind_delete::<TRow, TTable>(self.table),
         }
         self
