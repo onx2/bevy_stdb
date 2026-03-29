@@ -65,6 +65,14 @@ impl<'a> TableRegistrar<'a> {
         }
     }
 
+    /// Returns the init-phase app.
+    fn expect_init(&mut self) -> &mut App {
+        match &mut self.mode {
+            TableRegistrarMode::Init(app) => app,
+            _ => panic!("table registration is only valid during table init"),
+        }
+    }
+
     /// Registers a table with a primary key.
     ///
     /// Forwards table changes as:
@@ -165,12 +173,7 @@ impl<'a> TableRegistrar<'a> {
     where
         TRow: Send + Sync + Clone + 'static,
     {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                register_channel::<InsertMessage<TRow>>(app);
-            }
-            _ => panic!("insert registration is only valid during table init"),
-        }
+        register_channel::<InsertMessage<TRow>>(self.expect_init());
     }
 
     /// Registers delete forwarding for the given table.
@@ -178,12 +181,7 @@ impl<'a> TableRegistrar<'a> {
     where
         TRow: Send + Sync + Clone + 'static,
     {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                register_channel::<DeleteMessage<TRow>>(app);
-            }
-            _ => panic!("delete registration is only valid during table init"),
-        }
+        register_channel::<DeleteMessage<TRow>>(self.expect_init());
     }
 
     /// Registers update forwarding for the given table.
@@ -191,12 +189,7 @@ impl<'a> TableRegistrar<'a> {
     where
         TRow: Send + Sync + Clone + 'static,
     {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                register_channel::<UpdateMessage<TRow>>(app);
-            }
-            _ => panic!("update registration is only valid during table init"),
-        }
+        register_channel::<UpdateMessage<TRow>>(self.expect_init());
     }
 
     /// Registers insert-or-update forwarding for the given table.
@@ -204,12 +197,7 @@ impl<'a> TableRegistrar<'a> {
     where
         TRow: Send + Sync + Clone + 'static,
     {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                register_channel::<InsertUpdateMessage<TRow>>(app);
-            }
-            _ => panic!("insert_update registration is only valid during table init"),
-        }
+        register_channel::<InsertUpdateMessage<TRow>>(self.expect_init());
     }
 
     /// Binds insert forwarding for the given table.
