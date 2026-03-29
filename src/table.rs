@@ -12,8 +12,7 @@ use spacetimedb_sdk::__codegen::DbContext;
 use spacetimedb_sdk::{EventTable, Table, TableWithPrimaryKey};
 use std::{marker::PhantomData, sync::mpsc::Sender};
 
-pub(crate) trait NonEventTable {}
-
+pub trait NonEventTable {}
 impl<T> NonEventTable for T where T: Table + ?Sized {}
 
 pub(crate) type TableRegistrarCallback<C> =
@@ -83,6 +82,44 @@ impl<'a> TableRegistrar<'a> {
         });
     }
 
+    /// Registers a table without a primary key.
+    ///
+    /// Forwards inserts and deletes as [`InsertMessage`] and [`DeleteMessage`].
+    pub fn table_without_pk<TRow, TTable>(&mut self, table: &TTable)
+    where
+        TRow: Send + Sync + Clone + 'static,
+        TTable: Table<Row = TRow>,
+    {
+        self.build(table, |table| {
+            table.insert();
+            table.delete();
+        });
+    }
+
+    /// Registers a view.
+    ///
+    /// This is equivalent to [`TableRegistrar::table_without_pk`].
+    pub fn view<TRow, TTable>(&mut self, table: &TTable)
+    where
+        TRow: Send + Sync + Clone + 'static,
+        TTable: Table<Row = TRow>,
+    {
+        self.table_without_pk(table);
+    }
+
+    /// Registers an event table.
+    ///
+    /// Forwards inserts as [`InsertMessage`].
+    pub fn event_table<TRow, TTable>(&mut self, table: &TTable)
+    where
+        TRow: Send + Sync + Clone + 'static,
+        TTable: Table<Row = TRow> + EventTable,
+    {
+        self.build(table, |table| {
+            table.insert();
+        });
+    }
+
     /// Registers a table using a configurable builder.
     ///
     /// Base bindings available for all tables:
@@ -108,68 +145,6 @@ impl<'a> TableRegistrar<'a> {
         };
 
         build(&mut builder);
-    }
-
-    /// Registers a table without a primary key.
-    ///
-    /// Forwards inserts and deletes as [`InsertMessage`] and [`DeleteMessage`].
-    pub fn table_without_pk<TRow, TTable>(&mut self, table: &TTable)
-    where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow>,
-    {
-        self.view_build(table, |table| {
-            table.insert();
-            table.delete();
-        });
-    }
-
-    /// Registers a view.
-    ///
-    /// This is equivalent to [`TableRegistrar::table_without_pk`].
-    pub fn view<TRow, TTable>(&mut self, table: &TTable)
-    where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow>,
-    {
-        self.table_without_pk(table);
-    }
-
-    /// Registers a table without a primary key using a configurable builder.
-    pub fn view_build<TRow, TTable>(
-        &mut self,
-        table: &TTable,
-        build: impl for<'r> FnOnce(&mut TableBindingBuilder<'r, 'a, TRow, TTable>),
-    ) where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow>,
-    {
-        self.build(table, build);
-    }
-
-    /// Registers an event table.
-    ///
-    /// Forwards inserts as [`InsertMessage`].
-    pub fn event_table<TRow, TTable>(&mut self, table: &TTable)
-    where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow> + EventTable,
-    {
-        self.event_table_build(table, |table| {
-            table.insert();
-        });
-    }
-
-    /// Registers an event table using a configurable builder.
-    pub fn event_table_build<TRow, TTable>(
-        &mut self,
-        table: &TTable,
-        build: impl for<'r> FnOnce(&mut TableBindingBuilder<'r, 'a, TRow, TTable>),
-    ) where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow> + EventTable,
-    {
-        self.build(table, build);
     }
 
     /// Returns the sender for the given message type and TableRegistrar mode.
