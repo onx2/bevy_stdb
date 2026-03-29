@@ -7,7 +7,7 @@ use crate::{
     },
     channel_bridge::{channel_sender, register_channel},
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
-    table::{TableRegistrar, TableRegistrarCallback},
+    table::{RegistrarMode, TableRegistrar, TableRegistrarCallback},
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{
@@ -391,7 +391,7 @@ impl<
 
         if let Some(register) = table_registrar {
             let db = conn.db();
-            register(&mut TableRegistrar::new_init(app), db);
+            register(&mut TableRegistrar::new(RegistrarMode::Init(app)), db);
         }
 
         if let Some(ConnectionDriver::Background(background_driver)) = driver {
@@ -437,7 +437,7 @@ fn on_connected_bind<
 
     let db = conn.db();
     if let Some(register) = &config.table_registrar {
-        register(&mut TableRegistrar::new_bind(&*world), db);
+        register(&mut TableRegistrar::new(RegistrarMode::Bind(&*world)), db);
     }
 }
 

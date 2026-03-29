@@ -7,39 +7,39 @@ use crate::{
     message::{DeleteMessage, InsertMessage, InsertUpdateMessage, UpdateMessage},
 };
 use bevy_app::App;
-use bevy_ecs::{message::Message, world::World};
+use bevy_ecs::world::World;
 use spacetimedb_sdk::__codegen::DbContext;
 use spacetimedb_sdk::{EventTable, Table, TableWithPrimaryKey};
-use std::{marker::PhantomData, sync::mpsc::Sender};
-
-pub trait NonEventTable {}
-impl<T> NonEventTable for T where T: Table + ?Sized {}
+use std::marker::PhantomData;
 
 pub(crate) type TableRegistrarCallback<C> =
     dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView) + Send + Sync;
+
+pub(crate) enum RegistrarMode<'a> {
+    Init(&'a mut App),
+    Bind(&'a World),
+}
+
+pub trait NonEventTable {}
+impl<T> NonEventTable for T where T: Table + ?Sized {}
 
 /// Registers SpacetimeDB table callbacks as Bevy messages.
 ///
 /// Registration runs once to initialize channels and again to bind callbacks
 /// for the active connection.
 pub struct TableRegistrar<'a> {
-    mode: TableRegistrarMode<'a>,
-}
-
-enum TableRegistrarMode<'a> {
-    Init(&'a mut App),
-    Bind(&'a World),
+    mode: RegistrarMode<'a>,
 }
 
 /// Builder for configuring which table events should be forwarded.
 ///
 /// Base methods available for all tables:
 /// - [`TableBindingBuilder::insert`]
-/// - [`TableBindingBuilder::delete`]
 ///
 /// Additional methods available only for tables with a primary key:
 /// - [`TableBindingBuilder::update`]
 /// - [`TableBindingBuilder::insert_update`]
+/// - [`TableBindingBuilder::delete`]
 pub struct TableBindingBuilder<'r, 't, TRow, TTable>
 where
     TRow: Send + Sync + Clone + 'static,
@@ -51,26 +51,9 @@ where
 }
 
 impl<'a> TableRegistrar<'a> {
-    /// Creates a registrar that initializes message channels.
-    pub fn new_init(app: &'a mut App) -> Self {
-        Self {
-            mode: TableRegistrarMode::Init(app),
-        }
-    }
-
-    /// Creates a registrar that binds callbacks for the active connection.
-    pub fn new_bind(world: &'a World) -> Self {
-        Self {
-            mode: TableRegistrarMode::Bind(world),
-        }
-    }
-
-    /// Returns the init-phase app.
-    fn expect_init(&mut self) -> &mut App {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => app,
-            _ => panic!("table registration is only valid during table init"),
-        }
+    /// Creates a new [`TableRegistrar`] with the given mode.
+    pub(crate) fn new(mode: RegistrarMode<'a>) -> Self {
+        Self { mode }
     }
 
     /// Registers a table with a primary key.
@@ -146,88 +129,10 @@ impl<'a> TableRegistrar<'a> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow>,
     {
-        let mut builder = TableBindingBuilder {
+        build(&mut TableBindingBuilder {
             registrar: self,
             table,
             _row: PhantomData,
-        };
-
-        build(&mut builder);
-    }
-
-    /// Returns the sender for the given message type during runtime binding.
-    fn sender<T>(&mut self) -> Sender<T>
-    where
-        T: Message,
-    {
-        match &mut self.mode {
-            TableRegistrarMode::Init(_) => {
-                panic!("sender lookup is only valid during runtime table binding")
-            }
-            TableRegistrarMode::Bind(world) => channel_sender::<T>(world),
-        }
-    }
-
-    /// Binds insert forwarding for the given table.
-    fn bind_insert<TRow, TTable>(&mut self, table: &TTable)
-    where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow>,
-    {
-        let sender = self.sender::<InsertMessage<TRow>>();
-        table.on_insert(move |_ctx, row| {
-            let _ = sender.send(InsertMessage { row: row.clone() });
-        });
-    }
-
-    /// Binds delete forwarding for the given table.
-    fn bind_delete<TRow, TTable>(&mut self, table: &TTable)
-    where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow>,
-    {
-        let sender = self.sender::<DeleteMessage<TRow>>();
-        table.on_delete(move |_ctx, row| {
-            let _ = sender.send(DeleteMessage { row: row.clone() });
-        });
-    }
-
-    /// Binds update forwarding for the given table.
-    fn bind_update<TRow, TTable>(&mut self, table: &TTable)
-    where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
-    {
-        let sender = self.sender::<UpdateMessage<TRow>>();
-        table.on_update(move |_ctx, old, new| {
-            let _ = sender.send(UpdateMessage {
-                old: old.clone(),
-                new: new.clone(),
-            });
-        });
-    }
-
-    /// Binds insert-or-update forwarding for the given table.
-    fn bind_insert_update<TRow, TTable>(&mut self, table: &TTable)
-    where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
-    {
-        let sender_insert = self.sender::<InsertUpdateMessage<TRow>>();
-        let sender_update = self.sender::<InsertUpdateMessage<TRow>>();
-
-        table.on_insert(move |_ctx, row| {
-            let _ = sender_insert.send(InsertUpdateMessage {
-                old: None,
-                new: row.clone(),
-            });
-        });
-
-        table.on_update(move |_ctx, old, new| {
-            let _ = sender_update.send(InsertUpdateMessage {
-                old: Some(old.clone()),
-                new: new.clone(),
-            });
         });
     }
 }
@@ -239,11 +144,9 @@ where
 {
     /// Forwards inserts as [`InsertMessage`].
     pub fn insert(&mut self) -> &mut Self {
-        match self.registrar.mode {
-            TableRegistrarMode::Init(_) => {
-                register_channel::<InsertMessage<TRow>>(self.registrar.expect_init());
-            }
-            TableRegistrarMode::Bind(_) => self.registrar.bind_insert::<TRow, TTable>(self.table),
+        match &mut self.registrar.mode {
+            RegistrarMode::Init(app) => register_channel::<InsertMessage<TRow>>(app),
+            RegistrarMode::Bind(world) => bind_insert::<TRow, TTable>(world, self.table),
         }
         self
     }
@@ -257,24 +160,18 @@ where
 {
     /// Forwards updates as [`UpdateMessage`].
     pub fn update(&mut self) -> &mut Self {
-        match self.registrar.mode {
-            TableRegistrarMode::Init(_) => {
-                register_channel::<UpdateMessage<TRow>>(self.registrar.expect_init());
-            }
-            TableRegistrarMode::Bind(_) => self.registrar.bind_update::<TRow, TTable>(self.table),
+        match &mut self.registrar.mode {
+            RegistrarMode::Init(app) => register_channel::<UpdateMessage<TRow>>(app),
+            RegistrarMode::Bind(world) => bind_update::<TRow, TTable>(world, self.table),
         }
         self
     }
 
     /// Forwards inserts and updates as [`InsertUpdateMessage`].
     pub fn insert_update(&mut self) -> &mut Self {
-        match self.registrar.mode {
-            TableRegistrarMode::Init(_) => {
-                register_channel::<InsertUpdateMessage<TRow>>(self.registrar.expect_init());
-            }
-            TableRegistrarMode::Bind(_) => self
-                .registrar
-                .bind_insert_update::<TRow, TTable>(self.table),
+        match &mut self.registrar.mode {
+            RegistrarMode::Init(app) => register_channel::<InsertUpdateMessage<TRow>>(app),
+            RegistrarMode::Bind(world) => bind_insert_update::<TRow, TTable>(world, self.table),
         }
         self
     }
@@ -287,12 +184,68 @@ where
 {
     /// Forwards deletes as [`DeleteMessage`].
     pub fn delete(&mut self) -> &mut Self {
-        match self.registrar.mode {
-            TableRegistrarMode::Init(_) => {
-                register_channel::<DeleteMessage<TRow>>(self.registrar.expect_init());
-            }
-            TableRegistrarMode::Bind(_) => self.registrar.bind_delete::<TRow, TTable>(self.table),
+        match &mut self.registrar.mode {
+            RegistrarMode::Init(app) => register_channel::<DeleteMessage<TRow>>(app),
+            RegistrarMode::Bind(world) => bind_delete::<TRow, TTable>(world, self.table),
         }
         self
     }
+}
+
+fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow>,
+{
+    let sender = channel_sender::<InsertMessage<TRow>>(world);
+    table.on_insert(move |_ctx, row| {
+        let _ = sender.send(InsertMessage { row: row.clone() });
+    });
+}
+
+fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow>,
+{
+    let sender = channel_sender::<DeleteMessage<TRow>>(world);
+    table.on_delete(move |_ctx, row| {
+        let _ = sender.send(DeleteMessage { row: row.clone() });
+    });
+}
+
+fn bind_update<TRow, TTable>(world: &World, table: &TTable)
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
+{
+    let sender = channel_sender::<UpdateMessage<TRow>>(world);
+    table.on_update(move |_ctx, old, new| {
+        let _ = sender.send(UpdateMessage {
+            old: old.clone(),
+            new: new.clone(),
+        });
+    });
+}
+
+fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
+{
+    let sender_insert = channel_sender::<InsertUpdateMessage<TRow>>(world);
+    table.on_insert(move |_ctx, row| {
+        let _ = sender_insert.send(InsertUpdateMessage {
+            old: None,
+            new: row.clone(),
+        });
+    });
+
+    let sender_update = channel_sender::<InsertUpdateMessage<TRow>>(world);
+    table.on_update(move |_ctx, old, new| {
+        let _ = sender_update.send(InsertUpdateMessage {
+            old: Some(old.clone()),
+            new: new.clone(),
+        });
+    });
 }
