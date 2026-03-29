@@ -9,7 +9,7 @@ use bevy_ecs::{
     schedule::IntoScheduleConfigs,
     system::{Res, ResMut},
 };
-use bevy_state::{condition::in_state, state::OnEnter};
+use bevy_state::state::OnEnter;
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
     DbContext, Result as StdbResult, SubscriptionHandle as StdbSubscriptionHandle,
@@ -83,7 +83,10 @@ where
     pub fn unsubscribe(&mut self, key: &K) -> StdbResult<()> {
         self.sql_by_key.remove(key);
         self.queued_keys.remove(key);
-        self.drop_active_handle(key)
+        if let Some(handle) = self.handles.remove(key) {
+            handle.unsubscribe()?;
+        };
+        Ok(())
     }
 
     /// Unsubscribes all active handles and clears all stored queries.
@@ -146,20 +149,13 @@ where
     {
         let keys = std::mem::take(&mut self.queued_keys);
         for key in keys {
-            let _ = self.drop_active_handle(&key);
             if let Some(sql) = self.sql_by_key.get(&key) {
                 let handle = conn.subscription_builder().subscribe(sql.as_str());
-                self.handles.insert(key, handle);
+                if let Some(old_handle) = self.handles.insert(key, handle) {
+                    let _ = old_handle.unsubscribe();
+                }
             }
         }
-    }
-
-    /// Unsubscribes and removes the active handle for `key` without removing its stored query.
-    fn drop_active_handle(&mut self, key: &K) -> StdbResult<()> {
-        if let Some(handle) = self.handles.remove(key) {
-            handle.unsubscribe()?;
-        }
-        Ok(())
     }
 }
 
@@ -226,9 +222,21 @@ where
 
         app.add_systems(
             PreUpdate,
-            apply_queued_subscriptions::<K, C, M>.run_if(in_state(StdbConnectionState::Connected)),
+            apply_queued_subscriptions::<K, C, M>.run_if(should_apply_subscriptions::<K, M>),
         );
     }
+}
+
+fn should_apply_subscriptions<K, M>(
+    subs: Res<StdbSubscriptions<K, M>>,
+    state: Res<bevy_state::state::State<StdbConnectionState>>,
+) -> bool
+where
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    M: SpacetimeModule,
+    M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
+{
+    !subs.queued_keys.is_empty() && *state.get() == StdbConnectionState::Connected
 }
 
 /// Re-queues stored subscriptions after a disconnect.
