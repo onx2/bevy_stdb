@@ -38,8 +38,8 @@ enum TableRegistrarMode<'a> {
 /// - [`TableBindingBuilder::delete`]
 ///
 /// Additional methods available only for tables with a primary key:
-/// - [`PkTableBindingBuilder::update`]
-/// - [`PkTableBindingBuilder::insert_update`]
+/// - [`TableBindingBuilder::update`]
+/// - [`TableBindingBuilder::insert_update`]
 pub struct TableBindingBuilder<'r, 't, TRow, TTable>
 where
     TRow: Send + Sync + Clone + 'static,
