@@ -28,25 +28,6 @@ pub struct TableRegistrar<'a> {
     mode: RegistrarMode<'a>,
 }
 
-/// Builder for configuring which table events should be forwarded.
-///
-/// Base methods available for all tables:
-/// - [`TableBindingBuilder::insert`]
-///
-/// Additional methods available only for tables with a primary key:
-/// - [`TableBindingBuilder::update`]
-/// - [`TableBindingBuilder::insert_update`]
-/// - [`TableBindingBuilder::delete`]
-pub struct TableBindingBuilder<'r, 't, TRow, TTable>
-where
-    TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow>,
-{
-    registrar: &'r mut TableRegistrar<'t>,
-    table: &'r TTable,
-    _row: PhantomData<TRow>,
-}
-
 impl<'a> TableRegistrar<'a> {
     /// Creates a new [`TableRegistrar`] with the given mode.
     pub(crate) fn new(mode: RegistrarMode<'a>) -> Self {
@@ -108,16 +89,7 @@ impl<'a> TableRegistrar<'a> {
         });
     }
 
-    /// Registers a table using a configurable builder.
-    ///
-    /// Base bindings available for all tables:
-    /// - [`TableBindingBuilder::insert`]
-    ///
-    /// Additional bindings become available when the table satisfies the
-    /// required trait bounds:
-    /// - [`TableBindingBuilder::delete`] for non-event tables
-    /// - [`TableBindingBuilder::update`] for tables with a primary key
-    /// - [`TableBindingBuilder::insert_update`] for tables with a primary key
+    /// Use [`TableBindingBuilder`] to select which messages to forward.
     pub fn build<TRow, TTable>(
         &mut self,
         table: &TTable,
@@ -132,6 +104,17 @@ impl<'a> TableRegistrar<'a> {
             _row: PhantomData,
         });
     }
+}
+
+/// Builder for configuring which table events should be forwarded.
+pub struct TableBindingBuilder<'r, 't, TRow, TTable>
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow>,
+{
+    registrar: &'r mut TableRegistrar<'t>,
+    table: &'r TTable,
+    _row: PhantomData<TRow>,
 }
 
 impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
