@@ -52,15 +52,20 @@ impl Plugin for ChannelBridgePlugin {
 
 /// Registers a channel for message type `T`.
 ///
-/// Returns an existing sender if the channel has already been registered.
-///
 /// # Panics
 ///
-/// Panics if [`ChannelRegistry`] has not been initialized.
-pub(crate) fn register_channel<T: Message>(app: &mut App) -> Sender<T> {
-    if let Some(sender) = channel_sender::<T>(app.world()) {
-        return sender;
-    }
+/// Panics if [`ChannelRegistry`] has not been initialized or if the
+/// channel for `T` has already been registered.
+pub(crate) fn register_channel<T: Message>(app: &mut App) {
+    assert!(
+        !app.world()
+            .resource::<ChannelRegistry>()
+            .channels
+            .iter()
+            .any(|entry| entry.type_id == TypeId::of::<T>()),
+        "attempted to register channel for message type `{}` more than once",
+        std::any::type_name::<T>(),
+    );
 
     let (tx, rx) = channel::<T>();
     let tx_for_lookup = tx.clone();
@@ -91,19 +96,40 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) -> Sender<T> {
             }),
             clone_sender: Box::new(move || Box::new(tx_for_lookup.clone())),
         });
-
-    tx
 }
 
-/// Returns the registered `Sender<T>`, if one exists.
-pub(crate) fn channel_sender<T: Message>(world: &World) -> Option<Sender<T>> {
-    let registry = world.get_resource::<ChannelRegistry>()?;
+/// Returns the registered `Sender<T>`.
+///
+/// # Panics
+///
+/// Panics if [`ChannelRegistry`] has not been initialized, if the
+/// channel for `T` has not been registered, or if the stored sender
+/// has an unexpected concrete type.
+pub(crate) fn channel_sender<T: Message>(world: &World) -> Sender<T> {
+    let registry = world
+        .get_resource::<ChannelRegistry>()
+        .expect("channel registry should be initialized before accessing channel senders");
 
     let entry = registry
         .channels
         .iter()
-        .find(|entry| entry.type_id == TypeId::of::<T>())?;
+        .find(|entry| entry.type_id == TypeId::of::<T>())
+        .unwrap_or_else(|| {
+            panic!(
+                "channel for message type `{}` should be registered before accessing its sender",
+                std::any::type_name::<T>(),
+            )
+        });
 
     let boxed = (entry.clone_sender)();
-    boxed.downcast::<Sender<T>>().ok().map(|sender| *sender)
+    boxed
+        .downcast::<Sender<T>>()
+        .unwrap_or_else(|_| {
+            panic!(
+                "stored sender for message type `{}` had an unexpected concrete type",
+                std::any::type_name::<T>(),
+            )
+        })
+        .as_ref()
+        .clone()
 }

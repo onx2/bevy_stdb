@@ -5,7 +5,7 @@ use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
-    channel_bridge::register_channel,
+    channel_bridge::{channel_sender, register_channel},
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
     table::{TableRegistrar, TableRegistrarCallback},
 };
@@ -272,6 +272,11 @@ impl<
     fn build(&self, app: &mut App) {
         app.init_state::<StdbConnectionState>();
 
+        register_channel::<StdbConnectedMessage>(app);
+        register_channel::<StdbDisconnectedMessage>(app);
+        register_channel::<StdbConnectionErrorMessage>(app);
+
+        let world = app.world();
         let config = StdbConnectionConfig::<C, M> {
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
@@ -279,9 +284,9 @@ impl<
             driver: self.driver.clone(),
             compression: self.compression,
             table_registrar: self.table_registrar.clone(),
-            connected_tx: register_channel::<StdbConnectedMessage>(app),
-            disconnected_tx: register_channel::<StdbDisconnectedMessage>(app),
-            error_tx: register_channel::<StdbConnectionErrorMessage>(app),
+            connected_tx: channel_sender::<StdbConnectedMessage>(world),
+            disconnected_tx: channel_sender::<StdbDisconnectedMessage>(world),
+            error_tx: channel_sender::<StdbConnectionErrorMessage>(world),
         };
 
         let initial_connection_state = {

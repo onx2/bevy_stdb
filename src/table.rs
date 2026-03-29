@@ -10,7 +10,11 @@ use bevy_app::App;
 use bevy_ecs::{message::Message, world::World};
 use spacetimedb_sdk::__codegen::DbContext;
 use spacetimedb_sdk::{EventTable, Table, TableWithPrimaryKey};
-use std::sync::mpsc::Sender;
+use std::{marker::PhantomData, sync::mpsc::Sender};
+
+pub(crate) trait NonEventTable {}
+
+impl<T> NonEventTable for T where T: Table + ?Sized {}
 
 pub(crate) type TableRegistrarCallback<C> =
     dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView) + Send + Sync;
@@ -26,6 +30,25 @@ pub struct TableRegistrar<'a> {
 enum TableRegistrarMode<'a> {
     Init(&'a mut App),
     Bind(&'a World),
+}
+
+/// Builder for configuring which table events should be forwarded.
+///
+/// Base methods available for all tables:
+/// - [`TableBindingBuilder::insert`]
+/// - [`TableBindingBuilder::delete`]
+///
+/// Additional methods available only for tables with a primary key:
+/// - [`PkTableBindingBuilder::update`]
+/// - [`PkTableBindingBuilder::insert_update`]
+pub struct TableBindingBuilder<'r, 't, TRow, TTable>
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow>,
+{
+    registrar: &'r mut TableRegistrar<'t>,
+    table: &'r TTable,
+    _row: PhantomData<TRow>,
 }
 
 impl<'a> TableRegistrar<'a> {
@@ -52,20 +75,39 @@ impl<'a> TableRegistrar<'a> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
     {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                let _ = register_channel::<InsertMessage<TRow>>(app);
-                let _ = register_channel::<DeleteMessage<TRow>>(app);
-                let _ = register_channel::<UpdateMessage<TRow>>(app);
-                let _ = register_channel::<InsertUpdateMessage<TRow>>(app);
-            }
-            TableRegistrarMode::Bind(_) => {
-                self.bind_insert(table);
-                self.bind_delete(table);
-                self.bind_update(table);
-                self.bind_insert_update(table);
-            }
-        }
+        self.build(table, |table| {
+            table.insert();
+            table.delete();
+            table.update();
+            table.insert_update();
+        });
+    }
+
+    /// Registers a table using a configurable builder.
+    ///
+    /// Base bindings available for all tables:
+    /// - [`TableBindingBuilder::insert`]
+    ///
+    /// Additional bindings become available when the table satisfies the
+    /// required trait bounds:
+    /// - [`TableBindingBuilder::delete`] for non-event tables
+    /// - [`TableBindingBuilder::update`] for tables with a primary key
+    /// - [`TableBindingBuilder::insert_update`] for tables with a primary key
+    pub fn build<TRow, TTable>(
+        &mut self,
+        table: &TTable,
+        build: impl for<'r> FnOnce(&mut TableBindingBuilder<'r, 'a, TRow, TTable>),
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+        TTable: Table<Row = TRow>,
+    {
+        let mut builder = TableBindingBuilder {
+            registrar: self,
+            table,
+            _row: PhantomData,
+        };
+
+        build(&mut builder);
     }
 
     /// Registers a table without a primary key.
@@ -76,16 +118,10 @@ impl<'a> TableRegistrar<'a> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow>,
     {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                let _ = register_channel::<InsertMessage<TRow>>(app);
-                let _ = register_channel::<DeleteMessage<TRow>>(app);
-            }
-            TableRegistrarMode::Bind(_) => {
-                self.bind_insert(table);
-                self.bind_delete(table);
-            }
-        }
+        self.view_build(table, |table| {
+            table.insert();
+            table.delete();
+        });
     }
 
     /// Registers a view.
@@ -99,6 +135,18 @@ impl<'a> TableRegistrar<'a> {
         self.table_without_pk(table);
     }
 
+    /// Registers a table without a primary key using a configurable builder.
+    pub fn view_build<TRow, TTable>(
+        &mut self,
+        table: &TTable,
+        build: impl for<'r> FnOnce(&mut TableBindingBuilder<'r, 'a, TRow, TTable>),
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+        TTable: Table<Row = TRow>,
+    {
+        self.build(table, build);
+    }
+
     /// Registers an event table.
     ///
     /// Forwards inserts as [`InsertMessage`].
@@ -107,14 +155,21 @@ impl<'a> TableRegistrar<'a> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow> + EventTable,
     {
-        match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                let _ = register_channel::<InsertMessage<TRow>>(app);
-            }
-            TableRegistrarMode::Bind(_) => {
-                self.bind_insert(table);
-            }
-        }
+        self.event_table_build(table, |table| {
+            table.insert();
+        });
+    }
+
+    /// Registers an event table using a configurable builder.
+    pub fn event_table_build<TRow, TTable>(
+        &mut self,
+        table: &TTable,
+        build: impl for<'r> FnOnce(&mut TableBindingBuilder<'r, 'a, TRow, TTable>),
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+        TTable: Table<Row = TRow> + EventTable,
+    {
+        self.build(table, build);
     }
 
     /// Returns the sender for the given message type and TableRegistrar mode.
@@ -123,10 +178,11 @@ impl<'a> TableRegistrar<'a> {
         T: Message,
     {
         match &mut self.mode {
-            TableRegistrarMode::Init(app) => register_channel::<T>(app),
-            TableRegistrarMode::Bind(world) => channel_sender::<T>(world).expect(
-                "message channel should be initialized during plugin finish before runtime binding",
-            ),
+            TableRegistrarMode::Init(app) => {
+                register_channel::<T>(app);
+                channel_sender::<T>(app.world())
+            }
+            TableRegistrarMode::Bind(world) => channel_sender::<T>(world),
         }
     }
 
@@ -191,5 +247,49 @@ impl<'a> TableRegistrar<'a> {
                 new: new.clone(),
             });
         });
+    }
+}
+
+impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow>,
+{
+    /// Forwards inserts as [`InsertMessage`].
+    pub fn insert(&mut self) -> &mut Self {
+        self.registrar.bind_insert::<TRow, TTable>(self.table);
+        self
+    }
+}
+
+impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow>,
+    TTable: TableWithPrimaryKey<Row = TRow>,
+{
+    /// Forwards updates as [`UpdateMessage`].
+    pub fn update(&mut self) -> &mut Self {
+        self.registrar.bind_update::<TRow, TTable>(self.table);
+        self
+    }
+
+    /// Forwards inserts and updates as [`InsertUpdateMessage`].
+    pub fn insert_update(&mut self) -> &mut Self {
+        self.registrar
+            .bind_insert_update::<TRow, TTable>(self.table);
+        self
+    }
+}
+
+impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
+where
+    TRow: Send + Sync + Clone + 'static,
+    TTable: Table<Row = TRow> + NonEventTable,
+{
+    /// Forwards deletes as [`DeleteMessage`].
+    pub fn delete(&mut self) -> &mut Self {
+        self.registrar.bind_delete::<TRow, TTable>(self.table);
+        self
     }
 }
