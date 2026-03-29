@@ -147,17 +147,68 @@ impl<'a> TableRegistrar<'a> {
         build(&mut builder);
     }
 
-    /// Returns the sender for the given message type and TableRegistrar mode.
+    /// Returns the sender for the given message type during runtime binding.
     fn sender<T>(&mut self) -> Sender<T>
     where
         T: Message,
     {
         match &mut self.mode {
-            TableRegistrarMode::Init(app) => {
-                register_channel::<T>(app);
-                channel_sender::<T>(app.world())
+            TableRegistrarMode::Init(_) => {
+                panic!("sender lookup is only valid during runtime table binding")
             }
             TableRegistrarMode::Bind(world) => channel_sender::<T>(world),
+        }
+    }
+
+    /// Registers insert forwarding for the given table.
+    fn register_insert<TRow>(&mut self)
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        match &mut self.mode {
+            TableRegistrarMode::Init(app) => {
+                register_channel::<InsertMessage<TRow>>(app);
+            }
+            _ => panic!("insert registration is only valid during table init"),
+        }
+    }
+
+    /// Registers delete forwarding for the given table.
+    fn register_delete<TRow>(&mut self)
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        match &mut self.mode {
+            TableRegistrarMode::Init(app) => {
+                register_channel::<DeleteMessage<TRow>>(app);
+            }
+            _ => panic!("delete registration is only valid during table init"),
+        }
+    }
+
+    /// Registers update forwarding for the given table.
+    fn register_update<TRow>(&mut self)
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        match &mut self.mode {
+            TableRegistrarMode::Init(app) => {
+                register_channel::<UpdateMessage<TRow>>(app);
+            }
+            _ => panic!("update registration is only valid during table init"),
+        }
+    }
+
+    /// Registers insert-or-update forwarding for the given table.
+    fn register_insert_update<TRow>(&mut self)
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        match &mut self.mode {
+            TableRegistrarMode::Init(app) => {
+                register_channel::<InsertUpdateMessage<TRow>>(app);
+            }
+            _ => panic!("insert_update registration is only valid during table init"),
         }
     }
 
@@ -232,7 +283,10 @@ where
 {
     /// Forwards inserts as [`InsertMessage`].
     pub fn insert(&mut self) -> &mut Self {
-        self.registrar.bind_insert::<TRow, TTable>(self.table);
+        match self.registrar.mode {
+            TableRegistrarMode::Init(_) => self.registrar.register_insert::<TRow>(),
+            TableRegistrarMode::Bind(_) => self.registrar.bind_insert::<TRow, TTable>(self.table),
+        }
         self
     }
 }
@@ -245,14 +299,21 @@ where
 {
     /// Forwards updates as [`UpdateMessage`].
     pub fn update(&mut self) -> &mut Self {
-        self.registrar.bind_update::<TRow, TTable>(self.table);
+        match self.registrar.mode {
+            TableRegistrarMode::Init(_) => self.registrar.register_update::<TRow>(),
+            TableRegistrarMode::Bind(_) => self.registrar.bind_update::<TRow, TTable>(self.table),
+        }
         self
     }
 
     /// Forwards inserts and updates as [`InsertUpdateMessage`].
     pub fn insert_update(&mut self) -> &mut Self {
-        self.registrar
-            .bind_insert_update::<TRow, TTable>(self.table);
+        match self.registrar.mode {
+            TableRegistrarMode::Init(_) => self.registrar.register_insert_update::<TRow>(),
+            TableRegistrarMode::Bind(_) => self
+                .registrar
+                .bind_insert_update::<TRow, TTable>(self.table),
+        }
         self
     }
 }
@@ -264,7 +325,10 @@ where
 {
     /// Forwards deletes as [`DeleteMessage`].
     pub fn delete(&mut self) -> &mut Self {
-        self.registrar.bind_delete::<TRow, TTable>(self.table);
+        match self.registrar.mode {
+            TableRegistrarMode::Init(_) => self.registrar.register_delete::<TRow>(),
+            TableRegistrarMode::Bind(_) => self.registrar.bind_delete::<TRow, TTable>(self.table),
+        }
         self
     }
 }
