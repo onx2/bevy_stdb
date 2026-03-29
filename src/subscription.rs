@@ -14,13 +14,19 @@ use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
     DbContext, Result as StdbResult, SubscriptionHandle as StdbSubscriptionHandle,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-    marker::PhantomData,
-};
+use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
 type SubscriptionInitializer<K, M> = dyn Fn(&mut StdbSubscriptions<K, M>) + Send + Sync;
+
+/// Stored subscription intent and active handle for a single key.
+struct SubscriptionEntry<H> {
+    /// Active handle for the current connection, if any.
+    handle: Option<H>,
+    /// Stored SQL query.
+    sql: String,
+    /// Whether this subscription should be applied on the next active connection.
+    queued: bool,
+}
 
 /// A [`Resource`] that stores SpacetimeDB subscriptions in Bevy.
 ///
@@ -33,12 +39,8 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    /// Active handles for the current connection.
-    handles: HashMap<K, M::SubscriptionHandle>,
-    /// Stored SQL for each subscription key.
-    sql_by_key: HashMap<K, String>,
-    /// Keys queued to be applied on the next active connection.
-    queued_keys: HashSet<K>,
+    /// Stored subscription entries keyed by logical subscription key.
+    entries: HashMap<K, SubscriptionEntry<M::SubscriptionHandle>>,
 }
 
 impl<K, M> Default for StdbSubscriptions<K, M>
@@ -49,9 +51,7 @@ where
 {
     fn default() -> Self {
         Self {
-            handles: HashMap::new(),
-            sql_by_key: HashMap::new(),
-            queued_keys: HashSet::new(),
+            entries: HashMap::new(),
         }
     }
 }
@@ -75,17 +75,35 @@ where
     /// Stores a SQL query for `key` and queues it to be applied.
     pub fn subscribe_sql(&mut self, key: K, sql: impl Into<String>) {
         let sql = sql.into();
-        self.sql_by_key.insert(key.clone(), sql);
-        self.queued_keys.insert(key);
+
+        if let Some(entry) = self.entries.get_mut(&key) {
+            entry.sql = sql;
+            entry.queued = true;
+            return;
+        }
+
+        self.entries.insert(
+            key,
+            SubscriptionEntry {
+                handle: None,
+                sql,
+                queued: true,
+            },
+        );
     }
 
     /// Unsubscribes `key` and removes its stored query.
     pub fn unsubscribe(&mut self, key: &K) -> StdbResult<()> {
-        self.sql_by_key.remove(key);
-        self.queued_keys.remove(key);
-        if let Some(handle) = self.handles.remove(key) {
-            handle.unsubscribe()?;
+        let Some(mut entry) = self.entries.remove(key) else {
+            return Ok(());
         };
+
+        entry.queued = false;
+
+        if let Some(handle) = entry.handle.take() {
+            handle.unsubscribe()?;
+        }
+
         Ok(())
     }
 
@@ -95,18 +113,17 @@ where
     pub fn unsubscribe_all(&mut self) -> StdbResult<()> {
         let mut first_err = None;
 
-        for (_, handle) in self.handles.drain() {
-            let Err(err) = handle.unsubscribe() else {
-                continue;
-            };
+        for (_, mut entry) in self.entries.drain() {
+            if let Some(handle) = entry.handle.take() {
+                let Err(err) = handle.unsubscribe() else {
+                    continue;
+                };
 
-            if first_err.is_none() {
-                first_err = Some(err);
+                if first_err.is_none() {
+                    first_err = Some(err);
+                }
             }
         }
-
-        self.sql_by_key.clear();
-        self.queued_keys.clear();
 
         if let Some(err) = first_err {
             Err(err)
@@ -117,24 +134,25 @@ where
 
     /// Returns the stored SQL query for `key`, if any.
     pub fn sql_for(&self, key: &K) -> Option<&str> {
-        self.sql_by_key.get(key).map(String::as_str)
+        self.entries.get(key).map(|entry| entry.sql.as_str())
     }
 
     /// Returns `true` if `key` has queued subscription work.
     pub fn is_queued(&self, key: &K) -> bool {
-        self.queued_keys.contains(key)
+        self.entries.get(key).is_some_and(|entry| entry.queued)
     }
 
     /// Returns `true` if `key` has an active subscription handle.
     pub fn is_active(&self, key: &K) -> bool {
-        self.handles
+        self.entries
             .get(key)
+            .and_then(|entry| entry.handle.as_ref())
             .is_some_and(|handle| handle.is_active())
     }
 
-    /// Queues all stored subscriptions to be applied again.
-    pub(crate) fn queue_all(&mut self) {
-        self.queued_keys.extend(self.sql_by_key.keys().cloned());
+    /// Returns `true` if any subscription has queued work.
+    pub(crate) fn has_queued(&self) -> bool {
+        self.entries.values().any(|entry| entry.queued)
     }
 
     /// Applies queued subscriptions to the active connection.
@@ -147,14 +165,16 @@ where
             + 'static,
         M: SpacetimeModule<DbConnection = C>,
     {
-        let keys = std::mem::take(&mut self.queued_keys);
-        for key in keys {
-            if let Some(sql) = self.sql_by_key.get(&key) {
-                let handle = conn.subscription_builder().subscribe(sql.as_str());
-                if let Some(old_handle) = self.handles.insert(key, handle) {
-                    let _ = old_handle.unsubscribe();
-                }
+        for entry in self.entries.values_mut() {
+            if !entry.queued {
+                continue;
             }
+
+            let handle = conn.subscription_builder().subscribe(entry.sql.as_str());
+            if let Some(old_handle) = entry.handle.replace(handle) {
+                let _ = old_handle.unsubscribe();
+            }
+            entry.queued = false;
         }
     }
 }
@@ -236,7 +256,7 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    !subs.queued_keys.is_empty() && *state.get() == StdbConnectionState::Connected
+    subs.has_queued() && *state.get() == StdbConnectionState::Connected
 }
 
 /// Re-queues stored subscriptions after a disconnect.
@@ -246,11 +266,13 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    for (_, handle) in subs.handles.drain() {
-        let _ = handle.unsubscribe();
-    }
+    for entry in subs.entries.values_mut() {
+        if let Some(handle) = entry.handle.take() {
+            let _ = handle.unsubscribe();
+        }
 
-    subs.queue_all();
+        entry.queued = true;
+    }
 }
 
 /// Applies queued subscriptions to the current connection.
