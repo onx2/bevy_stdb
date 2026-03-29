@@ -7,8 +7,6 @@ change-title-escapes: '\<*_&'
 version-resolver:
   minor:
     labels:
-      - "feature"
-      - "enhancement"
       - "minor"
   default: patch
 
