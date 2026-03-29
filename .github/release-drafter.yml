@@ -5,55 +5,14 @@ change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
 change-title-escapes: '\<*_&'
 
 version-resolver:
-  # Omitting intentionally to follow Rust's pre-1.0 semver practices and to align with Bevy.
-  # major:
-  #   labels:
-  #     - "major"
   minor:
     labels:
-      - "breaking"
-      - "major"
       - "feature"
       - "enhancement"
       - "minor"
-  patch:
-    labels:
-      - "fix"
-      - "bug"
-      - "bugfix"
-      - "perf"
-      - "docs"
-      - "chore"
-      - "refactor"
-      - "patch"
   default: patch
 
-categories:
-  - title: "Breaking Changes"
-    labels:
-      - "breaking"
-      - "major"
-  - title: "Features"
-    labels:
-      - "feature"
-      - "enhancement"
-      - "minor"
-  - title: "Fixes"
-    labels:
-      - "fix"
-      - "bug"
-      - "bugfix"
-  - title: "Performance"
-    labels:
-      - "perf"
-  - title: "Maintenance"
-    labels:
-      - "docs"
-      - "chore"
-      - "refactor"
-      - "patch"
-
 template: |
-  ## Changes
+  ## What's Changed
 
   $CHANGES
