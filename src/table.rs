@@ -20,9 +20,6 @@ pub(crate) enum RegistrarMode<'a> {
     Bind(&'a World),
 }
 
-pub trait NonEventTable {}
-impl<T> NonEventTable for T where T: Table + ?Sized {}
-
 /// Registers SpacetimeDB table callbacks as Bevy messages.
 ///
 /// Registration runs once to initialize channels and again to bind callbacks
@@ -180,7 +177,7 @@ where
 impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
 where
     TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow> + NonEventTable,
+    TTable: Table<Row = TRow>,
 {
     /// Forwards deletes as [`DeleteMessage`].
     pub fn delete(&mut self) -> &mut Self {
