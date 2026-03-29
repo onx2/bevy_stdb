@@ -8,9 +8,9 @@ use crate::{
 };
 use bevy_app::App;
 use bevy_ecs::{message::Message, world::World};
+use crossbeam_channel::Sender;
 use spacetimedb_sdk::__codegen::DbContext;
 use spacetimedb_sdk::{EventTable, Table, TableWithPrimaryKey};
-use std::sync::mpsc::Sender;
 
 pub(crate) type TableRegistrarCallback<C> =
     dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView) + Send + Sync;
@@ -124,9 +124,7 @@ impl<'a> TableRegistrar<'a> {
     {
         match &mut self.mode {
             TableRegistrarMode::Init(app) => register_channel::<T>(app),
-            TableRegistrarMode::Bind(world) => channel_sender::<T>(world).expect(
-                "message channel should be initialized during plugin finish before runtime binding",
-            ),
+            TableRegistrarMode::Bind(world) => channel_sender::<T>(world),
         }
     }
 

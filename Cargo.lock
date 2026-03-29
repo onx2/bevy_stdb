@@ -343,6 +343,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_state",
  "bevy_time",
+ "crossbeam-channel",
  "spacetimedb-sdk",
  "wasm-bindgen-futures",
 ]

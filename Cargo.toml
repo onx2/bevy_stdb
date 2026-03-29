@@ -20,7 +20,7 @@ bevy_state = "0.18"
 bevy_time = "0.18"
 spacetimedb-sdk = "2.1"
 wasm-bindgen-futures = { version = "0.4", optional = true }
-
+crossbeam-channel = "0.5"
 
 [features]
 default = []
