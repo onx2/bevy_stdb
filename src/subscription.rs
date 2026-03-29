@@ -131,9 +131,7 @@ where
 
     /// Queues all stored subscriptions to be applied again.
     pub(crate) fn queue_all(&mut self) {
-        for key in self.sql_by_key.keys().cloned() {
-            self.queued_keys.insert(key);
-        }
+        self.queued_keys.extend(self.sql_by_key.keys().cloned());
     }
 
     /// Applies queued subscriptions to the active connection.
@@ -146,16 +144,13 @@ where
             + 'static,
         M: SpacetimeModule<DbConnection = C>,
     {
-        let keys: Vec<K> = self.queued_keys.drain().collect();
-
+        let keys = std::mem::take(&mut self.queued_keys);
         for key in keys {
-            let Some(sql) = self.sql_by_key.get(&key).cloned() else {
-                continue;
-            };
-
             let _ = self.drop_active_handle(&key);
-            let handle = conn.subscription_builder().subscribe(sql);
-            self.handles.insert(key, handle);
+            if let Some(sql) = self.sql_by_key.get(&key) {
+                let handle = conn.subscription_builder().subscribe(sql.as_str());
+                self.handles.insert(key, handle);
+            }
         }
     }
 
