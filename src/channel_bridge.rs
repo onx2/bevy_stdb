@@ -5,10 +5,7 @@
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{Message, Messages, Mut, Resource, World};
 use crossbeam_channel::{Sender, unbounded};
-use std::{
-    any::{Any, TypeId},
-    sync::Arc,
-};
+use std::any::{Any, TypeId};
 
 /// Stores the registered message channels.
 struct ChannelEntry {
@@ -17,7 +14,7 @@ struct ChannelEntry {
     /// A type-erased function that drains a channel into `Messages<T>`.
     drain: Box<dyn Fn(&mut World) + Send + Sync>,
     /// The sender for this message type.
-    sender: Arc<dyn Any + Send + Sync>,
+    sender: Box<dyn Any + Send + Sync>,
 }
 
 #[derive(Resource, Default)]
@@ -67,11 +64,10 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) {
         .push(ChannelEntry {
             type_id: TypeId::of::<T>(),
             drain: Box::new(move |world: &mut World| {
-                if let Some(mut messages) = world.get_resource_mut::<Messages<T>>() {
-                    messages.write_batch(rx.try_iter());
-                }
+                let mut messages = world.resource_mut::<Messages<T>>();
+                messages.write_batch(rx.try_iter());
             }),
-            sender: Arc::new(tx.clone()),
+            sender: Box::new(tx),
         });
 }
 
@@ -83,30 +79,18 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) {
 /// channel for `T` has not been registered, or if the stored sender
 /// has an unexpected concrete type.
 pub(crate) fn channel_sender<T: Message>(world: &World) -> Sender<T> {
-    let registry = world
-        .get_resource::<ChannelRegistry>()
-        .expect("channel registry should be initialized before accessing channel senders");
+    let registry = world.resource::<ChannelRegistry>();
 
     let entry = registry
         .channels
         .iter()
         .find(|entry| entry.type_id == TypeId::of::<T>())
-        .unwrap_or_else(|| {
-            panic!(
-                "channel for message type `{}` should be registered before accessing its sender",
-                std::any::type_name::<T>()
-            )
-        });
+        .unwrap_or_else(|| panic!("unregistered channel for `{}`", std::any::type_name::<T>()));
 
     entry
         .sender
         .as_ref()
         .downcast_ref::<Sender<T>>()
-        .unwrap_or_else(|| {
-            panic!(
-                "stored sender for message type `{}` had an unexpected concrete type",
-                std::any::type_name::<T>(),
-            )
-        })
+        .unwrap_or_else(|| panic!("unexpected type for sender`{}`", std::any::type_name::<T>(),))
         .clone()
 }
