@@ -103,7 +103,6 @@ On native targets, the typical choice is `run_threaded`:
 
 ```rust
 fn main() {
-    // Build plugin and add to App...
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
         .with_module_name("my_module")
         .with_uri("http://localhost:3000")
@@ -136,6 +135,7 @@ fn main() {
     let driver = DbConnection::run_background_task;
     #[cfg(not(target_arch = "wasm32"))]
     let driver = DbConnection::run_threaded;
+    
     stdb_plugin = stdb_plugin.with_background_driver(driver);
 }
 ```
@@ -229,6 +229,10 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
     subs.subscribe_query(SubKeys::TimeOfDay, |q| q.from.world_clock());
 }
 ```
+
+<!--## Delayed Connection-->
+<!--TODO: Add example for delayed connections-->
+
 
 ## Compatibility
 
