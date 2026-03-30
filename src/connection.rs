@@ -7,7 +7,7 @@ use crate::{
     },
     channel_bridge::{channel_sender, register_channel},
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
-    table::{RegistrarMode, TableRegistrar, TableRegistrarCallback},
+    table::TableBindCallback,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{
@@ -90,8 +90,8 @@ pub(crate) struct StdbConnectionConfig<
     pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
-    /// Stored table registration closure for init and bind.
-    pub table_registrar: Option<Arc<TableRegistrarCallback<C>>>,
+    /// Stored bind callbacks invoked for each active connection.
+    pub table_bindings: Vec<Arc<TableBindCallback<C>>>,
     /// Sender used by the SpacetimeDB on-connect callback.
     pub connected_tx: Sender<StdbConnectedMessage>,
     /// Sender used by the SpacetimeDB on-disconnect callback.
@@ -124,7 +124,7 @@ where
             token: self.token.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
-            table_registrar: self.table_registrar.clone(),
+            table_bindings: self.table_bindings.clone(),
             connected_tx: self.connected_tx.clone(),
             disconnected_tx: self.disconnected_tx.clone(),
             error_tx: self.error_tx.clone(),
@@ -260,8 +260,8 @@ pub(crate) struct StdbConnectionPlugin<
     pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
-    /// Stored table registration closure for init and bind.
-    pub table_registrar: Option<Arc<TableRegistrarCallback<C>>>,
+    /// Stored bind callbacks invoked for each active connection.
+    pub table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
 
 impl<
@@ -284,7 +284,7 @@ impl<
             token: self.token.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
-            table_registrar: self.table_registrar.clone(),
+            table_bindings: self.table_bindings.clone(),
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
             disconnected_tx: channel_sender::<StdbDisconnectedMessage>(world),
             error_tx: channel_sender::<StdbConnectionErrorMessage>(world),
@@ -387,13 +387,7 @@ impl<
             .get_resource::<StdbConnectionConfig<C, M>>()
             .expect("StdbConnectionConfig should be inserted during plugin build");
 
-        let table_registrar = config.table_registrar.clone();
         let driver = config.driver.clone();
-
-        if let Some(register) = table_registrar {
-            let db = conn.db();
-            register(&mut TableRegistrar::new(RegistrarMode::Init(app)), db);
-        }
 
         if let Some(ConnectionDriver::Background(background_driver)) = driver {
             background_driver(conn.as_ref());
@@ -437,8 +431,8 @@ fn on_connected_bind<
         .expect("StdbConnection should exist before Connected bind phase");
 
     let db = conn.db();
-    if let Some(register) = &config.table_registrar {
-        register(&mut TableRegistrar::new(RegistrarMode::Bind(&*world)), db);
+    for bind in &config.table_bindings {
+        bind(&*world, db);
     }
 }
 

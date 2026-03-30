@@ -1,6 +1,8 @@
 //! Table registration for SpacetimeDB message forwarding.
 //!
-//! This module binds table callbacks and forwards table changes into Bevy messages.
+//! This module separates one-time Bevy message registration from runtime table
+//! callback binding while keeping a single consumer-facing declaration per
+//! table.
 
 use crate::{
     channel_bridge::{channel_sender, register_channel},
@@ -11,168 +13,285 @@ use bevy_ecs::world::World;
 use spacetimedb_sdk::__codegen::DbContext;
 use spacetimedb_sdk::{EventTable, Table, TableWithPrimaryKey};
 use std::marker::PhantomData;
+use std::sync::Arc;
 
-pub(crate) type TableRegistrarCallback<C> =
-    dyn for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView) + Send + Sync;
+/// Stored callback that performs one-time Bevy app registration for a table/view.
+pub(crate) type TableRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
 
-pub(crate) enum RegistrarMode<'a> {
-    Init(&'a mut App),
-    Bind(&'a World),
-}
+/// Stored callback that binds SpacetimeDB table listeners for a concrete database view.
+pub(crate) type TableBindCallback<C> =
+    dyn for<'db> Fn(&World, &'db <C as DbContext>::DbView) + Send + Sync;
 
-/// Registers SpacetimeDB table callbacks as Bevy messages.
+/// Helper passed to stored bind callbacks.
 ///
-/// Registration runs once to initialize channels and again to bind callbacks
-/// for the active connection.
-pub struct TableRegistrar<'a> {
-    mode: RegistrarMode<'a>,
+/// This is single-use by construction: terminal methods consume `self`, so a
+/// single `with_table*` call can only bind one table.
+pub struct TableBinder<'a, 'db, C>
+where
+    C: DbContext,
+{
+    world: &'a World,
+    db: &'db C::DbView,
 }
 
-impl<'a> TableRegistrar<'a> {
-    /// Creates a new [`TableRegistrar`] with the given mode.
-    pub(crate) fn new(mode: RegistrarMode<'a>) -> Self {
-        Self { mode }
+impl<'a, 'db, C> TableBinder<'a, 'db, C>
+where
+    C: DbContext,
+{
+    /// Creates a new binder for the active world and database view.
+    pub(crate) fn new(world: &'a World, db: &'db C::DbView) -> Self {
+        Self { world, db }
     }
 
-    /// Registers a table with a primary key.
+    /// Returns the current database view.
+    pub fn db(&self) -> &'db C::DbView {
+        self.db
+    }
+
+    /// Binds a table with a primary key.
     ///
-    /// Forwards table changes as:
-    /// - [`InsertMessage`], [`DeleteMessage`], [`UpdateMessage`], and [`InsertUpdateMessage`]
-    pub fn table<TRow, TTable>(&mut self, table: &TTable)
+    /// This forwards:
+    /// - [`InsertMessage`]
+    /// - [`DeleteMessage`]
+    /// - [`UpdateMessage`]
+    /// - [`InsertUpdateMessage`]
+    pub fn table<TRow, TTable>(self, table: &TTable)
     where
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
     {
-        self.build(table, |table| {
-            table.insert();
-            table.delete();
-            table.update();
-            table.insert_update();
-        });
+        bind_insert::<TRow, TTable>(self.world, table);
+        bind_delete::<TRow, TTable>(self.world, table);
+        bind_update::<TRow, TTable>(self.world, table);
+        bind_insert_update::<TRow, TTable>(self.world, table);
     }
 
-    /// Registers a table without a primary key.
+    /// Binds a table without a primary key.
     ///
-    /// Forwards inserts and deletes as [`InsertMessage`] and [`DeleteMessage`].
-    pub fn table_without_pk<TRow, TTable>(&mut self, table: &TTable)
+    /// This forwards:
+    /// - [`InsertMessage`]
+    /// - [`DeleteMessage`]
+    pub fn table_without_pk<TRow, TTable>(self, table: &TTable)
     where
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow>,
     {
-        self.build(table, |table| {
-            table.insert();
-            table.delete();
-        });
+        bind_insert::<TRow, TTable>(self.world, table);
+        bind_delete::<TRow, TTable>(self.world, table);
     }
 
-    /// Registers a view.
+    /// Binds a view.
     ///
-    /// This is equivalent to [`TableRegistrar::table_without_pk`].
-    pub fn view<TRow, TTable>(&mut self, table: &TTable)
+    /// This is equivalent to [`TableBinder::table_without_pk`].
+    pub fn view<TRow, TTable>(self, table: &TTable)
     where
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow>,
     {
-        self.table_without_pk(table);
+        self.table_without_pk::<TRow, TTable>(table);
     }
 
-    /// Registers an event table.
+    /// Binds an event table.
     ///
-    /// Forwards inserts as [`InsertMessage`].
-    pub fn event_table<TRow, TTable>(&mut self, table: &TTable)
+    /// This forwards:
+    /// - [`InsertMessage`]
+    pub fn event_table<TRow, TTable>(self, table: &TTable)
     where
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow> + EventTable,
     {
-        self.build(table, |table| {
-            table.insert();
-        });
-    }
-
-    /// Use [`TableBindingBuilder`] to select which messages to forward.
-    pub fn build<TRow, TTable>(
-        &mut self,
-        table: &TTable,
-        build: impl for<'r> FnOnce(&mut TableBindingBuilder<'r, 'a, TRow, TTable>),
-    ) where
-        TRow: Send + Sync + Clone + 'static,
-        TTable: Table<Row = TRow>,
-    {
-        build(&mut TableBindingBuilder {
-            registrar: self,
-            table,
-            _row: PhantomData,
-        });
+        bind_insert::<TRow, TTable>(self.world, table);
     }
 }
 
-/// Builder for configuring which table events should be forwarded.
-pub struct TableBindingBuilder<'r, 't, TRow, TTable>
+/// Builder-style registrar used during plugin configuration.
+///
+/// This records:
+/// - one-time Bevy message registrations
+/// - runtime binding callbacks that receive a live database view later
+pub struct TableRegistrar<'a, C>
+where
+    C: DbContext,
+{
+    registrations: &'a mut Vec<Arc<TableRegistrationCallback>>,
+    bindings: &'a mut Vec<Arc<TableBindCallback<C>>>,
+}
+
+impl<'a, C> TableRegistrar<'a, C>
+where
+    C: DbContext,
+{
+    /// Creates a new [`TableRegistrar`].
+    pub fn new(
+        registrations: &'a mut Vec<Arc<TableRegistrationCallback>>,
+        bindings: &'a mut Vec<Arc<TableBindCallback<C>>>,
+    ) -> Self {
+        Self {
+            registrations,
+            bindings,
+        }
+    }
+
+    /// Registers a table with a primary key using a single stored bind closure.
+    pub fn table<TRow>(
+        &mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.registrations.push(Arc::new(register_table::<TRow>));
+        self.bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+    }
+
+    /// Registers a table without a primary key using a single stored bind closure.
+    pub fn table_without_pk<TRow>(
+        &mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.registrations
+            .push(Arc::new(register_table_without_pk::<TRow>));
+        self.bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+    }
+
+    /// Registers a view using a single stored bind closure.
+    pub fn view<TRow>(
+        &mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.registrations.push(Arc::new(register_view::<TRow>));
+        self.bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+    }
+
+    /// Registers an event table using a single stored bind closure.
+    pub fn event_table<TRow>(
+        &mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.registrations
+            .push(Arc::new(register_event_table::<TRow>));
+        self.bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+    }
+
+    /// Uses [`TableRegistrationBuilder`] to select which Bevy messages to register
+    /// while still receiving a single runtime bind closure.
+    pub fn build<TRow>(
+        &mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+        build: impl for<'r> FnOnce(&mut TableRegistrationBuilder<'r, TRow>),
+    ) where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        let mut builder = TableRegistrationBuilder {
+            registrations: self.registrations,
+            _row: PhantomData,
+        };
+        build(&mut builder);
+
+        self.bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+    }
+}
+
+/// Builder for selecting which Bevy messages should be registered for a row type.
+pub struct TableRegistrationBuilder<'a, TRow>
 where
     TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow>,
 {
-    registrar: &'r mut TableRegistrar<'t>,
-    table: &'r TTable,
+    registrations: &'a mut Vec<Arc<TableRegistrationCallback>>,
     _row: PhantomData<TRow>,
 }
 
-impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
+impl<'a, TRow> TableRegistrationBuilder<'a, TRow>
 where
     TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow>,
 {
-    /// Forwards inserts as [`InsertMessage`].
+    /// Registers inserts as [`InsertMessage`].
     pub fn insert(&mut self) -> &mut Self {
-        match &mut self.registrar.mode {
-            RegistrarMode::Init(app) => register_channel::<InsertMessage<TRow>>(app),
-            RegistrarMode::Bind(world) => bind_insert::<TRow, TTable>(world, self.table),
-        }
-        self
-    }
-}
-
-impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
-where
-    TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow>,
-    TTable: TableWithPrimaryKey<Row = TRow>,
-{
-    /// Forwards updates as [`UpdateMessage`].
-    pub fn update(&mut self) -> &mut Self {
-        match &mut self.registrar.mode {
-            RegistrarMode::Init(app) => register_channel::<UpdateMessage<TRow>>(app),
-            RegistrarMode::Bind(world) => bind_update::<TRow, TTable>(world, self.table),
-        }
+        self.registrations
+            .push(Arc::new(|app| register_channel::<InsertMessage<TRow>>(app)));
         self
     }
 
-    /// Forwards inserts and updates as [`InsertUpdateMessage`].
-    pub fn insert_update(&mut self) -> &mut Self {
-        match &mut self.registrar.mode {
-            RegistrarMode::Init(app) => register_channel::<InsertUpdateMessage<TRow>>(app),
-            RegistrarMode::Bind(world) => bind_insert_update::<TRow, TTable>(world, self.table),
-        }
-        self
-    }
-}
-
-impl<'r, 't, TRow, TTable> TableBindingBuilder<'r, 't, TRow, TTable>
-where
-    TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow>,
-{
-    /// Forwards deletes as [`DeleteMessage`].
+    /// Registers deletes as [`DeleteMessage`].
     pub fn delete(&mut self) -> &mut Self {
-        match &mut self.registrar.mode {
-            RegistrarMode::Init(app) => register_channel::<DeleteMessage<TRow>>(app),
-            RegistrarMode::Bind(world) => bind_delete::<TRow, TTable>(world, self.table),
-        }
+        self.registrations
+            .push(Arc::new(|app| register_channel::<DeleteMessage<TRow>>(app)));
+        self
+    }
+
+    /// Registers updates as [`UpdateMessage`].
+    pub fn update(&mut self) -> &mut Self {
+        self.registrations
+            .push(Arc::new(|app| register_channel::<UpdateMessage<TRow>>(app)));
+        self
+    }
+
+    /// Registers inserts and updates as [`InsertUpdateMessage`].
+    pub fn insert_update(&mut self) -> &mut Self {
+        self.registrations.push(Arc::new(|app| {
+            register_channel::<InsertUpdateMessage<TRow>>(app)
+        }));
         self
     }
 }
 
-fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
+/// Registers the Bevy messages for a table with a primary key.
+pub(crate) fn register_table<TRow>(app: &mut App)
+where
+    TRow: Send + Sync + Clone + 'static,
+{
+    register_channel::<InsertMessage<TRow>>(app);
+    register_channel::<DeleteMessage<TRow>>(app);
+    register_channel::<UpdateMessage<TRow>>(app);
+    register_channel::<InsertUpdateMessage<TRow>>(app);
+}
+
+/// Registers the Bevy messages for a table without a primary key.
+pub(crate) fn register_table_without_pk<TRow>(app: &mut App)
+where
+    TRow: Send + Sync + Clone + 'static,
+{
+    register_channel::<InsertMessage<TRow>>(app);
+    register_channel::<DeleteMessage<TRow>>(app);
+}
+
+/// Registers the Bevy messages for a view.
+pub(crate) fn register_view<TRow>(app: &mut App)
+where
+    TRow: Send + Sync + Clone + 'static,
+{
+    register_table_without_pk::<TRow>(app);
+}
+
+/// Registers the Bevy messages for an event table.
+pub(crate) fn register_event_table<TRow>(app: &mut App)
+where
+    TRow: Send + Sync + Clone + 'static,
+{
+    register_channel::<InsertMessage<TRow>>(app);
+}
+
+pub(crate) fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow>,
@@ -183,7 +302,7 @@ where
     });
 }
 
-fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
+pub(crate) fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow>,
@@ -194,7 +313,7 @@ where
     });
 }
 
-fn bind_update<TRow, TTable>(world: &World, table: &TTable)
+pub(crate) fn bind_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
@@ -208,7 +327,7 @@ where
     });
 }
 
-fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
+pub(crate) fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,

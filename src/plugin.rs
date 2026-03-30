@@ -7,7 +7,10 @@ use crate::{
     connection::{ConnectionDriver, StdbConnectionPlugin},
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
     subscription::{StdbSubscriptions, SubscriptionsPlugin},
-    table::{TableRegistrar, TableRegistrarCallback},
+    table::{
+        TableBindCallback, TableBinder, TableRegistrar, TableRegistrationCallback,
+        register_event_table, register_table, register_table_without_pk, register_view,
+    },
 };
 use bevy_app::{App, Plugin};
 use bevy_state::app::StatesPlugin;
@@ -36,7 +39,8 @@ pub struct StdbPlugin<
     // Custom options for reconnect and safely storing sub/table information
     reconnect_options: Option<StdbReconnectOptions>,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
-    table_registrar: Option<Arc<TableRegistrarCallback<C>>>,
+    table_registrations: Vec<Arc<TableRegistrationCallback>>,
+    table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
 
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
@@ -51,7 +55,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             compression: None,
             reconnect_options: None,
             subscriptions_initializer: None,
-            table_registrar: None,
+            table_registrations: Vec::new(),
+            table_bindings: Vec::new(),
         }
     }
 }
@@ -130,29 +135,104 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Registers table callbacks through a [`TableRegistrar`].
+    /// Registers a table with a primary key using a single bind closure.
     ///
     /// Typical usage:
     ///
     /// ```ignore
-    /// .with_tables(|reg, db| {
-    ///     reg.table(&db.player_info());
-    ///     reg.table_without_pk(&db.nearby_monsters());
-    ///     reg.event_table(&db.log_events());
+    /// .with_table::<PlayerRow>(|bind, db| {
+    ///     bind.table(&db.player_info());
     /// })
     /// ```
-    pub fn with_tables(
+    pub fn with_table<TRow>(
         mut self,
-        register: impl for<'a, 'db> Fn(&mut TableRegistrar<'a>, &'db <C as DbContext>::DbView)
-        + Send
-        + Sync
-        + 'static,
-    ) -> Self {
-        assert!(
-            self.table_registrar.is_none(),
-            "`with_tables()` may only be called once"
-        );
-        self.table_registrar = Some(Arc::new(register));
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) -> Self
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.table_registrations
+            .push(Arc::new(register_table::<TRow>));
+        self.table_bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+        self
+    }
+
+    /// Registers a table without a primary key using a single bind closure.
+    pub fn with_table_without_pk<TRow>(
+        mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) -> Self
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.table_registrations
+            .push(Arc::new(register_table_without_pk::<TRow>));
+        self.table_bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+        self
+    }
+
+    /// Registers a view using a single bind closure.
+    pub fn with_view<TRow>(
+        mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) -> Self
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.table_registrations
+            .push(Arc::new(register_view::<TRow>));
+        self.table_bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+        self
+    }
+
+    /// Registers an event table using a single bind closure.
+    pub fn with_event_table<TRow>(
+        mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+    ) -> Self
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        self.table_registrations
+            .push(Arc::new(register_event_table::<TRow>));
+        self.table_bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
+        self
+    }
+
+    /// Registers a table with a custom registration builder and a single bind closure.
+    ///
+    /// This lets you customize which Bevy messages are registered for `TRow`
+    /// while still keeping a single runtime bind callback.
+    pub fn with_table_build<TRow>(
+        mut self,
+        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+        build: impl FnOnce(&mut TableRegistrar<'_, C>),
+    ) -> Self
+    where
+        TRow: Send + Sync + Clone + 'static,
+    {
+        let mut registrations = Vec::new();
+        let mut bindings = Vec::new();
+        let mut registrar = TableRegistrar::<C>::new(&mut registrations, &mut bindings);
+        build(&mut registrar);
+
+        self.table_registrations.extend(registrations);
+        self.table_bindings.push(Arc::new(move |world, db| {
+            let binder = TableBinder::<C>::new(world, db);
+            bind(binder, db);
+        }));
 
         self
     }
@@ -176,7 +256,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_subscriptions()` may only be called once"
         );
 
-        // Store a type-erased initializer here so StdbPlugin itself does not need to be generic over K.
         let init = Arc::new(init);
         self.subscriptions_initializer = Some(Arc::new(move |app: &mut App| {
             let init = init.clone();
@@ -227,6 +306,10 @@ impl<
             init(app);
         }
 
+        for register in &self.table_registrations {
+            register(app);
+        }
+
         app.add_plugins(StdbConnectionPlugin::<C, M> {
             module_name: self
                 .module_name
@@ -240,7 +323,7 @@ impl<
                 )
             }),
             compression: self.compression.unwrap_or_default(),
-            table_registrar: self.table_registrar.clone(),
+            table_bindings: self.table_bindings.clone(),
         });
     }
 }
