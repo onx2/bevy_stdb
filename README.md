@@ -60,8 +60,6 @@ fn main() {
                     reg.table(&db.player_info());
                 })
                 .with_subscriptions::<MySubKey>(|subs| {
-                    // This is a great place to add "global" subscriptions,
-                    // but you can subscribe from any system too.
                     subs.subscribe_query(MySubKey::PlayerInfo, |q| q.from.player_info());
                 })
                 .with_reconnect(StdbReconnectOptions::default())
@@ -105,15 +103,11 @@ On native targets, the typical choice is `run_threaded`:
 
 ```rust
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_background_driver(DbConnection::run_threaded),
-        )
-        .run();
+    // Build plugin and add to App...
+    let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_module_name("my_module")
+        .with_uri("http://localhost:3000")
+        .with_background_driver(DbConnection::run_threaded);
 }
 ```
 
@@ -123,15 +117,10 @@ On browser targets, use the generated background task helper instead:
 
 ```rust
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_background_driver(DbConnection::run_background_task),
-        )
-        .run();
+    let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_module_name("my_module")
+        .with_uri("http://localhost:3000")
+        .with_background_driver(DbConnection::run_background_task)
 }
 ```
 
@@ -142,17 +131,12 @@ fn main() {
     let mut plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
         .with_module_name("my_module")
         .with_uri("http://localhost:3000");
-    
-    #[cfg(target_arch = "wasm32")]
-    {
-        plugin = plugin.with_background_driver(DbConnection::run_background_task);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        plugin = plugin.with_background_driver(DbConnection::run_threaded);
-    }
 
-    App::new().add_plugins(DefaultPlugins).add_plugins(plugin).run();
+    #[cfg(target_arch = "wasm32")]
+    let driver = DbConnection::run_background_task;
+    #[cfg(not(target_arch = "wasm32"))]
+    let driver = DbConnection::run_threaded;
+    stdb_plugin = stdb_plugin.with_background_driver(driver);
 }
 ```
 
@@ -166,15 +150,10 @@ use bevy_stdb::prelude::*;
 use crate::module_bindings::{DbConnection, RemoteModule};
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_frame_driver(DbConnection::frame_tick),
-        )
-        .run();
+    let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_module_name("my_module")
+        .with_uri("http://localhost:3000")
+        .with_frame_driver(DbConnection::frame_tick);
 }
 ```
 
