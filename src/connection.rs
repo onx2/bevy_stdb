@@ -368,7 +368,7 @@ fn start_requested_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
-    config: Res<StdbConnectionConfig<C, M>>,
+    mut config: ResMut<StdbConnectionConfig<C, M>>,
     mut controller: ResMut<StdbConnectionController>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     mut commands: bevy_ecs::system::Commands,
@@ -377,10 +377,11 @@ fn start_requested_connection<
         return;
     };
 
-    let mut connect_config = config.clone();
     if let Some(token) = token_override {
-        connect_config.token = Some(token);
+        config.token = Some(token);
     }
+
+    let connect_config = config.clone();
 
     #[cfg(feature = "browser")]
     {
@@ -413,8 +414,12 @@ fn poll_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
-    state: Res<PendingConnectionState<C>>,
+    state: Option<Res<PendingConnectionState<C>>>,
 ) {
+    let Some(state) = state else {
+        return;
+    };
+
     let mut status = state.status.lock().unwrap_or_else(|e| e.into_inner());
 
     match &mut *status {
