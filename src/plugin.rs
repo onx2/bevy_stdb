@@ -31,7 +31,8 @@ type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
 ///
 /// By default, the plugin requests an initial connection during startup. Call
 /// [`Self::with_delayed_connection`] to defer connection creation until
-/// runtime, then use [`StdbConnectionController`] to request connection later.
+/// runtime, then use [`crate::prelude::StdbConnectionController`] to request
+/// connection later.
 ///
 /// # Panics
 ///
@@ -326,7 +327,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// When reconnect is enabled, reconnect attempts use the most recently
     /// stored token. That token comes from either [`Self::with_token`] or a
-    /// later runtime call to [`StdbConnectionController::connect_with_token`].
+    /// later runtime call to
+    /// [`crate::prelude::StdbConnectionController::connect_with_token`].
     ///
     /// # Panics
     ///
@@ -345,8 +347,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// When enabled, plugin setup still performs eager row-message registration,
     /// but no initial connection is requested during startup. Call
-    /// [`StdbConnectionController::connect`] or
-    /// [`StdbConnectionController::connect_with_token`] later to begin
+    /// [`crate::prelude::StdbConnectionController::connect`] or
+    /// [`crate::prelude::StdbConnectionController::connect_with_token`] later to begin
     /// connecting.
     ///
     /// # Panics
@@ -380,7 +382,7 @@ impl<
     /// This method performs Bevy-side setup only. It does not rely on plugin
     /// `ready()` hooks. Connection creation is handled later by runtime systems,
     /// eagerly during startup or lazily through
-    /// [`StdbConnectionController`], depending on configuration.
+    /// [`crate::prelude::StdbConnectionController`], depending on configuration.
     ///
     /// # Panics
     ///
