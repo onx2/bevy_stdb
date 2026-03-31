@@ -89,7 +89,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Exactly one connection driver must be configured for the plugin.
     ///
     /// # Panics
-    ///
     /// Panics if a connection driver has already been configured.
     pub fn with_frame_driver(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
         assert!(
@@ -110,7 +109,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// The return value of `background_driver` is ignored.
     ///
     /// # Panics
-    ///
     /// Panics if a connection driver has already been configured.
     pub fn with_background_driver<R>(mut self, background_driver: fn(&C) -> R) -> Self
     where
@@ -129,7 +127,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the remote module name.
     ///
     /// # Panics
-    ///
     /// Panics if called more than once.
     pub fn with_module_name(mut self, name: impl Into<String>) -> Self {
         assert!(
@@ -143,7 +140,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the SpacetimeDB host URI.
     ///
     /// # Panics
-    ///
     /// Panics if called more than once.
     pub fn with_uri(mut self, uri: impl Into<String>) -> Self {
         assert!(self.uri.is_none(), "`with_uri()` may only be called once");
@@ -158,7 +154,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// stored token used for subsequent reconnect attempts.
     ///
     /// # Panics
-    ///
     /// Panics if called more than once.
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         assert!(
@@ -172,7 +167,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the connection compression mode.
     ///
     /// # Panics
-    ///
     /// Panics if called more than once.
     pub fn with_compression(mut self, compression: Compression) -> Self {
         assert!(
@@ -292,7 +286,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// should be managed by the subscriptions subsystem.
     ///
     /// # Panics
-    ///
     /// Panics if called more than once.
     pub fn with_subscriptions<K>(
         mut self,
@@ -331,7 +324,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// [`crate::prelude::StdbConnectionController::connect_with_token`].
     ///
     /// # Panics
-    ///
     /// Panics if called more than once.
     pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
         assert!(
@@ -352,7 +344,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// connecting.
     ///
     /// # Panics
-    ///
     /// Panics if called more than once.
     pub fn with_delayed_connection(mut self) -> Self {
         assert!(
@@ -385,7 +376,6 @@ impl<
     /// [`crate::prelude::StdbConnectionController`], depending on configuration.
     ///
     /// # Panics
-    ///
     /// Panics if any required connection configuration is missing:
     ///
     /// - no module name was provided
