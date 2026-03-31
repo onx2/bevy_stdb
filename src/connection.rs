@@ -32,7 +32,7 @@ use crate::{
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
     table::TableBindCallback,
 };
-use bevy_app::{App, Plugin, PreUpdate, Startup};
+use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::{
     resource::Resource,
     schedule::{IntoScheduleConfigs, SystemCondition},
