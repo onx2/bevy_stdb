@@ -1,6 +1,18 @@
 //! The main Bevy plugin for SpacetimeDB integration.
 //!
-//! This module provides the builder-style entry point for configuring `bevy_stdb`.
+//! This module provides the builder-style entry point for configuring
+//! `bevy_stdb`.
+//!
+//! `StdbPlugin` separates setup into two phases:
+//!
+//! - **registration during app build**, where Bevy message channels are
+//!   registered for the row types you care about
+//! - **binding after connection**, where SDK table callbacks are attached once a
+//!   real database view exists
+//!
+//! This split allows the same plugin API to support eager and delayed
+//! connection, reconnect flows, and browser/native targets without requiring
+//! plugin `ready()` hooks.
 
 use crate::{
     channel_bridge::ChannelBridgePlugin,
@@ -24,6 +36,31 @@ use std::{hash::Hash, sync::Arc};
 type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
 
 /// Builder-style plugin for configuring the Bevy-SpacetimeDB integration.
+///
+/// This plugin is configured during app setup and installs the systems and
+/// resources needed to:
+///
+/// - register Bevy message channels for selected SpacetimeDB row types
+/// - create the initial connection eagerly or on demand
+/// - bind stored table callbacks once a connection is established
+/// - optionally manage reconnect attempts and subscription state
+///
+/// # Connection timing
+///
+/// By default, the plugin requests an initial connection during startup. Call
+/// [`Self::with_delayed_connection`] to defer connection creation until runtime,
+/// then use [`crate::connection::StdbConnectionController`] to call
+/// `connect()` or `connect_with_token(...)`.
+///
+/// # Panics
+///
+/// Plugin installation will panic during [`Plugin::build`] if required
+/// connection settings are missing:
+///
+/// - no module name was provided with [`Self::with_module_name`]
+/// - no URI was provided with [`Self::with_uri`]
+/// - no connection driver was provided with [`Self::with_background_driver`] or
+///   [`Self::with_frame_driver`]
 pub struct StdbPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
@@ -64,7 +101,14 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 {
     /// Sets the function used to drive the connection from the Bevy schedule.
     ///
+    /// Use this when you want the active connection to be progressed from Bevy's
+    /// schedules instead of in a background task.
+    ///
     /// Exactly one connection driver must be configured for the plugin.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a connection driver has already been configured.
     pub fn with_frame_driver(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
         assert!(
             self.driver.is_none(),
@@ -76,7 +120,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the function used to drive the connection in the background.
     ///
+    /// Use this when the underlying SDK connection should manage its own
+    /// progress outside the Bevy frame loop.
+    ///
     /// Exactly one connection driver must be configured for the plugin.
+    ///
+    /// The return value of `background_driver` is ignored.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a connection driver has already been configured.
     pub fn with_background_driver<R>(mut self, background_driver: fn(&C) -> R) -> Self
     where
         R: 'static,
@@ -92,6 +145,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Sets the remote module name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn with_module_name(mut self, name: impl Into<String>) -> Self {
         assert!(
             self.module_name.is_none(),
@@ -102,13 +159,25 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Sets the SpacetimeDB host URI.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn with_uri(mut self, uri: impl Into<String>) -> Self {
         assert!(self.uri.is_none(), "`with_uri()` may only be called once");
         self.uri = Some(uri.into());
         self
     }
 
-    /// Sets the authentication token.
+    /// Sets the authentication token used for the initial connection.
+    ///
+    /// If [`crate::connection::StdbConnectionController::connect_with_token`] is
+    /// later used at runtime, the most recently provided token becomes the
+    /// stored token used for subsequent reconnect attempts.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         assert!(
             self.token.is_none(),
@@ -119,6 +188,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Sets the connection compression mode.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn with_compression(mut self, compression: Compression) -> Self {
         assert!(
             self.compression.is_none(),
@@ -130,12 +203,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Adds a table with a primary key.
     ///
-    /// Typical usage:
+    /// This registers the Bevy message channels for `TRow` during plugin build
+    /// and stores a deferred binding callback that will attach SDK table
+    /// listeners after a connection is established.
     ///
     /// ```ignore
-    /// .add_table::<PlayerRow>(|reg, db| {
-    ///     reg.bind(db.player_info());
-    /// })
+    /// .add_table::<PlayerRow>(|reg, db| reg.bind(db.player_info()))
     /// ```
     pub fn add_table<TRow>(
         mut self,
@@ -154,6 +227,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Adds a table without a primary key.
+    ///
+    /// This registers the Bevy message channels for `TRow` during plugin build
+    /// and stores a deferred binding callback that will attach SDK table
+    /// listeners after a connection is established.
+    ///
+    /// ```ignore
+    /// .add_table_without_pk::<NearbyMonsterRow>(|reg, db| {
+    ///     reg.bind(db.nearby_monsters())
+    /// })
+    /// ```
     pub fn add_table_without_pk<TRow>(
         mut self,
         bind: impl for<'db> Fn(TableWithoutPkBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
@@ -171,6 +254,14 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Adds a view.
+    ///
+    /// This registers the Bevy message channels for `TRow` during plugin build
+    /// and stores a deferred binding callback that will attach SDK table
+    /// listeners after a connection is established.
+    ///
+    /// ```ignore
+    /// .add_view::<CharacterRow>(|reg, db| reg.bind(db.character_selection_screen_view()))
+    /// ```
     pub fn add_view<TRow>(
         mut self,
         bind: impl for<'db> Fn(ViewBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
@@ -188,6 +279,14 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Adds an event table.
+    ///
+    /// This registers the Bevy message channels for `TRow` during plugin build
+    /// and stores a deferred binding callback that will attach SDK table
+    /// listeners after a connection is established.
+    ///
+    /// ```ignore
+    /// .add_event_table::<LogEvent>(|reg, db| reg.bind(db.log_events()))
+    /// ```
     pub fn add_event_table<TRow>(
         mut self,
         bind: impl for<'db> Fn(EventTableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
@@ -205,6 +304,14 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Enables subscriptions and initializes the stored subscription state.
+    ///
+    /// The initializer runs during plugin build and can populate the
+    /// [`crate::subscription::StdbSubscriptions`] resource with any queries that
+    /// should be managed by the subscriptions subsystem.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn with_subscriptions<K>(
         mut self,
         init: impl Fn(&mut StdbSubscriptions<K, M>) + Send + Sync + 'static,
@@ -235,6 +342,15 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Enables automatic reconnects with the given options.
+    ///
+    /// When reconnect is enabled, reconnect attempts use the most recently
+    /// stored token. That token comes from either [`Self::with_token`] or a
+    /// later runtime call to
+    /// [`crate::connection::StdbConnectionController::connect_with_token`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
         assert!(
             self.reconnect_options.is_none(),
@@ -244,7 +360,18 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Defers creation of the initial connection until it is explicitly requested at runtime.
+    /// Defers creation of the initial connection until it is explicitly
+    /// requested at runtime.
+    ///
+    /// When enabled, plugin setup still performs eager row-message registration,
+    /// but no initial connection is requested during startup. Call
+    /// [`crate::connection::StdbConnectionController::connect`] or
+    /// [`crate::connection::StdbConnectionController::connect_with_token`] later
+    /// to begin connecting.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn with_delayed_connection(mut self) -> Self {
         assert!(
             !self.delayed_connection,
@@ -263,11 +390,26 @@ impl<
     /// Installs the configured `bevy_stdb` plugins and resources.
     ///
     /// A connection driver must be configured with exactly one of:
-    /// - `with_background_driver()`
-    /// - `with_frame_driver()`
+    ///
+    /// - [`StdbPlugin::with_background_driver`]
+    /// - [`StdbPlugin::with_frame_driver`]
     ///
     /// The configured driver determines how the active connection is progressed
     /// after creation.
+    ///
+    /// This method performs Bevy-side setup only. It does not rely on plugin
+    /// `ready()` hooks. Connection creation is handled later by runtime systems,
+    /// eagerly during startup or lazily through
+    /// [`crate::connection::StdbConnectionController`], depending on
+    /// configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any required connection configuration is missing:
+    ///
+    /// - no module name was provided
+    /// - no URI was provided
+    /// - no connection driver was provided
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<StatesPlugin>() {
             app.add_plugins(StatesPlugin);

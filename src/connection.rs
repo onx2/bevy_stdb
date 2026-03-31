@@ -1,6 +1,22 @@
 //! Connection state and resources.
 //!
-//! This module manages the active connection and its Bevy lifecycle integration.
+//! This module manages the active SpacetimeDB connection and its Bevy
+//! lifecycle integration.
+//!
+//! Connection setup is handled entirely through runtime systems, allowing the same implementation to support:
+//!
+//!  - native and browser targets
+//! - eager startup connections
+//! - delayed/manual connection through [`StdbConnectionController`]
+//! - reconnect flows that reuse the most recently stored token
+//!
+//! The general flow is:
+//!
+//! - insert [`StdbConnectionConfig`] and [`StdbConnectionController`] during plugin build
+//! - request connection eagerly during startup or later at runtime
+//! - build the connection through native or browser-specific code paths
+//! - insert [`StdbConnection`] once the build succeeds
+//! - bind deferred table callbacks after the SDK reports the connection as connected
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
@@ -12,7 +28,7 @@ use crate::{
 use bevy_app::{App, Plugin, PreUpdate, Startup};
 use bevy_ecs::{
     resource::Resource,
-    schedule::IntoScheduleConfigs,
+    schedule::{IntoScheduleConfigs, SystemCondition},
     system::{Res, ResMut},
 };
 use bevy_state::{
@@ -43,14 +59,20 @@ struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
 }
 
 /// Lifecycle state for the active SpacetimeDB connection.
+///
+/// `Connected` and `Disconnected` are driven by SDK lifecycle messages, while
+/// `Reconnecting` and `Exhausted` are policy-oriented states managed by the
+/// reconnect subsystem.
 #[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum StdbConnectionState {
-    /// The plugin hasn't initialized yet.
+    /// No active connection has been established yet.
     #[default]
     Uninitialized,
-    /// The connection is active.
+    /// An initial or manually requested connection attempt is in progress.
+    Connecting,
+    /// The SDK has reported that the connection is active.
     Connected,
-    /// The connection is not active.
+    /// No active connection is available.
     Disconnected,
     /// A reconnect attempt is in progress.
     Reconnecting,
@@ -175,6 +197,10 @@ where
 }
 
 /// A Bevy resource for the active SpacetimeDB connection.
+///
+/// This resource is inserted once a connection build succeeds. When delayed
+/// connection is enabled, or before the initial/manual connection attempt has
+/// completed, this resource will not yet exist.
 #[derive(Resource)]
 pub struct StdbConnection<T: DbContext + 'static> {
     /// The underlying connection context.
@@ -182,6 +208,14 @@ pub struct StdbConnection<T: DbContext + 'static> {
 }
 
 /// Runtime controller for eager or delayed connection startup.
+///
+/// This resource is always inserted during plugin build. In eager mode, the
+/// plugin requests an initial connection automatically during startup. In
+/// delayed mode, application code can request connection later by calling
+/// [`Self::connect`] or [`Self::connect_with_token`].
+///
+/// If a token is provided through [`Self::connect_with_token`], it becomes the
+/// most recently stored token and will be reused by future reconnect attempts.
 #[derive(Resource, Default)]
 pub struct StdbConnectionController {
     requested: bool,
@@ -189,13 +223,23 @@ pub struct StdbConnectionController {
 }
 
 impl StdbConnectionController {
-    /// Request that a connection be established using the configured token, if any.
+    /// Request that a connection be established using the currently stored
+    /// token, if any.
+    ///
+    /// If a connection is already active or a connection attempt is already in
+    /// progress, the request is dropped.
     pub fn connect(&mut self) {
         self.requested = true;
         self.token_override = None;
     }
 
     /// Request that a connection be established using the supplied token.
+    ///
+    /// The supplied token becomes the most recently stored token and will be
+    /// reused by future reconnect attempts after the request is processed.
+    ///
+    /// If a connection is already active or a connection attempt is already in
+    /// progress, the request is dropped.
     pub fn connect_with_token(&mut self, token: impl Into<String>) {
         self.requested = true;
         self.token_override = Some(token.into());
@@ -208,6 +252,11 @@ impl StdbConnectionController {
 
         self.requested = false;
         Some(self.token_override.take())
+    }
+
+    fn clear_request(&mut self) {
+        self.requested = false;
+        self.token_override = None;
     }
 }
 
@@ -234,7 +283,7 @@ impl<T: DbContext> StdbConnection<T> {
         self.conn.procedures()
     }
 
-    /// Returns `true` if the connection is currently active.
+    /// Returns `true` if the underlying SDK connection is currently active.
     pub fn is_active(&self) -> bool {
         self.conn.is_active()
     }
@@ -271,6 +320,10 @@ impl<T: DbContext> StdbConnection<T> {
 }
 
 /// Internal plugin for the SpacetimeDB connection lifecycle.
+///
+/// This plugin installs the resources and systems needed to support eager or
+/// delayed startup, native or browser connection building, and deferred table
+/// binding after connection.
 pub(crate) struct StdbConnectionPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
@@ -331,7 +384,10 @@ impl<
         // Start a connection whenever it is requested.
         app.add_systems(
             PreUpdate,
-            start_requested_connection::<C, M>.run_if(in_state(StdbConnectionState::Uninitialized)),
+            start_requested_connection::<C, M>.run_if(
+                in_state(StdbConnectionState::Uninitialized)
+                    .or(in_state(StdbConnectionState::Connecting)),
+            ),
         );
 
         // Poll any in-flight browser connection build.
@@ -358,12 +414,21 @@ impl<
     }
 }
 
-/// Request an eager connection during startup unless delayed connection is enabled.
+/// Request an eager connection during startup unless delayed connection is
+/// enabled.
 fn request_initial_connection(mut controller: ResMut<StdbConnectionController>) {
     controller.connect();
 }
 
 /// Start building a connection when requested at runtime.
+///
+/// This system consumes the pending request from
+/// [`StdbConnectionController`], persists any token override into the stored
+/// connection config, and then begins a native or browser-specific connection
+/// build.
+///
+/// Requests are dropped if a connection is already active or another connection
+/// attempt is already pending.
 fn start_requested_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -371,11 +436,18 @@ fn start_requested_connection<
     mut config: ResMut<StdbConnectionConfig<C, M>>,
     mut controller: ResMut<StdbConnectionController>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
+    active_connection: Option<Res<StdbConnection<C>>>,
+    pending_connection: Option<Res<PendingConnectionState<C>>>,
     mut commands: bevy_ecs::system::Commands,
 ) {
     let Some(token_override) = controller.take_request() else {
         return;
     };
+
+    if active_connection.is_some() || pending_connection.is_some() {
+        controller.clear_request();
+        return;
+    }
 
     if let Some(token) = token_override {
         config.token = Some(token);
@@ -406,10 +478,11 @@ fn start_requested_connection<
         });
     }
 
-    next_state.set(StdbConnectionState::Reconnecting);
+    next_state.set(StdbConnectionState::Connecting);
 }
 
 #[cfg(feature = "browser")]
+/// Poll any in-flight browser connection build until it produces a result.
 fn poll_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -430,13 +503,18 @@ fn poll_pending_connection<
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
-                panic!("pending browser connection task disconnected before returning a result")
+                *status = PendingConnectionStatus::Ready(Err(spacetimedb_sdk::Error::Disconnected));
             }
         },
     }
 }
 
-/// Finalize a completed connection build by inserting the active connection resource.
+/// Finalize a completed connection build.
+///
+/// On success this inserts [`StdbConnection`] and starts the configured
+/// background driver if needed. On failure this transitions the lifecycle state
+/// to [`StdbConnectionState::Disconnected`], allowing reconnect policy to take
+/// over if configured.
 fn finalize_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -475,8 +553,10 @@ fn finalize_pending_connection<
     }
 }
 
-/// Synchronizes the connection state based on the connection state messages from SpacetimeDB.
-/// Disconnected state takes precedence over connected state in ambiguous cases (multiple events per frame)
+/// Synchronize [`StdbConnectionState`] from SDK lifecycle messages.
+///
+/// `Disconnected` takes precedence over `Connected` when multiple lifecycle
+/// messages are observed in the same frame.
 fn sync_connection_state(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
@@ -494,7 +574,7 @@ fn sync_connection_state(
     }
 }
 
-/// Bind the table callbacks when a new connection is established.
+/// Bind all deferred table callbacks after a connection becomes active.
 fn on_connected_bind<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
@@ -514,8 +594,9 @@ fn on_connected_bind<
     }
 }
 
-/// "tick" the connection frame, driving any pending operations. This is only used when the driver is `frame_tick`.
-/// Uncommon use case, but its available when you want to have events processed at the bevy frame rate.
+/// Tick the active connection once per frame when the frame driver is in use.
+///
+/// This is only added when [`ConnectionDriver::FrameTick`] is configured.
 fn drive_connection_frame_tick<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,

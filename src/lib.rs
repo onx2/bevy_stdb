@@ -1,3 +1,9 @@
+//! Bevy integration for SpacetimeDB.
+//!
+//! This crate provides [`plugin::StdbPlugin`] and related types for configuring
+//! SpacetimeDB connections in Bevy apps.
+//!
+//! Most application code should import [`prelude`].
 pub(crate) mod channel_bridge;
 
 pub mod alias;
@@ -8,8 +14,12 @@ pub mod reconnect;
 pub mod subscription;
 pub mod table;
 
+/// Common imports for applications using `bevy_stdb`.
+///
+/// This module re-exports the primary plugin type, connection resources,
+/// reconnect options, subscription helpers, and message aliases most apps use
+/// directly.
 pub mod prelude {
-    #[doc(hidden)]
     pub use crate::{
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
