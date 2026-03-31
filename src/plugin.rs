@@ -8,8 +8,9 @@ use crate::{
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
     subscription::{StdbSubscriptions, SubscriptionsPlugin},
     table::{
-        TableBindCallback, TableBinder, TableRegistrar, TableRegistrationCallback,
-        register_event_table, register_table, register_table_without_pk, register_view,
+        EventTableBinder, TableBindCallback, TableBinder, TableRegistrationCallback,
+        TableWithoutPkBinder, ViewBinder, register_event_table, register_table,
+        register_table_without_pk, register_view,
     },
 };
 use bevy_app::{App, Plugin};
@@ -27,16 +28,11 @@ pub struct StdbPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 > {
-    // Built-in SpacetimeDB fields
     module_name: Option<String>,
     uri: Option<String>,
     token: Option<String>,
     compression: Option<Compression>,
-
-    // Option for how to process events from the websocket
     driver: Option<ConnectionDriver<C>>,
-
-    // Custom options for reconnect and safely storing sub/table information
     reconnect_options: Option<StdbReconnectOptions>,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
@@ -51,8 +47,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             module_name: None,
             uri: None,
             token: None,
-            driver: None,
             compression: None,
+            driver: None,
             reconnect_options: None,
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
@@ -90,7 +86,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.driver = Some(ConnectionDriver::Background(Arc::new(move |conn: &C| {
             let _ = background_driver(conn);
         })));
-
         self
     }
 
@@ -101,7 +96,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_module_name()` may only be called once"
         );
         self.module_name = Some(name.into());
-
         self
     }
 
@@ -109,7 +103,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     pub fn with_uri(mut self, uri: impl Into<String>) -> Self {
         assert!(self.uri.is_none(), "`with_uri()` may only be called once");
         self.uri = Some(uri.into());
-
         self
     }
 
@@ -120,7 +113,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_token()` may only be called once"
         );
         self.token = Some(token.into());
-
         self
     }
 
@@ -131,22 +123,21 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_compression()` may only be called once"
         );
         self.compression = Some(compression);
-
         self
     }
 
-    /// Registers a table with a primary key using a single bind closure.
+    /// Adds a table with a primary key.
     ///
     /// Typical usage:
     ///
     /// ```ignore
-    /// .with_table::<PlayerRow>(|bind, db| {
-    ///     bind.table(&db.player_info());
+    /// .add_table::<PlayerRow>(|reg, db| {
+    ///     reg.bind(db.player_info());
     /// })
     /// ```
-    pub fn with_table<TRow>(
+    pub fn add_table<TRow>(
         mut self,
-        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+        bind: impl for<'db> Fn(TableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
         TRow: Send + Sync + Clone + 'static,
@@ -154,16 +145,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_table::<TRow>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let binder = TableBinder::<C>::new(world, db);
-            bind(binder, db);
+            let reg = TableBinder::<TRow>::new(world);
+            bind(reg, db);
         }));
         self
     }
 
-    /// Registers a table without a primary key using a single bind closure.
-    pub fn with_table_without_pk<TRow>(
+    /// Adds a table without a primary key.
+    pub fn add_table_without_pk<TRow>(
         mut self,
-        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+        bind: impl for<'db> Fn(TableWithoutPkBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
         TRow: Send + Sync + Clone + 'static,
@@ -171,16 +162,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_table_without_pk::<TRow>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let binder = TableBinder::<C>::new(world, db);
-            bind(binder, db);
+            let reg = TableWithoutPkBinder::<TRow>::new(world);
+            bind(reg, db);
         }));
         self
     }
 
-    /// Registers a view using a single bind closure.
-    pub fn with_view<TRow>(
+    /// Adds a view.
+    pub fn add_view<TRow>(
         mut self,
-        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+        bind: impl for<'db> Fn(ViewBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
         TRow: Send + Sync + Clone + 'static,
@@ -188,16 +179,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_view::<TRow>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let binder = TableBinder::<C>::new(world, db);
-            bind(binder, db);
+            let reg = ViewBinder::<TRow>::new(world);
+            bind(reg, db);
         }));
         self
     }
 
-    /// Registers an event table using a single bind closure.
-    pub fn with_event_table<TRow>(
+    /// Adds an event table.
+    pub fn add_event_table<TRow>(
         mut self,
-        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
+        bind: impl for<'db> Fn(EventTableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
         TRow: Send + Sync + Clone + 'static,
@@ -205,35 +196,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_event_table::<TRow>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let binder = TableBinder::<C>::new(world, db);
-            bind(binder, db);
+            let reg = EventTableBinder::<TRow>::new(world);
+            bind(reg, db);
         }));
-        self
-    }
-
-    /// Registers a table with a custom registration builder and a single bind closure.
-    ///
-    /// This lets you customize which Bevy messages are registered for `TRow`
-    /// while still keeping a single runtime bind callback.
-    pub fn with_table_build<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(TableBinder<'_, 'db, C>, &'db C::DbView) + Send + Sync + 'static,
-        build: impl FnOnce(&mut TableRegistrar<'_, C>),
-    ) -> Self
-    where
-        TRow: Send + Sync + Clone + 'static,
-    {
-        let mut registrations = Vec::new();
-        let mut bindings = Vec::new();
-        let mut registrar = TableRegistrar::<C>::new(&mut registrations, &mut bindings);
-        build(&mut registrar);
-
-        self.table_registrations.extend(registrations);
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let binder = TableBinder::<C>::new(world, db);
-            bind(binder, db);
-        }));
-
         self
     }
 
@@ -274,7 +239,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_reconnect()` may only be called once"
         );
         self.reconnect_options = Some(reconnect_config);
-
         self
     }
 }
