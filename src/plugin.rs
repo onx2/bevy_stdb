@@ -1,18 +1,7 @@
-//! The main Bevy plugin for SpacetimeDB integration.
+//! The main plugin for `bevy_stdb`.
 //!
-//! This module provides the builder-style entry point for configuring
-//! `bevy_stdb`.
-//!
-//! `StdbPlugin` separates setup into two phases:
-//!
-//! - **registration during app build**, where Bevy message channels are
-//!   registered for the row types you care about
-//! - **binding after connection**, where SDK table callbacks are attached once a
-//!   real database view exists
-//!
-//! This split allows the same plugin API to support eager and delayed
-//! connection, reconnect flows, and browser/native targets without requiring
-//! plugin `ready()` hooks.
+//! [`StdbPlugin`] configures SpacetimeDB connections, table bindings,
+//! subscriptions, and reconnect behavior for a Bevy app.
 
 use crate::{
     channel_bridge::ChannelBridgePlugin,
@@ -35,27 +24,19 @@ use std::{hash::Hash, sync::Arc};
 
 type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
 
-/// Builder-style plugin for configuring the Bevy-SpacetimeDB integration.
+/// Configures the `bevy_stdb` integration for a Bevy app.
 ///
-/// This plugin is configured during app setup and installs the systems and
-/// resources needed to:
-///
-/// - register Bevy message channels for selected SpacetimeDB row types
-/// - create the initial connection eagerly or on demand
-/// - bind stored table callbacks once a connection is established
-/// - optionally manage reconnect attempts and subscription state
-///
-/// # Connection timing
+/// This plugin registers row message channels during app build and binds SDK
+/// table callbacks after a connection is established.
 ///
 /// By default, the plugin requests an initial connection during startup. Call
-/// [`Self::with_delayed_connection`] to defer connection creation until runtime,
-/// then use [`crate::connection::StdbConnectionController`] to call
-/// `connect()` or `connect_with_token(...)`.
+/// [`Self::with_delayed_connection`] to defer connection creation until
+/// runtime, then use [`StdbConnectionController`] to request connection later.
 ///
 /// # Panics
 ///
-/// Plugin installation will panic during [`Plugin::build`] if required
-/// connection settings are missing:
+/// Plugin installation panics during [`Plugin::build`] if required connection
+/// settings are missing:
 ///
 /// - no module name was provided with [`Self::with_module_name`]
 /// - no URI was provided with [`Self::with_uri`]
@@ -345,8 +326,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// When reconnect is enabled, reconnect attempts use the most recently
     /// stored token. That token comes from either [`Self::with_token`] or a
-    /// later runtime call to
-    /// [`crate::connection::StdbConnectionController::connect_with_token`].
+    /// later runtime call to [`StdbConnectionController::connect_with_token`].
     ///
     /// # Panics
     ///
@@ -365,9 +345,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// When enabled, plugin setup still performs eager row-message registration,
     /// but no initial connection is requested during startup. Call
-    /// [`crate::connection::StdbConnectionController::connect`] or
-    /// [`crate::connection::StdbConnectionController::connect_with_token`] later
-    /// to begin connecting.
+    /// [`StdbConnectionController::connect`] or
+    /// [`StdbConnectionController::connect_with_token`] later to begin
+    /// connecting.
     ///
     /// # Panics
     ///
@@ -400,8 +380,7 @@ impl<
     /// This method performs Bevy-side setup only. It does not rely on plugin
     /// `ready()` hooks. Connection creation is handled later by runtime systems,
     /// eagerly during startup or lazily through
-    /// [`crate::connection::StdbConnectionController`], depending on
-    /// configuration.
+    /// [`StdbConnectionController`], depending on configuration.
     ///
     /// # Panics
     ///

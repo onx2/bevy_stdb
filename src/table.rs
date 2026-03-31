@@ -67,7 +67,6 @@ impl<'w, TRow> TableWithoutPkBinder<'w, TRow> {
     }
 
     /// Binds the default callbacks for `table`.
-    /// Binds the default callbacks for `table`.
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + 'static,
