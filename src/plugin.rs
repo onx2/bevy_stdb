@@ -34,6 +34,7 @@ pub struct StdbPlugin<
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
+    delayed_connection: bool,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
@@ -50,6 +51,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             compression: None,
             driver: None,
             reconnect_options: None,
+            delayed_connection: false,
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
@@ -241,6 +243,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.reconnect_options = Some(reconnect_config);
         self
     }
+
+    /// Defers creation of the initial connection until it is explicitly requested at runtime.
+    pub fn with_delayed_connection(mut self) -> Self {
+        assert!(
+            !self.delayed_connection,
+            "`with_delayed_connection()` may only be called once"
+        );
+        self.delayed_connection = true;
+        self
+    }
 }
 
 impl<
@@ -287,6 +299,7 @@ impl<
                 )
             }),
             compression: self.compression.unwrap_or_default(),
+            delayed_connection: self.delayed_connection,
             table_bindings: self.table_bindings.clone(),
         });
     }
