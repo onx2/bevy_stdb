@@ -371,8 +371,7 @@ fn start_requested_connection<
     config: Res<StdbConnectionConfig<C, M>>,
     mut controller: ResMut<StdbConnectionController>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
-    #[cfg(feature = "browser")] mut commands: bevy_ecs::system::Commands,
-    #[cfg(not(feature = "browser"))] mut commands: bevy_ecs::system::Commands,
+    mut commands: bevy_ecs::system::Commands,
 ) {
     let Some(token_override) = controller.take_request() else {
         return;
