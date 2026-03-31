@@ -2,28 +2,6 @@
 //!
 //! This module manages the active SpacetimeDB connection and its Bevy
 //! lifecycle integration.
-//!
-//! Connection setup is handled entirely through runtime systems rather than
-//! plugin `ready()` hooks. This allows the same implementation to support:
-//!
-//! - native and browser targets
-//! - eager startup connections
-//! - delayed/manual connection through [`StdbConnectionController`]
-//! - reconnect flows that reuse the most recently stored token
-//!
-//! The general flow is:
-//!
-//! - insert [`StdbConnectionConfig`] and [`StdbConnectionController`] during
-//!   plugin build
-//! - request connection eagerly during startup or later at runtime
-//! - build the connection through native or browser-specific code paths
-//! - insert [`StdbConnection`] once the build succeeds
-//! - bind deferred table callbacks after the SDK reports the connection as
-//!   connected
-//!
-//! Browser connection attempts and browser reconnect attempts both use the same
-//! pending-result resource so runtime polling and finalization behave the same
-//! way in both flows.
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
