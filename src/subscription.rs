@@ -4,19 +4,16 @@
 
 use crate::connection::{StdbConnection, StdbConnectionState};
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{
-    prelude::Resource,
-    schedule::IntoScheduleConfigs,
-    system::{Res, ResMut},
-};
-use bevy_state::state::OnEnter;
+use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
+use bevy_state::prelude::OnEnter;
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
     DbContext, Result as StdbResult, SubscriptionHandle as StdbSubscriptionHandle,
 };
 use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
-type SubscriptionInitializer<K, M> = dyn Fn(&mut StdbSubscriptions<K, M>) + Send + Sync;
+pub(crate) type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
+type SubscriptionStateInitializer<K, M> = dyn Fn(&mut StdbSubscriptions<K, M>) + Send + Sync;
 
 /// Stored subscription intent and active handle for a single key.
 struct SubscriptionEntry<H> {
@@ -191,7 +188,7 @@ where
     M: SpacetimeModule<DbConnection = C>,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    initializer: Box<SubscriptionInitializer<K, M>>,
+    initializer: Box<SubscriptionStateInitializer<K, M>>,
     _marker: PhantomData<(C, M)>,
 }
 

@@ -33,24 +33,16 @@ use crate::{
     table::TableBindCallback,
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
-use bevy_ecs::{
-    resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemCondition},
-    system::{Res, ResMut},
-};
-use bevy_state::{
-    app::AppExtStates,
-    condition::in_state,
-    state::{NextState, OnEnter, States},
-};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, SystemCondition};
+use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
 use crossbeam_channel::Sender;
+#[cfg(feature = "browser")]
+use crossbeam_channel::{Receiver, TryRecvError, bounded};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
-#[cfg(feature = "browser")]
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Internal runtime result type for a completed SpacetimeDB connection build.
 pub(crate) type ConnectionBuildResult<C> = Result<Arc<C>>;
@@ -65,7 +57,7 @@ pub(crate) enum PendingConnectionStatus<C: DbContext + Send + Sync + 'static> {
 /// Internal runtime state for an in-flight SpacetimeDB connection build.
 #[derive(Resource)]
 pub(crate) struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
-    pub(crate) status: Mutex<PendingConnectionStatus<C>>,
+    pub(crate) status: PendingConnectionStatus<C>,
 }
 
 /// Begin a browser connection build and store its pending result resource.
@@ -77,7 +69,7 @@ pub(crate) fn begin_browser_connection_build<C, F>(
     C: DbContext + Send + Sync + 'static,
     F: 'static + std::future::Future<Output = ConnectionBuildResult<C>>,
 {
-    let (tx, rx) = channel();
+    let (tx, rx) = bounded(1);
 
     wasm_bindgen_futures::spawn_local(async move {
         let result = build.await;
@@ -85,7 +77,7 @@ pub(crate) fn begin_browser_connection_build<C, F>(
     });
 
     commands.insert_resource(PendingConnectionState::<C> {
-        status: Mutex::new(PendingConnectionStatus::Pending(rx)),
+        status: PendingConnectionStatus::Pending(rx),
     });
 }
 
@@ -95,23 +87,25 @@ pub(crate) fn poll_browser_connection_build<C>(world: &mut bevy_ecs::world::Worl
 where
     C: DbContext + Send + Sync + 'static,
 {
-    let Some(state) = world.get_resource::<PendingConnectionState<C>>() else {
-        return;
+    let next_status = {
+        let Some(state) = world.get_resource::<PendingConnectionState<C>>() else {
+            return;
+        };
+
+        match &state.status {
+            PendingConnectionStatus::Ready(_) => None,
+            PendingConnectionStatus::Pending(rx) => match rx.try_recv() {
+                Ok(result) => Some(PendingConnectionStatus::Ready(result)),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => Some(PendingConnectionStatus::Ready(Err(
+                    spacetimedb_sdk::Error::Disconnected,
+                ))),
+            },
+        }
     };
 
-    let mut status = state.status.lock().unwrap_or_else(|e| e.into_inner());
-
-    match &mut *status {
-        PendingConnectionStatus::Ready(_) => {}
-        PendingConnectionStatus::Pending(rx) => match rx.try_recv() {
-            Ok(result) => {
-                *status = PendingConnectionStatus::Ready(result);
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                *status = PendingConnectionStatus::Ready(Err(spacetimedb_sdk::Error::Disconnected));
-            }
-        },
+    if let Some(status) = next_status {
+        world.insert_resource(PendingConnectionState::<C> { status });
     }
 }
 
@@ -124,8 +118,7 @@ where
 {
     let ready_result = {
         let pending = world.get_resource::<PendingConnectionState<C>>()?;
-        let mut status = pending.status.lock().unwrap_or_else(|e| e.into_inner());
-        match &mut *status {
+        match &pending.status {
             #[cfg(feature = "browser")]
             PendingConnectionStatus::Pending(_) => return None,
             PendingConnectionStatus::Ready(result) => result.clone(),
@@ -459,7 +452,7 @@ impl<
         };
 
         app.insert_resource(config);
-        app.insert_resource(StdbConnectionController::default());
+        app.init_resource::<StdbConnectionController>();
 
         if !self.delayed_connection {
             app.add_systems(PreStartup, request_initial_connection);
@@ -552,9 +545,7 @@ fn start_requested_connection<
     #[cfg(not(feature = "browser"))]
     {
         commands.insert_resource(PendingConnectionState::<C> {
-            status: Mutex::new(PendingConnectionStatus::Ready(
-                connect_config.build_connection(),
-            )),
+            status: PendingConnectionStatus::Ready(connect_config.build_connection()),
         });
     }
 

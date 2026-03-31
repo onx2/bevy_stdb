@@ -7,7 +7,7 @@ use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
-    subscription::{StdbSubscriptions, SubscriptionsPlugin},
+    subscription::{StdbSubscriptions, SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
         EventTableBinder, TableBindCallback, TableBinder, TableRegistrationCallback,
         TableWithoutPkBinder, ViewBinder, register_event_table, register_table,
@@ -21,8 +21,6 @@ use spacetimedb_sdk::{
     Compression, DbContext, SubscriptionHandle,
 };
 use std::{hash::Hash, sync::Arc};
-
-type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
 
 /// Configures the `bevy_stdb` integration for a Bevy app.
 ///

@@ -52,7 +52,7 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) {
             .iter()
             .any(|entry| entry.type_id == TypeId::of::<T>()),
         "attempted to register channel for message type `{}` more than once",
-        std::any::type_name::<T>(),
+        type_name::<T>(),
     );
 
     let (tx, rx) = unbounded::<T>();

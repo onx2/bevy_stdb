@@ -10,7 +10,7 @@ use crate::{
     message::{DeleteMessage, InsertMessage, InsertUpdateMessage, UpdateMessage},
 };
 use bevy_app::App;
-use bevy_ecs::world::World;
+use bevy_ecs::prelude::World;
 use spacetimedb_sdk::{EventTable, Table, TableWithPrimaryKey};
 use std::marker::PhantomData;
 
