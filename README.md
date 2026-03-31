@@ -15,13 +15,13 @@ _Please enjoy this useless AI generated image based on the README contents of th
 
 - Configure everything through `StdbPlugin`
 - Expose the active live connection as a Bevy resource via `StdbConnection`
-- Forward table callbacks into Bevy messages with `TableRegistrar`
+- Forward SpacetimeDB table callbacks into Bevy `Message`s
 - Store subscription intent independently from the live connection with `StdbSubscriptions`
 - Optionally retry failed connections with `StdbReconnectOptions`
 
 The library is organized around connection-scoped lifecycle concerns:
 
-- **connection lifecycle**: establish the initial connection, expose the active connection resource, and track connection state
+- **connection lifecycle**: establish the initial connection eagerly or on demand, expose the active connection resource, and track connection state
 - **table lifecycle**: initialize table message channels once and re-bind table callbacks whenever a connection becomes active
 - **subscription lifecycle**: store desired subscription intent and re-apply queued subscriptions when connected
 - **reconnect lifecycle**: optionally retry connection attempts after disconnects using configurable backoff
@@ -56,9 +56,7 @@ fn main() {
             StdbPlugin::<DbConnection, RemoteModule>::default()
                 .with_module_name("my_module")
                 .with_uri("http://localhost:3000")
-                .with_tables(|reg, db| {
-                    reg.table(&db.player_info());
-                })
+                .add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
                 .with_subscriptions::<MySubKey>(|subs| {
                     subs.subscribe_query(MySubKey::PlayerInfo, |q| q.from.player_info());
                 })
@@ -159,20 +157,18 @@ fn main() {
 
 ## Table registration
 
-Use `StdbPlugin::with_tables` to register all table callbacks in one place.
+Use the `StdbPlugin` builder methods to register table bindings during app setup.
 
-The closure receives both a `TableRegistrar` and the current database view. Use the `db` argument to access your tables for registration.
+Each method eagerly registers the Bevy message channels for the row type you specify and stores a deferred binding callback that runs whenever a connection becomes active.
 
 ```rust
-.with_tables(|reg, db| {
-    reg.table(&db.player_info());
-    reg.table_without_pk(&db.world_clock());
-    reg.event_table(&db.damage_events());
-    reg.view(&db.nearby_monsters());
-})
+.add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
+.add_table_without_pk::<WorldClock>(|reg, db| reg.bind(db.world_clock()))
+.add_event_table::<DamageEvent>(|reg, db| reg.bind(db.damage_events()))
+.add_view::<NearbyMonster>(|reg, db| reg.bind(db.nearby_monsters()))
 ```
 
-These registrations are replayed during initialization to install the required Bevy message channels and again whenever the connection enters the connected state to bind callbacks for the current live database view.
+This keeps table message registration eager while table callback binding stays lazy and connection-scoped.
 
 ## Messages
 
@@ -230,8 +226,45 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 }
 ```
 
-<!--## Delayed Connection-->
-<!--TODO: Add example for delayed connections-->
+## Delayed Connection
+
+Use `with_delayed_connection` when the initial connection should be requested later at runtime instead of during startup.
+
+```rust
+use bevy::prelude::*;
+use bevy_stdb::prelude::*;
+use crate::module_bindings::{DbConnection, RemoteModule};
+
+#[derive(Resource)]
+struct ConnectTimer(Timer);
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .insert_resource(ConnectTimer(Timer::from_seconds(10.0, TimerMode::Once)))
+        .add_plugins(
+            StdbPlugin::<DbConnection, RemoteModule>::default()
+                .with_module_name("my_module")
+                .with_uri("http://localhost:3000")
+                .with_delayed_connection()
+                .with_background_driver(DbConnection::run_threaded),
+        )
+        .add_systems(Update, connect_after_delay)
+        .run();
+}
+
+fn connect_after_delay(
+    time: Res<Time>,
+    mut timer: ResMut<ConnectTimer>,
+    mut controller: ResMut<StdbConnectionController>,
+) {
+    if timer.0.tick(time.delta()).just_finished() {
+        controller.connect();
+    }
+}
+```
+
+Use `connect_with_token(...)` instead when you want to supply a token at runtime.
 
 
 ## Compatibility
@@ -239,7 +272,7 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 | bevy_stdb | bevy   | spacetimedb_sdk |
 | --------- | ------ | --------------- |
 | 0.1 - 0.2 | 0.18   | 2.0             |
-| 0.3 - 0.4 | 0.18   | 2.1             |
+| 0.3 - 0.5 | 0.18   | 2.1             |
 
 ## Notes
 

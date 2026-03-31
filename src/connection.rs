@@ -136,25 +136,34 @@ where
     Some(ready_result)
 }
 
-/// Lifecycle state for the active SpacetimeDB connection.
+/// Lifecycle [`States`] for the active SpacetimeDB connection.
 ///
 /// `Connected` and `Disconnected` are driven by SDK lifecycle messages, while
 /// `Reconnecting` and `Exhausted` are policy-oriented states managed by the
 /// reconnect subsystem.
 #[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum StdbConnectionState {
-    /// No active connection has been established yet.
+    /// No connection attempt has been started yet.
     #[default]
     Uninitialized,
+
     /// An initial or manually requested connection attempt is in progress.
     Connecting,
+
     /// The SDK has reported that the connection is active.
     Connected,
+
     /// No active connection is available.
+    ///
+    /// This state is entered after a disconnect or a failed connection attempt.
     Disconnected,
-    /// A reconnect attempt is in progress.
+
+    /// An automatic reconnect attempt is in progress.
     Reconnecting,
+
     /// Reconnect attempts have been exhausted.
+    ///
+    /// No further connection attempts will be made.
     Exhausted,
 }
 

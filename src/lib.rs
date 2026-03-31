@@ -2,8 +2,6 @@
 //!
 //! This crate provides [`StdbPlugin`] and related types for configuring
 //! SpacetimeDB connections in Bevy apps.
-//!
-//! Most application code should import [`prelude`].
 pub(crate) mod channel_bridge;
 
 mod alias;
@@ -15,8 +13,6 @@ mod subscription;
 mod table;
 
 /// Common imports for `bevy_stdb`.
-///
-/// This module re-exports the types most applications use directly.
 pub mod prelude {
     pub use crate::{
         alias::{

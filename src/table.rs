@@ -24,8 +24,9 @@ pub(crate) type TableBindCallback<C> = dyn for<'db> Fn(&World, &'db <C as spacet
 
 /// Binds callbacks for a table with a primary key.
 ///
-/// Calling [`Self::bind`] attaches insert, delete, update, and insert-or-update
-/// forwarding for the provided table.
+/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
+/// them as Bevy messages for insert, delete, update, and insert-or-update
+/// changes.
 pub struct TableBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,
@@ -39,7 +40,8 @@ impl<'w, TRow> TableBinder<'w, TRow> {
         }
     }
 
-    /// Binds the default callbacks for `table`.
+    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
+    /// Bevy messages.
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + 'static,
@@ -51,8 +53,8 @@ impl<'w, TRow> TableBinder<'w, TRow> {
 
 /// Binds callbacks for a table without a primary key.
 ///
-/// Calling [`Self::bind`] attaches insert and delete forwarding for the
-/// provided table.
+/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
+/// insert and delete changes as Bevy messages.
 pub struct TableWithoutPkBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,
@@ -66,7 +68,8 @@ impl<'w, TRow> TableWithoutPkBinder<'w, TRow> {
         }
     }
 
-    /// Binds the default callbacks for `table`.
+    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
+    /// Bevy messages.
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + 'static,
@@ -78,8 +81,8 @@ impl<'w, TRow> TableWithoutPkBinder<'w, TRow> {
 
 /// Binds callbacks for a view.
 ///
-/// Calling [`Self::bind`] attaches insert and delete forwarding for the
-/// provided view.
+/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
+/// insert and delete changes as Bevy messages.
 pub struct ViewBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,
@@ -93,7 +96,8 @@ impl<'w, TRow> ViewBinder<'w, TRow> {
         }
     }
 
-    /// Binds the default callbacks for `table`.
+    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
+    /// Bevy messages.
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + 'static,
@@ -105,8 +109,8 @@ impl<'w, TRow> ViewBinder<'w, TRow> {
 
 /// Binds callbacks for an event table.
 ///
-/// Calling [`Self::bind`] attaches insert forwarding for the provided event
-/// table.
+/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
+/// insert changes as Bevy messages.
 pub struct EventTableBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,

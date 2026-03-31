@@ -1,6 +1,7 @@
 //! Subscription state and lifecycle for SpacetimeDB.
 //!
-//! This module stores subscription intent and applies it when a connection is active.
+//! This module stores subscription intent separately from active subscription
+//! handles so queued subscriptions can be applied when a connection is active.
 
 use crate::connection::{StdbConnection, StdbConnectionState};
 use bevy_app::{App, Plugin, PreUpdate};
@@ -28,10 +29,10 @@ struct SubscriptionEntry<H> {
     queued: bool,
 }
 
-/// A [`Resource`] that stores SpacetimeDB subscriptions in Bevy.
+/// A [`Resource`] that stores SpacetimeDB subscription intent and active
+/// handles.
 ///
-/// Subscription intent is kept separately from active handles so it can be
-/// reapplied after reconnects.
+/// Stored subscription intent can be reapplied after reconnects.
 #[derive(Resource)]
 pub struct StdbSubscriptions<K, M>
 where
@@ -62,7 +63,8 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    /// Stores a typed query for `key` and queues it to be applied.
+    /// Stores a typed query for `key` and queues it to be applied on the next
+    /// active connection.
     pub fn subscribe_query<T, Q>(&mut self, key: K, query: impl Fn(M::QueryBuilder) -> Q)
     where
         Q: Query<T>,
@@ -72,7 +74,8 @@ where
         self.subscribe_sql(key, sql);
     }
 
-    /// Stores a SQL query for `key` and queues it to be applied.
+    /// Stores a SQL query for `key` and queues it to be applied on the next active
+    /// connection.
     pub fn subscribe_sql(&mut self, key: K, sql: impl Into<String>) {
         let sql = sql.into();
 
@@ -180,6 +183,9 @@ where
 }
 
 /// Internal plugin for subscription lifecycle management.
+///
+/// This plugin initializes [`StdbSubscriptions`] during app build and reapplies
+/// queued subscriptions after a connection becomes active.
 pub(crate) struct SubscriptionsPlugin<K, C, M>
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
