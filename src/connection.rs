@@ -453,7 +453,7 @@ impl<
         app.insert_resource(StdbConnectionController::default());
 
         if !self.delayed_connection {
-            app.add_systems(Startup, request_initial_connection);
+            app.add_systems(PreStartup, request_initial_connection);
         }
 
         // Set our StdbConnectionState based on the connection state messages from SpacetimeDB.
