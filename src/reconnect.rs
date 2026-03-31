@@ -29,9 +29,6 @@ use spacetimedb_sdk::{
 
 use std::{sync::Arc, time::Duration};
 
-/// Reconnect attempt result type.
-type ReconnectResult<C> = Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>;
-
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
 pub struct StdbReconnectOptions {
@@ -207,7 +204,7 @@ where
 }
 
 #[cfg(not(feature = "browser"))]
-fn try_reconnect<C, M>(world: &mut World) -> ReconnectResult<C>
+fn try_reconnect<C, M>(world: &mut World) -> Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
