@@ -25,7 +25,7 @@ use std::sync::Arc;
 type ConnectionBuildResult<C> = Result<Arc<C>>;
 
 /// Internal runtime status for an in-flight SpacetimeDB connection build.
-enum PendingConnectionStatus<C: DbContext + Send + Sync + 'static> {
+pub(crate) enum PendingConnectionStatus<C: DbContext + Send + Sync + 'static> {
     #[cfg(feature = "browser")]
     Pending(Receiver<ConnectionBuildResult<C>>),
     Ready(ConnectionBuildResult<C>),
@@ -33,8 +33,8 @@ enum PendingConnectionStatus<C: DbContext + Send + Sync + 'static> {
 
 /// Internal runtime state for an in-flight SpacetimeDB connection build.
 #[derive(Resource)]
-struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
-    pub(crate) status: PendingConnectionStatus<C>,
+pub(crate) struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
+    status: PendingConnectionStatus<C>,
 }
 
 /// Begin a browser connection build and store its pending result resource.

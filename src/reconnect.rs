@@ -179,7 +179,7 @@ where
         return;
     }
 
-    if world.contains_resource::<crate::connection::PendingConnectionState<C>>() {
+    if world.contains_resource::<PendingConnectionState<C>>() {
         return;
     }
 
