@@ -106,7 +106,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 {
-    /// Creates a reconnect plugin from the given options.
+    /// Creates a new [`ReconnectPlugin`] with the given options.
     pub fn new(reconnect_options: StdbReconnectOptions) -> Self {
         Self {
             reconnect_options,

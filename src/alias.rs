@@ -1,6 +1,4 @@
-//! Message reader aliases for bevy_stdb.
-//!
-//! Provides concise `MessageReader` type aliases for connection and table messages.
+//! [`MessageReader`] type aliases for connection lifecycle and table messages.
 use crate::message::{
     DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
     StdbConnectionErrorMessage, StdbDisconnectedMessage, UpdateMessage,

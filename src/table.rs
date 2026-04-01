@@ -126,6 +126,8 @@ impl<'w, TRow> EventTableBinder<'w, TRow> {
         }
     }
 
+    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
+    /// Bevy messages.
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + 'static,
@@ -135,7 +137,7 @@ impl<'w, TRow> EventTableBinder<'w, TRow> {
     }
 }
 
-/// Registers the Bevy messages for a table with a primary key.
+/// Registers Bevy message channels for a table with a primary key.
 pub(crate) fn register_table<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + 'static,
@@ -146,7 +148,7 @@ where
     register_channel::<InsertUpdateMessage<TRow>>(app);
 }
 
-/// Registers the Bevy messages for a table without a primary key.
+/// Registers Bevy message channels for a table without a primary key.
 pub(crate) fn register_table_without_pk<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + 'static,
@@ -155,7 +157,7 @@ where
     register_channel::<DeleteMessage<TRow>>(app);
 }
 
-/// Registers the Bevy messages for a view.
+/// Registers Bevy message channels for a view.
 pub(crate) fn register_view<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + 'static,
@@ -163,7 +165,7 @@ where
     register_table_without_pk::<TRow>(app);
 }
 
-/// Registers the Bevy messages for an event table.
+/// Registers Bevy message channels for an event table.
 pub(crate) fn register_event_table<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + 'static,

@@ -37,7 +37,7 @@ pub(crate) struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
     status: PendingConnectionStatus<C>,
 }
 
-/// Begin a browser connection build and store its pending result resource.
+/// Begins a browser connection build and stores its pending result as a resource.
 #[cfg(feature = "browser")]
 pub(crate) fn begin_browser_connection_build<C, F>(
     commands: &mut bevy_ecs::system::Commands,
@@ -58,7 +58,7 @@ pub(crate) fn begin_browser_connection_build<C, F>(
     });
 }
 
-/// Poll an in-flight browser connection build until it produces a result.
+/// Polls an in-flight browser connection build until it produces a result.
 #[cfg(feature = "browser")]
 pub(crate) fn poll_browser_connection_build<C>(world: &mut bevy_ecs::world::World)
 where
@@ -86,7 +86,7 @@ where
     }
 }
 
-/// Take a completed pending connection build result if one is ready.
+/// Takes a completed pending connection build result, if one is ready.
 pub(crate) fn take_pending_connection_result<C>(
     world: &mut bevy_ecs::world::World,
 ) -> Option<ConnectionBuildResult<C>>
@@ -139,9 +139,9 @@ pub enum StdbConnectionState {
 
 /// Internal connection driver configuration.
 pub(crate) enum ConnectionDriver<C: DbContext + Send + Sync + 'static> {
-    /// Drive the connection from the Bevy schedule each frame.
+    /// Drives the connection from the Bevy schedule each frame.
     FrameTick(fn(&C) -> Result<()>),
-    /// Start connection processing in the background.
+    /// Starts connection processing in the background.
     Background(Arc<dyn Fn(&C) + Send + Sync>),
 }
 
@@ -253,11 +253,10 @@ where
     }
 }
 
-/// A Bevy resource for the active SpacetimeDB connection.
+/// Active SpacetimeDB connection [`Resource`].
 ///
-/// This resource is inserted once a connection build succeeds. When delayed
-/// connection is enabled, or before the initial/manual connection attempt has
-/// completed, this resource will not yet exist.
+/// Inserted once a connection build succeeds. Will not exist while delayed
+/// connection is enabled or before the initial connection attempt completes.
 #[derive(Resource)]
 pub struct StdbConnection<T: DbContext + 'static> {
     /// The underlying connection context.
@@ -266,13 +265,12 @@ pub struct StdbConnection<T: DbContext + 'static> {
 
 /// Runtime controller for eager or delayed connection startup.
 ///
-/// This resource is always inserted during plugin build. In eager mode, the
-/// plugin requests an initial connection automatically during startup. In
-/// delayed mode, application code can request connection later by calling
-/// [`Self::connect`] or [`Self::connect_with_token`].
+/// Always inserted during plugin build. In eager mode the plugin requests an
+/// initial connection automatically. In delayed mode, call [`Self::connect`]
+/// or [`Self::connect_with_token`] to begin connecting.
 ///
-/// If a token is provided through [`Self::connect_with_token`], it becomes the
-/// most recently stored token and will be reused by future reconnect attempts.
+/// Tokens provided through [`Self::connect_with_token`] become the stored
+/// token reused by future reconnect attempts.
 #[derive(Resource, Default)]
 pub struct StdbConnectionController {
     requested: bool,
@@ -280,23 +278,20 @@ pub struct StdbConnectionController {
 }
 
 impl StdbConnectionController {
-    /// Request that a connection be established using the currently stored
-    /// token, if any.
+    /// Requests a connection using the currently stored token, if any.
     ///
-    /// If a connection is already active or a connection attempt is already in
-    /// progress, the request is dropped.
+    /// Has no effect if a connection is already active or in progress.
     pub fn connect(&mut self) {
         self.requested = true;
         self.token_override = None;
     }
 
-    /// Request that a connection be established using the supplied token.
+    /// Requests a connection using the supplied token.
     ///
-    /// The supplied token becomes the most recently stored token and will be
-    /// reused by future reconnect attempts after the request is processed.
+    /// The supplied token becomes the stored token reused by future reconnect
+    /// attempts.
     ///
-    /// If a connection is already active or a connection attempt is already in
-    /// progress, the request is dropped.
+    /// Has no effect if a connection is already active or in progress.
     pub fn connect_with_token(&mut self, token: impl Into<String>) {
         self.requested = true;
         self.token_override = Some(token.into());
@@ -378,9 +373,8 @@ impl<T: DbContext> StdbConnection<T> {
 
 /// Internal plugin for the SpacetimeDB connection lifecycle.
 ///
-/// This plugin installs the resources and systems needed to support eager or
-/// delayed startup, native or browser connection building, and deferred table
-/// binding after connection.
+/// Installs the resources and systems for eager or delayed startup, native or
+/// browser connection building, and deferred table binding.
 pub(crate) struct StdbConnectionPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
@@ -471,21 +465,18 @@ impl<
     }
 }
 
-/// Request an eager connection during startup unless delayed connection is
-/// enabled.
+/// Requests an eager connection during startup.
 fn request_initial_connection(mut controller: ResMut<StdbConnectionController>) {
     controller.connect();
 }
 
-/// Start building a connection when requested at runtime.
+/// Starts building a connection when requested at runtime.
 ///
-/// This system consumes the pending request from
-/// [`StdbConnectionController`], persists any token override into the stored
-/// connection config, and then begins a native or browser-specific connection
-/// build.
+/// Consumes the pending request from [`StdbConnectionController`], persists
+/// any token override into the stored config, and begins a native or
+/// browser-specific connection build.
 ///
-/// Requests are dropped if a connection is already active or another connection
-/// attempt is already pending.
+/// Requests are dropped if a connection is already active or pending.
 fn start_requested_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -530,7 +521,7 @@ fn start_requested_connection<
 }
 
 #[cfg(feature = "browser")]
-/// Poll any in-flight browser connection build until it produces a result.
+/// Polls an in-flight browser connection build until it produces a result.
 fn poll_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -542,8 +533,7 @@ fn poll_pending_connection<
 
 /// Inserts an active connection resource and starts the configured driver.
 ///
-/// This helper is shared by the initial/manual connection flow and reconnect
-/// success handling.
+/// Shared by the initial connection flow and reconnect success handling.
 pub(crate) fn activate_connection<C>(
     world: &mut bevy_ecs::world::World,
     conn: Arc<C>,
@@ -558,12 +548,11 @@ pub(crate) fn activate_connection<C>(
     world.insert_resource(StdbConnection::new(conn));
 }
 
-/// Finalize a completed connection build.
+/// Finalizes a completed connection build.
 ///
-/// On success this inserts [`StdbConnection`] and starts the configured
-/// background driver if needed. On failure this transitions the lifecycle state
-/// to [`StdbConnectionState::Disconnected`], allowing reconnect policy to take
-/// over if configured.
+/// On success, inserts [`StdbConnection`] and starts the configured driver.
+/// On failure, transitions to [`StdbConnectionState::Disconnected`] so
+/// reconnect policy can take over if configured.
 fn finalize_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -594,7 +583,7 @@ fn finalize_pending_connection<
     }
 }
 
-/// Synchronize [`StdbConnectionState`] from SDK lifecycle messages.
+/// Synchronizes [`StdbConnectionState`] from SDK lifecycle messages.
 ///
 /// `Disconnected` takes precedence over `Connected` when multiple lifecycle
 /// messages are observed in the same frame.
@@ -615,7 +604,7 @@ fn sync_connection_state(
     }
 }
 
-/// Bind all deferred table callbacks after a connection becomes active.
+/// Binds deferred table callbacks after a connection becomes active.
 fn on_connected_bind<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
@@ -635,9 +624,9 @@ fn on_connected_bind<
     }
 }
 
-/// Tick the active connection once per frame when the frame driver is in use.
+/// Ticks the active connection once per frame.
 ///
-/// This is only added when [`ConnectionDriver::FrameTick`] is configured.
+/// Only added when [`ConnectionDriver::FrameTick`] is configured.
 fn drive_connection_frame_tick<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,

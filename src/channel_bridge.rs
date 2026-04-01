@@ -30,7 +30,7 @@ impl Plugin for ChannelBridgePlugin {
     }
 }
 
-/// Drain all registered channels once per frame.
+/// Drains all registered channels once per frame.
 fn drain_channels(world: &mut World) {
     world.resource_scope(|world, registry: Mut<ChannelRegistry>| {
         for entry in &registry.channels {

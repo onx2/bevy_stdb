@@ -1,6 +1,6 @@
-//! Subscription state and lifecycle for SpacetimeDB as a [`Resource`].
+//! Subscription state and lifecycle management for SpacetimeDB.
 //!
-//! Manages subscription intent and active handles via Bevy Systems and Resources.
+//! Manages subscription intent and active handles via Bevy systems and resources.
 use crate::connection::{StdbConnection, StdbConnectionState};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
@@ -24,9 +24,9 @@ struct SubscriptionEntry<H> {
     queued: bool,
 }
 
-/// A [`Resource`] that stores SpacetimeDB subscriptions in Bevy.
+/// SpacetimeDB subscription [`Resource`].
 ///
-/// Subscription intent is kept separately from active handles so it can be
+/// Keeps subscription intent separate from active handles so queries can be
 /// reapplied after reconnects.
 #[derive(Resource)]
 pub struct StdbSubscriptions<K, M>
@@ -35,7 +35,7 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    /// Stored subscription entries keyed by logical subscription key.
+    /// Subscription entries keyed by user-defined subscription key.
     entries: HashMap<K, SubscriptionEntry<M::SubscriptionHandle>>,
 }
 
@@ -149,7 +149,7 @@ where
         self.entries.values().any(|entry| entry.queued)
     }
 
-    /// Applies queued subscriptions to the active connection.
+    /// Sends queued subscriptions to the active connection.
     fn apply_queued<C>(&mut self, conn: &StdbConnection<C>)
     where
         C: DbConnection<Module = M>
@@ -249,7 +249,7 @@ where
     subs.has_queued() && *state.get() == StdbConnectionState::Connected
 }
 
-/// Re-queues stored subscriptions after a disconnect.
+/// Unsubscribes active handles and re-queues them for the next connection.
 fn queue_subscriptions_on_disconnect<K, M>(mut subs: ResMut<StdbSubscriptions<K, M>>)
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
@@ -264,7 +264,7 @@ where
     }
 }
 
-/// Applies queued subscriptions to the current connection.
+/// Sends queued subscriptions to the current connection.
 fn apply_queued_subscriptions<K, C, M>(
     conn: Res<StdbConnection<C>>,
     mut subs: ResMut<StdbSubscriptions<K, M>>,

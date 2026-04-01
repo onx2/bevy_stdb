@@ -1,7 +1,6 @@
 //! Bevy integration for SpacetimeDB.
 //!
-//! This crate provides [`crate::prelude::StdbPlugin`] and related types for
-//! configuring SpacetimeDB connections in Bevy apps.
+//! See [`StdbPlugin`](crate::prelude::StdbPlugin) for configuration and setup.
 pub(crate) mod channel_bridge;
 
 mod alias;
