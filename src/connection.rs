@@ -520,8 +520,8 @@ fn start_requested_connection<
     next_state.set(StdbConnectionState::Connecting);
 }
 
-#[cfg(feature = "browser")]
 /// Polls an in-flight browser connection build until it produces a result.
+#[cfg(feature = "browser")]
 fn poll_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,

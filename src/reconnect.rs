@@ -32,6 +32,9 @@ pub struct StdbReconnectOptions {
     /// If `None`, retries indefinitely.
     pub max_attempts: Option<u32>,
     /// Multiplier applied after each failed reconnect attempt.
+    ///
+    /// Values below `1.0` are clamped to `1.0` to prevent the delay from
+    /// shrinking between attempts.
     pub backoff_factor: f32,
     /// Maximum delay between reconnect attempts.
     pub max_delay: Duration,

@@ -93,6 +93,6 @@ pub(crate) fn channel_sender<T: Message>(world: &World) -> Sender<T> {
         .sender
         .as_ref()
         .downcast_ref::<Sender<T>>()
-        .unwrap_or_else(|| panic!("unexpected type for sender`{}`", type_name::<T>(),))
+        .unwrap_or_else(|| panic!("unexpected type for sender `{}`", type_name::<T>(),))
         .clone()
 }
