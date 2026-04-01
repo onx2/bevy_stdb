@@ -1,7 +1,7 @@
 //! Table registration and message forwarding for SpacetimeDB.
 //!
 //! Registers Bevy message channels and binds SDK table callbacks to
-//! forward events as `Insert`, `Update`, and `Delete` messages.
+//! forward events as `Insert`, `Update`, `Delete`, and `InsertUpdate` messages.
 use crate::{
     channel_bridge::{channel_sender, register_channel},
     message::{DeleteMessage, InsertMessage, InsertUpdateMessage, UpdateMessage},
