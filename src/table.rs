@@ -170,7 +170,7 @@ where
 }
 
 /// Binds all callbacks for a table with a primary key.
-pub(crate) fn bind_table<TRow, TTable>(world: &World, table: &TTable)
+fn bind_table<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
@@ -182,7 +182,7 @@ where
 }
 
 /// Binds insert and delete callbacks for a table without a primary key.
-pub(crate) fn bind_table_without_pk<TRow, TTable>(world: &World, table: &TTable)
+fn bind_table_without_pk<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow>,
@@ -192,7 +192,7 @@ where
 }
 
 /// Binds insert and delete callbacks for a view.
-pub(crate) fn bind_view<TRow, TTable>(world: &World, table: &TTable)
+fn bind_view<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow>,
@@ -201,7 +201,7 @@ where
 }
 
 /// Binds insert callbacks for an event table.
-pub(crate) fn bind_event_table<TRow, TTable>(world: &World, table: &TTable)
+fn bind_event_table<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow> + EventTable,
@@ -209,7 +209,7 @@ where
     bind_insert::<TRow, TTable>(world, table);
 }
 
-pub(crate) fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
+fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow>,
@@ -220,7 +220,7 @@ where
     });
 }
 
-pub(crate) fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
+fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow>,
@@ -231,7 +231,7 @@ where
     });
 }
 
-pub(crate) fn bind_update<TRow, TTable>(world: &World, table: &TTable)
+fn bind_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
@@ -245,7 +245,7 @@ where
     });
 }
 
-pub(crate) fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
+fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + 'static,
     TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,

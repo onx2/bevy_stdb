@@ -83,7 +83,7 @@ impl From<StdbReconnectOptions> for ReconnectConfig {
 
 /// Runtime state for reconnect attempts.
 #[derive(Resource)]
-pub(crate) struct ReconnectState {
+struct ReconnectState {
     pub attempts: u32,
     pub current_delay: Duration,
     pub timer: Option<Timer>,
