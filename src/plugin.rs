@@ -19,6 +19,22 @@ use std::{hash::Hash, sync::Arc};
 
 /// Primary plugin for configuring `bevy_stdb`.
 ///
+/// # Example
+///
+/// ```ignore
+/// app.add_plugins(
+///     StdbPlugin::<DbConnection, Module>::default()
+///         .with_module_name("my_module")
+///         .with_uri("http://localhost:3000")
+///         .with_background_driver(DbConnection::run_threaded)
+///         .with_reconnect(StdbReconnectOptions::default())
+///         .with_subscriptions(|subs: &mut StdbSubscriptions<SubKey, Module>| {
+///             subs.subscribe_sql(SubKey::Chat, "SELECT * FROM chat_message");
+///         })
+///         .add_table::<ChatMessageRow>(|reg, db| reg.bind(db.chat_message()))
+/// );
+/// ```
+///
 /// # Panics
 ///
 /// Panics during [`Plugin::build`] if required connection settings are
@@ -64,11 +80,22 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the function used to drive the connection from the Bevy schedule.
     ///
     /// Use this when you want the active connection to be progressed from Bevy's
-    /// schedules instead of in a background task.
+    /// schedules instead of in a background task. Internally, `bevy_stdb` runs
+    /// this driver from [`PreUpdate`](bevy_app::PreUpdate).
     ///
     /// Exactly one connection driver must be configured for the plugin.
     ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// StdbPlugin::<DbConnection, RemoteModule>::default()
+    ///     .with_module_name("my_module")
+    ///     .with_uri("http://localhost:3000")
+    ///     .with_frame_driver(DbConnection::frame_tick)
+    /// ```
+    ///
     /// # Panics
+    ///
     /// Panics if a connection driver has already been configured.
     pub fn with_frame_driver(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
         assert!(
@@ -82,13 +109,47 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the function used to drive the connection in the background.
     ///
     /// Use this when the underlying SDK connection should manage its own
-    /// progress outside the Bevy frame loop.
+    /// progress outside the Bevy frame loop. The return value of
+    /// `background_driver` is ignored.
     ///
     /// Exactly one connection driver must be configured for the plugin.
     ///
-    /// The return value of `background_driver` is ignored.
+    /// # Examples
+    ///
+    /// Native targets typically use `run_threaded`:
+    ///
+    /// ```ignore
+    /// StdbPlugin::<DbConnection, RemoteModule>::default()
+    ///     .with_module_name("my_module")
+    ///     .with_uri("http://localhost:3000")
+    ///     .with_background_driver(DbConnection::run_threaded)
+    /// ```
+    ///
+    /// Browser targets use the generated async helper instead:
+    ///
+    /// ```ignore
+    /// StdbPlugin::<DbConnection, RemoteModule>::default()
+    ///     .with_module_name("my_module")
+    ///     .with_uri("http://localhost:3000")
+    ///     .with_background_driver(DbConnection::run_background_task)
+    /// ```
+    ///
+    /// To support both, select the driver with `cfg`:
+    ///
+    /// ```ignore
+    /// #[cfg(target_arch = "wasm32")]
+    /// let driver = DbConnection::run_background_task;
+    /// #[cfg(not(target_arch = "wasm32"))]
+    /// let driver = DbConnection::run_threaded;
+    ///
+    /// StdbPlugin::<DbConnection, RemoteModule>::default()
+    ///     .with_module_name("my_module")
+    ///     .with_uri("http://localhost:3000")
+    ///     .with_background_driver(driver)
+    /// ```
     ///
     /// # Panics
+    ///
     /// Panics if a connection driver has already been configured.
     pub fn with_background_driver<R>(mut self, background_driver: fn(&C) -> R) -> Self
     where
@@ -263,9 +324,23 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// The initializer runs during plugin build and populates the
     /// [`StdbSubscriptions`] resource with queries that should be managed
-    /// automatically.
+    /// automatically. Queued subscriptions are applied when connected and
+    /// re-applied after reconnects.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// .with_subscriptions(|subs: &mut StdbSubscriptions<SubKey, RemoteModule>| {
+    ///     subs.subscribe_sql(SubKey::Players, "SELECT * FROM player");
+    ///     subs.subscribe_query(SubKey::Chat, |q| q.from.chat_message());
+    /// })
+    /// ```
+    ///
+    /// Additional subscriptions can be queued at runtime from normal Bevy
+    /// systems by accessing [`StdbSubscriptions`] as a resource.
     ///
     /// # Panics
+    ///
     /// Panics if called more than once.
     pub fn with_subscriptions<K>(
         mut self,
@@ -303,7 +378,28 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// later runtime call to
     /// [`crate::prelude::StdbConnectionController::connect_with_token`].
     ///
+    /// On a successful reconnect, table callbacks are re-bound and queued
+    /// subscriptions are re-applied automatically.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// // Use defaults (1s initial delay, 1.5x backoff, 15s max, infinite retries):
+    /// .with_reconnect(StdbReconnectOptions::default())
+    ///
+    /// // Or customize:
+    /// .with_reconnect(StdbReconnectOptions {
+    ///     initial_delay: Duration::from_secs(2),
+    ///     max_attempts: Some(5),
+    ///     backoff_factor: 2.0,
+    ///     max_delay: Duration::from_secs(30),
+    /// })
+    /// ```
+    ///
     /// # Panics
+    ///
     /// Panics if called more than once.
     pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
         assert!(
@@ -323,7 +419,24 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// [`StdbConnectionController::connect_with_token`](crate::prelude::StdbConnectionController::connect_with_token)
     /// to begin connecting.
     ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // During setup:
+    /// StdbPlugin::<DbConnection, RemoteModule>::default()
+    ///     .with_module_name("my_module")
+    ///     .with_uri("http://localhost:3000")
+    ///     .with_delayed_connection()
+    ///     .with_background_driver(DbConnection::run_threaded)
+    ///
+    /// // Later, from a system:
+    /// fn connect_on_button_press(mut controller: ResMut<StdbConnectionController>) {
+    ///     controller.connect();
+    /// }
+    /// ```
+    ///
     /// # Panics
+    ///
     /// Panics if called more than once.
     pub fn with_delayed_connection(mut self) -> Self {
         assert!(
