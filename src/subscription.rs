@@ -146,7 +146,7 @@ where
 
     /// Returns `true` if any subscription has queued work.
     fn has_queued(&self) -> bool {
-        self.entries.values().any(|e| e.queued)
+        self.entries.values().any(|entry| entry.queued)
     }
 
     /// Applies queued subscriptions to the active connection.
