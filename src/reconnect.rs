@@ -8,7 +8,8 @@ use crate::connection::{
 };
 #[cfg(feature = "browser")]
 use crate::connection::{
-    begin_browser_connection_build, poll_browser_connection_build, take_pending_connection_result,
+    PendingConnectionState, begin_browser_connection_build, poll_browser_connection_build,
+    take_pending_connection_result,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, World};
