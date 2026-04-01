@@ -1,4 +1,4 @@
-//! Bevy message types for SpacetimeDB table events.
+//! Bevy message types for SpacetimeDB connection lifecycle and table events.
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{Error, Identity};
 
