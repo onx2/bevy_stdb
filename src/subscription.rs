@@ -259,8 +259,8 @@ where
     for entry in subs.entries.values_mut() {
         if let Some(handle) = entry.handle.take() {
             let _ = handle.unsubscribe();
+            entry.queued = true;
         }
-        entry.queued = true;
     }
 }
 
