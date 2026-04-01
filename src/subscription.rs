@@ -35,8 +35,6 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    /// Number of stored subscriptions currently queued to be applied.
-    queued_count: u16,
     /// Stored subscription entries keyed by logical subscription key.
     entries: HashMap<K, SubscriptionEntry<M::SubscriptionHandle>>,
 }
@@ -49,7 +47,6 @@ where
 {
     fn default() -> Self {
         Self {
-            queued_count: 0,
             entries: HashMap::new(),
         }
     }
@@ -77,10 +74,7 @@ where
 
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.sql = sql;
-            if !entry.queued {
-                entry.queued = true;
-                self.queued_count += 1;
-            }
+            entry.queued = true;
             return;
         }
 
@@ -92,7 +86,6 @@ where
                 queued: true,
             },
         );
-        self.queued_count += 1;
     }
 
     /// Unsubscribes `key` and removes its stored query.
@@ -100,11 +93,6 @@ where
         let Some(mut entry) = self.entries.remove(key) else {
             return Ok(());
         };
-
-        if entry.queued {
-            self.queued_count -= 1;
-            entry.queued = false;
-        }
 
         if let Some(handle) = entry.handle.take() {
             handle.unsubscribe()?;
@@ -130,8 +118,6 @@ where
                 }
             }
         }
-
-        self.queued_count = 0;
 
         if let Some(err) = first_err {
             Err(err)
@@ -160,7 +146,7 @@ where
 
     /// Returns `true` if any subscription has queued work.
     fn has_queued(&self) -> bool {
-        self.queued_count > 0
+        self.entries.values().any(|e| e.queued)
     }
 
     /// Applies queued subscriptions to the active connection.
@@ -184,8 +170,6 @@ where
             }
             entry.queued = false;
         }
-
-        self.queued_count = 0;
     }
 }
 
@@ -272,19 +256,12 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    let mut requeued = 0u16;
-
     for entry in subs.entries.values_mut() {
         if let Some(handle) = entry.handle.take() {
             let _ = handle.unsubscribe();
-            if !entry.queued {
-                entry.queued = true;
-                requeued += 1;
-            }
         }
+        entry.queued = true;
     }
-
-    subs.queued_count += requeued;
 }
 
 /// Applies queued subscriptions to the current connection.
