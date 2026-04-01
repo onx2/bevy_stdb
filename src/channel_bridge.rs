@@ -18,7 +18,7 @@ struct ChannelEntry {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct ChannelRegistry {
+struct ChannelRegistry {
     channels: Vec<ChannelEntry>,
 }
 
@@ -64,8 +64,9 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) {
         .push(ChannelEntry {
             type_id: TypeId::of::<T>(),
             drain: Box::new(move |world: &mut World| {
-                let mut messages = world.resource_mut::<Messages<T>>();
-                messages.write_batch(rx.try_iter());
+                world
+                    .resource_mut::<Messages<T>>()
+                    .write_batch(rx.try_iter());
             }),
             sender: Box::new(tx),
         });
