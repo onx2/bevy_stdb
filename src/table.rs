@@ -1,10 +1,7 @@
-//! Table registration for SpacetimeDB message forwarding.
+//! Table registration and message forwarding for SpacetimeDB.
 //!
-//! This module provides helpers for:
-//! - registering Bevy messages for a table row type during app setup
-//! - binding SpacetimeDB table callbacks later when a connection is active
-//! - exposing small per-kind binder helpers so plugin APIs can use `reg.bind(...)`
-
+//! Registers Bevy message channels and binds SDK table callbacks to
+//! forward events as `Insert`, `Update`, and `Delete` messages.
 use crate::{
     channel_bridge::{channel_sender, register_channel},
     message::{DeleteMessage, InsertMessage, InsertUpdateMessage, UpdateMessage},
@@ -47,7 +44,10 @@ impl<'w, TRow> TableBinder<'w, TRow> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
     {
-        bind_table::<TRow, TTable>(self.world, &table);
+        bind_insert::<TRow, TTable>(self.world, &table);
+        bind_delete::<TRow, TTable>(self.world, &table);
+        bind_update::<TRow, TTable>(self.world, &table);
+        bind_insert_update::<TRow, TTable>(self.world, &table);
     }
 }
 
@@ -75,7 +75,8 @@ impl<'w, TRow> TableWithoutPkBinder<'w, TRow> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow>,
     {
-        bind_table_without_pk::<TRow, TTable>(self.world, &table);
+        bind_insert::<TRow, TTable>(self.world, &table);
+        bind_delete::<TRow, TTable>(self.world, &table);
     }
 }
 
@@ -103,7 +104,8 @@ impl<'w, TRow> ViewBinder<'w, TRow> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow>,
     {
-        bind_view::<TRow, TTable>(self.world, &table);
+        bind_insert::<TRow, TTable>(self.world, &table);
+        bind_delete::<TRow, TTable>(self.world, &table);
     }
 }
 
@@ -129,7 +131,7 @@ impl<'w, TRow> EventTableBinder<'w, TRow> {
         TRow: Send + Sync + Clone + 'static,
         TTable: Table<Row = TRow> + EventTable,
     {
-        bind_event_table::<TRow, TTable>(self.world, &table);
+        bind_insert::<TRow, TTable>(self.world, &table);
     }
 }
 
@@ -167,46 +169,6 @@ where
     TRow: Send + Sync + Clone + 'static,
 {
     register_channel::<InsertMessage<TRow>>(app);
-}
-
-/// Binds all callbacks for a table with a primary key.
-fn bind_table<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow> + TableWithPrimaryKey<Row = TRow>,
-{
-    bind_insert::<TRow, TTable>(world, table);
-    bind_delete::<TRow, TTable>(world, table);
-    bind_update::<TRow, TTable>(world, table);
-    bind_insert_update::<TRow, TTable>(world, table);
-}
-
-/// Binds insert and delete callbacks for a table without a primary key.
-fn bind_table_without_pk<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow>,
-{
-    bind_insert::<TRow, TTable>(world, table);
-    bind_delete::<TRow, TTable>(world, table);
-}
-
-/// Binds insert and delete callbacks for a view.
-fn bind_view<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow>,
-{
-    bind_table_without_pk::<TRow, TTable>(world, table);
-}
-
-/// Binds insert callbacks for an event table.
-fn bind_event_table<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + 'static,
-    TTable: Table<Row = TRow> + EventTable,
-{
-    bind_insert::<TRow, TTable>(world, table);
 }
 
 fn bind_insert<TRow, TTable>(world: &World, table: &TTable)

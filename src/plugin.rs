@@ -1,8 +1,3 @@
-//! The main plugin for `bevy_stdb`.
-//!
-//! [`StdbPlugin`] configures SpacetimeDB connections, table bindings,
-//! subscriptions, and reconnect behavior for a Bevy app.
-
 use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
@@ -24,23 +19,9 @@ use std::{hash::Hash, sync::Arc};
 
 /// Configures the `bevy_stdb` integration for a Bevy app.
 ///
-/// This plugin registers row message channels during app build and binds SDK
-/// table callbacks after a connection is established.
-///
-/// By default, the plugin requests an initial connection during startup. Call
-/// [`Self::with_delayed_connection`] to defer connection creation until
-/// runtime, then use [`crate::prelude::StdbConnectionController`] to request
-/// connection later.
-///
 /// # Panics
-///
 /// Plugin installation panics during [`Plugin::build`] if required connection
-/// settings are missing:
-///
-/// - no module name was provided with [`Self::with_module_name`]
-/// - no URI was provided with [`Self::with_uri`]
-/// - no connection driver was provided with [`Self::with_background_driver`] or
-///   [`Self::with_frame_driver`]
+/// settings are missing
 pub struct StdbPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,

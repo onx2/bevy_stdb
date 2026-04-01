@@ -1,7 +1,6 @@
-//! Subscription state and lifecycle for SpacetimeDB.
+//! Subscription state and lifecycle for SpacetimeDB as a [`Resource`].
 //!
-//! This module stores subscription intent and applies it when a connection is active.
-
+//! Manages subscription intent and active handles via Bevy Systems and Resources.
 use crate::connection::{StdbConnection, StdbConnectionState};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
@@ -239,11 +238,7 @@ where
     /// Installs the subscription resource and lifecycle systems.
     fn build(&self, app: &mut App) {
         app.init_resource::<StdbSubscriptions<K, M>>();
-
-        let mut subs = app
-            .world_mut()
-            .get_resource_mut::<StdbSubscriptions<K, M>>()
-            .expect("StdbSubscriptions should be initialized during plugin build");
+        let mut subs = app.world_mut().resource_mut::<StdbSubscriptions<K, M>>();
         (self.initializer)(&mut subs);
 
         app.add_systems(

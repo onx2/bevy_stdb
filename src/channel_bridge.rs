@@ -1,7 +1,7 @@
 //! Channel-backed message delivery for Bevy.
 //!
-//! This module registers per-type channels and forwards queued values into `Messages<T>`.
-
+//! Registers per-type channels and forwards SpacetimeDB
+//! table events from channels into Bevy `Messages<T>`.
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{Message, Messages, Mut, Resource, World};
 use crossbeam_channel::{Sender, unbounded};

@@ -1,7 +1,6 @@
-//! Connection state and resources.
+//! Connection state and lifecycle for SpacetimeDB.
 //!
-//! This module manages the active SpacetimeDB connection and its Bevy
-//! lifecycle integration.
+//! Manages the active connection, lifecycle states, and related resources.
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
