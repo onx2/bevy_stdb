@@ -25,7 +25,7 @@ use std::sync::Arc;
 type ConnectionBuildResult<C> = Result<Arc<C>>;
 
 /// Internal runtime status for an in-flight SpacetimeDB connection build.
-pub(crate) enum PendingConnectionStatus<C: DbContext + Send + Sync + 'static> {
+enum PendingConnectionStatus<C: DbContext + Send + Sync + 'static> {
     #[cfg(feature = "browser")]
     Pending(Receiver<ConnectionBuildResult<C>>),
     Ready(ConnectionBuildResult<C>),
@@ -152,25 +152,25 @@ pub(crate) struct StdbConnectionConfig<
     M: SpacetimeModule<DbConnection = C>,
 > {
     /// The remote module/database name.
-    pub module_name: String,
+    module_name: String,
     /// The URI of the SpacetimeDB host.
-    pub uri: String,
+    uri: String,
     /// Optional authentication token.
-    pub token: Option<String>,
+    token: Option<String>,
     /// The configured connection driver.
     pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
-    pub compression: Compression,
+    compression: Compression,
     /// Whether startup should wait for an explicit connection request.
-    pub delayed_connection: bool,
+    delayed_connection: bool,
     /// Stored bind callbacks invoked for each active connection.
-    pub table_bindings: Vec<Arc<TableBindCallback<C>>>,
+    table_bindings: Vec<Arc<TableBindCallback<C>>>,
     /// Sender used by the SpacetimeDB on-connect callback.
-    pub connected_tx: Sender<StdbConnectedMessage>,
+    connected_tx: Sender<StdbConnectedMessage>,
     /// Sender used by the SpacetimeDB on-disconnect callback.
-    pub disconnected_tx: Sender<StdbDisconnectedMessage>,
+    disconnected_tx: Sender<StdbDisconnectedMessage>,
     /// Sender used by the SpacetimeDB on-connect-error callback.
-    pub error_tx: Sender<StdbConnectionErrorMessage>,
+    error_tx: Sender<StdbConnectionErrorMessage>,
 }
 
 impl<C> Clone for ConnectionDriver<C>
@@ -314,7 +314,7 @@ impl StdbConnectionController {
 
 impl<T: DbContext> StdbConnection<T> {
     /// Wraps an existing shared connection.
-    pub(crate) fn new(conn: Arc<T>) -> Self {
+    fn new(conn: Arc<T>) -> Self {
         Self { conn }
     }
 }

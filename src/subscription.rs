@@ -200,7 +200,9 @@ where
     M: SpacetimeModule<DbConnection = C>,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    pub fn new(initializer: impl Fn(&mut StdbSubscriptions<K, M>) + Send + Sync + 'static) -> Self {
+    pub(crate) fn new(
+        initializer: impl Fn(&mut StdbSubscriptions<K, M>) + Send + Sync + 'static,
+    ) -> Self {
         Self {
             initializer: Box::new(initializer),
             _marker: PhantomData,

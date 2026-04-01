@@ -49,17 +49,17 @@ impl Default for StdbReconnectOptions {
 
 /// Runtime reconnect configuration.
 #[derive(Resource, Clone)]
-pub(crate) struct ReconnectConfig {
+struct ReconnectConfig {
     /// Delay before the first reconnect attempt after a disconnect.
-    pub initial_delay: Duration,
+    initial_delay: Duration,
     /// Maximum number of reconnect attempts before giving up.
     ///
     /// If `None`, retries indefinitely.
-    pub max_attempts: Option<u32>,
+    max_attempts: Option<u32>,
     /// Multiplier applied after each failed reconnect attempt.
-    pub backoff_factor: f32,
+    backoff_factor: f32,
     /// Maximum delay between reconnect attempts.
-    pub max_delay: Duration,
+    max_delay: Duration,
 }
 
 impl From<StdbReconnectOptions> for ReconnectConfig {
@@ -76,9 +76,9 @@ impl From<StdbReconnectOptions> for ReconnectConfig {
 /// Runtime state for reconnect attempts.
 #[derive(Resource)]
 struct ReconnectState {
-    pub attempts: u32,
-    pub current_delay: Duration,
-    pub timer: Option<Timer>,
+    attempts: u32,
+    current_delay: Duration,
+    timer: Option<Timer>,
 }
 
 impl Default for ReconnectState {
@@ -107,7 +107,7 @@ where
     M: SpacetimeModule<DbConnection = C>,
 {
     /// Creates a new [`ReconnectPlugin`] with the given options.
-    pub fn new(reconnect_options: StdbReconnectOptions) -> Self {
+    pub(crate) fn new(reconnect_options: StdbReconnectOptions) -> Self {
         Self {
             reconnect_options,
             _marker: std::marker::PhantomData,
