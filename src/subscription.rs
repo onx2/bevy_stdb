@@ -251,7 +251,7 @@ where
     subs.has_queued() && *state.get() == StdbConnectionState::Connected
 }
 
-/// Unsubscribes active handles and re-queues them for the next connection.
+/// Drops active subscription handles and re-queues their queries for the next connection.
 fn queue_subscriptions_on_disconnect<K, M>(mut subs: ResMut<StdbSubscriptions<K, M>>)
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
@@ -259,8 +259,7 @@ where
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
     for entry in subs.entries.values_mut() {
-        if let Some(handle) = entry.handle.take() {
-            let _ = handle.unsubscribe();
+        if entry.handle.take().is_some() {
             entry.queued = true;
         }
     }
