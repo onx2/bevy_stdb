@@ -16,8 +16,7 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
-use std::marker::PhantomData;
-use std::time::Duration;
+use std::{marker::PhantomData, time::Duration};
 
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
