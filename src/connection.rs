@@ -60,7 +60,7 @@ pub(crate) fn begin_browser_connection_build<C, F>(
 
 /// Polls an in-flight browser connection build until it produces a result.
 #[cfg(feature = "browser")]
-pub(crate) fn poll_browser_connection_build<C>(world: &mut bevy_ecs::world::World)
+pub(crate) fn poll_browser_connection_build<C>(world: &mut World)
 where
     C: DbContext + Send + Sync + 'static,
 {
@@ -109,8 +109,7 @@ where
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
 ///
 /// `Connected` and `Disconnected` are driven by SDK lifecycle messages, while
-/// `Reconnecting` and `Exhausted` are policy-oriented states managed by the
-/// reconnect subsystem.
+/// `Exhausted` is a policy-oriented state managed by the reconnect subsystem.
 #[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum StdbConnectionState {
     /// No connection attempt has been started yet.
@@ -127,9 +126,6 @@ pub enum StdbConnectionState {
     ///
     /// This state is entered after a disconnect or a failed connection attempt.
     Disconnected,
-
-    /// An automatic reconnect attempt is in progress.
-    Reconnecting,
 
     /// Reconnect attempts have been exhausted.
     ///
@@ -158,7 +154,7 @@ pub(crate) struct StdbConnectionConfig<
     /// Optional authentication token.
     token: Option<String>,
     /// The configured connection driver.
-    pub driver: Option<ConnectionDriver<C>>,
+    driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     compression: Compression,
     /// Whether startup should wait for an explicit connection request.
@@ -432,12 +428,18 @@ impl<
         // Set our StdbConnectionState based on the connection state messages from SpacetimeDB.
         app.add_systems(PreUpdate, sync_connection_state);
 
+        app.add_systems(
+            OnEnter(StdbConnectionState::Disconnected),
+            cleanup_on_disconnect::<C>,
+        );
+
         // Start a connection whenever it is requested.
         app.add_systems(
             PreUpdate,
             start_requested_connection::<C, M>.run_if(
                 in_state(StdbConnectionState::Uninitialized)
-                    .or(in_state(StdbConnectionState::Connecting)),
+                    .or(in_state(StdbConnectionState::Connecting))
+                    .or(in_state(StdbConnectionState::Disconnected)),
             ),
         );
 
@@ -532,15 +534,17 @@ fn poll_pending_connection<
 }
 
 /// Inserts an active connection resource and starts the configured driver.
-///
-/// Shared by the initial connection flow and reconnect success handling.
-pub(crate) fn activate_connection<C>(
-    world: &mut bevy_ecs::world::World,
-    conn: Arc<C>,
-    driver: Option<ConnectionDriver<C>>,
-) where
-    C: DbContext + Send + Sync + 'static,
+fn activate_connection<C, M>(world: &mut bevy_ecs::world::World, conn: Arc<C>)
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
 {
+    let driver = world
+        .get_resource::<StdbConnectionConfig<C, M>>()
+        .expect("StdbConnectionConfig should exist when activating a connection")
+        .driver
+        .clone();
+
     if let Some(ConnectionDriver::Background(background_driver)) = driver {
         background_driver(conn.as_ref());
     }
@@ -565,12 +569,7 @@ fn finalize_pending_connection<
 
     match ready_result {
         Ok(conn) => {
-            let driver = world
-                .get_resource::<StdbConnectionConfig<C, M>>()
-                .expect("StdbConnectionConfig should exist before finalizing a connection")
-                .driver
-                .clone();
-            activate_connection(world, conn, driver);
+            activate_connection::<C, M>(world, conn);
         }
         Err(_) => {
             world
@@ -581,6 +580,14 @@ fn finalize_pending_connection<
                 .set(StdbConnectionState::Disconnected);
         }
     }
+}
+
+/// Removes the active [`StdbConnection`] resource on disconnect.
+///
+/// This ensures the connection module can start a fresh connection build
+/// on subsequent connection requests (including reconnect retries).
+fn cleanup_on_disconnect<C: DbContext + Send + Sync + 'static>(world: &mut bevy_ecs::world::World) {
+    world.remove_resource::<StdbConnection<C>>();
 }
 
 /// Synchronizes [`StdbConnectionState`] from SDK lifecycle messages.

@@ -1,26 +1,19 @@
 //! Reconnect policy and runtime state for SpacetimeDB connections.
 //!
-//! Manages reconnect timing and backoff, and reconnect policy
-//! states (Reconnecting, Exhausted) via Bevy systems.
+//! Manages reconnect timing and backoff. When the backoff timer fires,
+//! a connection request is issued through [`StdbConnectionController`]
+//! and the connection module handles the actual connection building.
 
-use crate::connection::{
-    ConnectionDriver, StdbConnectionConfig, StdbConnectionState, activate_connection,
-};
-#[cfg(feature = "browser")]
-use crate::connection::{
-    PendingConnectionState, begin_browser_connection_build, poll_browser_connection_build,
-    take_pending_connection_result,
-};
+use crate::connection::{StdbConnectionController, StdbConnectionState};
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, World};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
 use bevy_state::prelude::{NextState, OnEnter, in_state};
 use bevy_time::{Time, Timer, TimerMode};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
-
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
@@ -80,14 +73,20 @@ impl From<StdbReconnectOptions> for ReconnectConfig {
 /// Runtime state for reconnect attempts.
 #[derive(Resource)]
 struct ReconnectState {
+    /// Whether a reconnect cycle is currently active.
+    active: bool,
+    /// Number of reconnect attempts made in the current cycle.
     attempts: u32,
+    /// Current delay between reconnect attempts.
     current_delay: Duration,
+    /// Timer for the next reconnect attempt.
     timer: Option<Timer>,
 }
 
 impl Default for ReconnectState {
     fn default() -> Self {
         Self {
+            active: false,
             attempts: 0,
             current_delay: Duration::ZERO,
             timer: None,
@@ -130,177 +129,81 @@ impl<
 
         app.add_systems(
             OnEnter(StdbConnectionState::Disconnected),
-            begin_reconnect_on_disconnect,
+            on_enter_disconnected,
+        );
+
+        app.add_systems(
+            OnEnter(StdbConnectionState::Connected),
+            reset_reconnect_state,
         );
 
         app.add_systems(
             PreUpdate,
-            (
-                tick_reconnect_timer::<C, M>.run_if(in_state(StdbConnectionState::Reconnecting)),
-                #[cfg(feature = "browser")]
-                finalize_pending_reconnect::<C, M>
-                    .run_if(in_state(StdbConnectionState::Reconnecting)),
-            ),
+            tick_reconnect_timer.run_if(in_state(StdbConnectionState::Disconnected)),
         );
     }
 }
 
-fn begin_reconnect_on_disconnect(
+/// Handles entering the `Disconnected` state for reconnect purposes.
+///
+/// If not already in a reconnect cycle, starts one with the initial delay.
+/// If already reconnecting, this means a retry just failed — increment the
+/// attempt counter and apply backoff. Transitions to [`StdbConnectionState::Exhausted`]
+/// when the maximum number of attempts has been reached.
+fn on_enter_disconnected(
     reconnect_config: Res<ReconnectConfig>,
     mut reconnect: ResMut<ReconnectState>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
 ) {
-    reconnect.attempts = 0;
-    reconnect.current_delay = reconnect_config.initial_delay;
-    reconnect.timer = Some(Timer::new(reconnect.current_delay, TimerMode::Once));
+    if reconnect.active {
+        // A retry just failed — increment attempt counter and apply backoff.
+        reconnect.attempts += 1;
 
-    next_state.set(StdbConnectionState::Reconnecting);
-}
+        if let Some(max_attempts) = reconnect_config.max_attempts {
+            if reconnect.attempts >= max_attempts {
+                reconnect.active = false;
+                reconnect.timer = None;
+                next_state.set(StdbConnectionState::Exhausted);
+                return;
+            }
+        }
 
-#[cfg(not(feature = "browser"))]
-fn tick_reconnect_timer<C, M>(world: &mut World)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    if !ready_to_retry(world) {
-        return;
-    }
-
-    match try_reconnect::<C, M>(world) {
-        Ok((conn, driver)) => on_reconnect_success(world, conn, driver),
-        Err(_) => on_reconnect_failure(world),
-    }
-}
-
-#[cfg(feature = "browser")]
-fn tick_reconnect_timer<C, M>(world: &mut World)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    if !ready_to_retry(world) {
-        return;
-    }
-
-    if world.contains_resource::<PendingConnectionState<C>>() {
-        return;
-    }
-
-    let config = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist during reconnect")
-        .clone();
-
-    let mut commands = world.commands();
-
-    begin_browser_connection_build::<C, _>(&mut commands, async move {
-        config.build_connection().await
-    });
-}
-
-#[cfg(not(feature = "browser"))]
-fn try_reconnect<C, M>(world: &mut World) -> Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    let config = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist during reconnect");
-
-    let driver = config.driver.clone();
-    match config.build_connection() {
-        Ok(conn) => Ok((conn, driver)),
-        Err(_) => Err(()),
-    }
-}
-
-fn ready_to_retry(world: &mut World) -> bool {
-    let delta = world
-        .get_resource::<Time>()
-        .expect("Time resource should exist before reconnect ticking")
-        .delta();
-
-    let mut reconnect = world
-        .get_resource_mut::<ReconnectState>()
-        .expect("ReconnectState should exist before reconnect ticking");
-
-    let Some(timer) = reconnect.timer.as_mut() else {
-        return false;
-    };
-
-    timer.tick(delta);
-    timer.is_finished()
-}
-
-fn on_reconnect_success<C>(world: &mut World, conn: Arc<C>, driver: Option<ConnectionDriver<C>>)
-where
-    C: DbContext + Send + Sync + 'static,
-{
-    activate_connection(world, conn, driver);
-
-    {
-        let mut reconnect = world
-            .get_resource_mut::<ReconnectState>()
-            .expect("ReconnectState should exist during reconnect success");
+        let next_delay = reconnect
+            .current_delay
+            .mul_f32(reconnect_config.backoff_factor);
+        reconnect.current_delay = next_delay.min(reconnect_config.max_delay);
+    } else {
+        // Fresh disconnect — start a new reconnect cycle.
+        reconnect.active = true;
         reconnect.attempts = 0;
-        reconnect.current_delay = Duration::ZERO;
-        reconnect.timer = None;
+        reconnect.current_delay = reconnect_config.initial_delay;
     }
+
+    reconnect.timer = Some(Timer::new(reconnect.current_delay, TimerMode::Once));
 }
 
-#[cfg(feature = "browser")]
-fn finalize_pending_reconnect<C, M>(world: &mut World)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    poll_browser_connection_build::<C>(world);
+/// Resets reconnect state when a connection is successfully established.
+fn reset_reconnect_state(mut reconnect: ResMut<ReconnectState>) {
+    reconnect.active = false;
+    reconnect.attempts = 0;
+    reconnect.current_delay = Duration::ZERO;
+    reconnect.timer = None;
+}
 
-    let Some(result) = take_pending_connection_result::<C>(world) else {
+/// Ticks the reconnect timer and requests a connection when it fires.
+fn tick_reconnect_timer(
+    time: Res<Time>,
+    mut reconnect: ResMut<ReconnectState>,
+    mut controller: ResMut<StdbConnectionController>,
+) {
+    let Some(timer) = reconnect.timer.as_mut() else {
         return;
     };
 
-    let driver = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist during reconnect finalization")
-        .driver
-        .clone();
+    timer.tick(time.delta());
 
-    match result {
-        Ok(conn) => on_reconnect_success(world, conn, driver),
-        Err(_) => on_reconnect_failure(world),
-    }
-}
-
-fn on_reconnect_failure(world: &mut World) {
-    let reconnect_config = world
-        .get_resource::<ReconnectConfig>()
-        .expect("ReconnectConfig should exist during reconnect failure")
-        .clone();
-
-    let mut reconnect = world
-        .get_resource_mut::<ReconnectState>()
-        .expect("ReconnectState should exist during reconnect failure");
-
-    reconnect.attempts += 1;
-
-    if let Some(max_attempts) = reconnect_config.max_attempts
-        && reconnect.attempts >= max_attempts
-    {
+    if timer.just_finished() {
         reconnect.timer = None;
-
-        world
-            .get_resource_mut::<NextState<StdbConnectionState>>()
-            .expect("NextState<StdbConnectionState> should exist during reconnect exhaustion")
-            .set(StdbConnectionState::Exhausted);
-        return;
+        controller.connect();
     }
-
-    let next_delay = reconnect
-        .current_delay
-        .mul_f32(reconnect_config.backoff_factor);
-    reconnect.current_delay = next_delay.min(reconnect_config.max_delay);
-    reconnect.timer = Some(Timer::new(reconnect.current_delay, TimerMode::Once));
 }
