@@ -1,16 +1,9 @@
 //! Reconnect policy and runtime state for SpacetimeDB connections.
 //!
-//! Manages reconnect timing and backoff, and reconnect policy
-//! states (Reconnecting, Exhausted) via Bevy systems.
+//! Manages reconnect timing and backoff, and the Exhausted policy
+//! state via Bevy systems.
 
-use crate::connection::{
-    ConnectionDriver, StdbConnectionConfig, StdbConnectionState, activate_connection,
-};
-#[cfg(feature = "browser")]
-use crate::connection::{
-    PendingConnectionState, begin_browser_connection_build, poll_browser_connection_build,
-    take_pending_connection_result,
-};
+use crate::connection::{StdbConnectionState, begin_connect};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, World};
 use bevy_state::prelude::{NextState, OnEnter, in_state};
@@ -20,7 +13,7 @@ use spacetimedb_sdk::{
     DbContext,
 };
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
@@ -83,6 +76,7 @@ struct ReconnectState {
     attempts: u32,
     current_delay: Duration,
     timer: Option<Timer>,
+    attempt_in_progress: bool,
 }
 
 impl Default for ReconnectState {
@@ -91,6 +85,7 @@ impl Default for ReconnectState {
             attempts: 0,
             current_delay: Duration::ZERO,
             timer: None,
+            attempt_in_progress: false,
         }
     }
 }
@@ -132,15 +127,14 @@ impl<
             OnEnter(StdbConnectionState::Disconnected),
             begin_reconnect_on_disconnect,
         );
+        app.add_systems(
+            OnEnter(StdbConnectionState::Connected),
+            reset_reconnect_state,
+        );
 
         app.add_systems(
             PreUpdate,
-            (
-                tick_reconnect_timer::<C, M>.run_if(in_state(StdbConnectionState::Reconnecting)),
-                #[cfg(feature = "browser")]
-                finalize_pending_reconnect::<C, M>
-                    .run_if(in_state(StdbConnectionState::Reconnecting)),
-            ),
+            tick_reconnect_timer::<C, M>.run_if(in_state(StdbConnectionState::Disconnected)),
         );
     }
 }
@@ -150,14 +144,35 @@ fn begin_reconnect_on_disconnect(
     mut reconnect: ResMut<ReconnectState>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
 ) {
+    if reconnect.attempt_in_progress {
+        reconnect.attempt_in_progress = false;
+        reconnect.attempts += 1;
+
+        if let Some(max_attempts) = reconnect_config.max_attempts
+            && reconnect.attempts >= max_attempts
+        {
+            reconnect.timer = None;
+            next_state.set(StdbConnectionState::Exhausted);
+            return;
+        }
+
+        let next_delay = reconnect
+            .current_delay
+            .mul_f32(reconnect_config.backoff_factor);
+        reconnect.current_delay = next_delay.min(reconnect_config.max_delay);
+        reconnect.timer = Some(Timer::new(reconnect.current_delay, TimerMode::Once));
+        return;
+    }
+
+    if reconnect.timer.is_some() {
+        return;
+    }
+
     reconnect.attempts = 0;
     reconnect.current_delay = reconnect_config.initial_delay;
     reconnect.timer = Some(Timer::new(reconnect.current_delay, TimerMode::Once));
-
-    next_state.set(StdbConnectionState::Reconnecting);
 }
 
-#[cfg(not(feature = "browser"))]
 fn tick_reconnect_timer<C, M>(world: &mut World)
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
@@ -167,53 +182,17 @@ where
         return;
     }
 
-    match try_reconnect::<C, M>(world) {
-        Ok((conn, driver)) => on_reconnect_success(world, conn, driver),
-        Err(_) => on_reconnect_failure(world),
-    }
-}
+    begin_connect::<C, M>(world);
 
-#[cfg(feature = "browser")]
-fn tick_reconnect_timer<C, M>(world: &mut World)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    if !ready_to_retry(world) {
-        return;
-    }
+    world
+        .get_resource_mut::<ReconnectState>()
+        .expect("ReconnectState should exist before reconnect attempt")
+        .attempt_in_progress = true;
 
-    if world.contains_resource::<PendingConnectionState<C>>() {
-        return;
-    }
-
-    let config = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist during reconnect")
-        .clone();
-
-    let mut commands = world.commands();
-
-    begin_browser_connection_build::<C, _>(&mut commands, async move {
-        config.build_connection().await
-    });
-}
-
-#[cfg(not(feature = "browser"))]
-fn try_reconnect<C, M>(world: &mut World) -> Result<(Arc<C>, Option<ConnectionDriver<C>>), ()>
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    let config = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist during reconnect");
-
-    let driver = config.driver.clone();
-    match config.build_connection() {
-        Ok(conn) => Ok((conn, driver)),
-        Err(_) => Err(()),
-    }
+    world
+        .get_resource_mut::<NextState<StdbConnectionState>>()
+        .expect("NextState<StdbConnectionState> should exist before reconnect attempt")
+        .set(StdbConnectionState::Connecting);
 }
 
 fn ready_to_retry(world: &mut World) -> bool {
@@ -231,76 +210,17 @@ fn ready_to_retry(world: &mut World) -> bool {
     };
 
     timer.tick(delta);
-    timer.is_finished()
-}
-
-fn on_reconnect_success<C>(world: &mut World, conn: Arc<C>, driver: Option<ConnectionDriver<C>>)
-where
-    C: DbContext + Send + Sync + 'static,
-{
-    activate_connection(world, conn, driver);
-
-    {
-        let mut reconnect = world
-            .get_resource_mut::<ReconnectState>()
-            .expect("ReconnectState should exist during reconnect success");
-        reconnect.attempts = 0;
-        reconnect.current_delay = Duration::ZERO;
-        reconnect.timer = None;
-    }
-}
-
-#[cfg(feature = "browser")]
-fn finalize_pending_reconnect<C, M>(world: &mut World)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    poll_browser_connection_build::<C>(world);
-
-    let Some(result) = take_pending_connection_result::<C>(world) else {
-        return;
-    };
-
-    let driver = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist during reconnect finalization")
-        .driver
-        .clone();
-
-    match result {
-        Ok(conn) => on_reconnect_success(world, conn, driver),
-        Err(_) => on_reconnect_failure(world),
-    }
-}
-
-fn on_reconnect_failure(world: &mut World) {
-    let reconnect_config = world
-        .get_resource::<ReconnectConfig>()
-        .expect("ReconnectConfig should exist during reconnect failure")
-        .clone();
-
-    let mut reconnect = world
-        .get_resource_mut::<ReconnectState>()
-        .expect("ReconnectState should exist during reconnect failure");
-
-    reconnect.attempts += 1;
-
-    if let Some(max_attempts) = reconnect_config.max_attempts
-        && reconnect.attempts >= max_attempts
-    {
-        reconnect.timer = None;
-
-        world
-            .get_resource_mut::<NextState<StdbConnectionState>>()
-            .expect("NextState<StdbConnectionState> should exist during reconnect exhaustion")
-            .set(StdbConnectionState::Exhausted);
-        return;
+    if !timer.is_finished() {
+        return false;
     }
 
-    let next_delay = reconnect
-        .current_delay
-        .mul_f32(reconnect_config.backoff_factor);
-    reconnect.current_delay = next_delay.min(reconnect_config.max_delay);
-    reconnect.timer = Some(Timer::new(reconnect.current_delay, TimerMode::Once));
+    reconnect.timer = None;
+    true
+}
+
+fn reset_reconnect_state(mut reconnect: ResMut<ReconnectState>) {
+    reconnect.attempts = 0;
+    reconnect.current_delay = Duration::ZERO;
+    reconnect.timer = None;
+    reconnect.attempt_in_progress = false;
 }

@@ -109,15 +109,14 @@ where
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
 ///
 /// `Connected` and `Disconnected` are driven by SDK lifecycle messages, while
-/// `Reconnecting` and `Exhausted` are policy-oriented states managed by the
-/// reconnect subsystem.
+/// `Exhausted` is a policy-oriented state managed by the reconnect subsystem.
 #[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum StdbConnectionState {
     /// No connection attempt has been started yet.
     #[default]
     Uninitialized,
 
-    /// An initial or manually requested connection attempt is in progress.
+    /// A connection attempt is in progress.
     Connecting,
 
     /// The SDK has reported that the connection is active.
@@ -127,9 +126,6 @@ pub enum StdbConnectionState {
     ///
     /// This state is entered after a disconnect or a failed connection attempt.
     Disconnected,
-
-    /// An automatic reconnect attempt is in progress.
-    Reconnecting,
 
     /// Reconnect attempts have been exhausted.
     ///
@@ -158,7 +154,7 @@ pub(crate) struct StdbConnectionConfig<
     /// Optional authentication token.
     token: Option<String>,
     /// The configured connection driver.
-    pub driver: Option<ConnectionDriver<C>>,
+    driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     compression: Compression,
     /// Whether startup should wait for an explicit connection request.
@@ -251,6 +247,58 @@ where
     pub(crate) async fn build_connection(&self) -> Result<Arc<C>> {
         self.connection_builder().build().await.map(Arc::new)
     }
+}
+
+/// Polls any in-flight browser connection build and returns a completed result
+/// together with the configured driver.
+pub(crate) fn try_take_pending_connection<C, M>(
+    world: &mut bevy_ecs::world::World,
+) -> Option<(Result<Arc<C>>, Option<ConnectionDriver<C>>)>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    #[cfg(feature = "browser")]
+    poll_browser_connection_build::<C>(world);
+
+    let result = take_pending_connection_result::<C>(world)?;
+    let driver = world
+        .get_resource::<StdbConnectionConfig<C, M>>()
+        .expect("StdbConnectionConfig should exist before finalizing a connection")
+        .driver
+        .clone();
+
+    Some((result, driver))
+}
+
+/// Starts a connection build from the stored config.
+///
+/// Returns immediately if a build is already in-flight.
+pub(crate) fn begin_connect<C, M>(world: &mut bevy_ecs::world::World)
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    if world.contains_resource::<PendingConnectionState<C>>() {
+        return;
+    }
+
+    let config = world
+        .get_resource::<StdbConnectionConfig<C, M>>()
+        .expect("StdbConnectionConfig should exist before starting a connection")
+        .clone();
+
+    let mut commands = world.commands();
+
+    #[cfg(feature = "browser")]
+    begin_browser_connection_build::<C, _>(&mut commands, async move {
+        config.build_connection().await
+    });
+
+    #[cfg(not(feature = "browser"))]
+    commands.insert_resource(PendingConnectionState::<C> {
+        status: PendingConnectionStatus::Ready(config.build_connection()),
+    });
 }
 
 /// Active SpacetimeDB connection [`Resource`].
@@ -441,10 +489,6 @@ impl<
             ),
         );
 
-        // Poll any in-flight browser connection build.
-        #[cfg(feature = "browser")]
-        app.add_systems(PreUpdate, poll_pending_connection::<C, M>);
-
         // Finalize a completed connection build on all targets.
         app.add_systems(PreUpdate, finalize_pending_connection::<C, M>);
 
@@ -504,31 +548,16 @@ fn start_requested_connection<
     let connect_config = config.clone();
 
     #[cfg(feature = "browser")]
-    {
-        begin_browser_connection_build::<C, _>(&mut commands, async move {
-            connect_config.build_connection().await
-        });
-    }
+    begin_browser_connection_build::<C, _>(&mut commands, async move {
+        connect_config.build_connection().await
+    });
 
     #[cfg(not(feature = "browser"))]
-    {
-        commands.insert_resource(PendingConnectionState::<C> {
-            status: PendingConnectionStatus::Ready(connect_config.build_connection()),
-        });
-    }
+    commands.insert_resource(PendingConnectionState::<C> {
+        status: PendingConnectionStatus::Ready(connect_config.build_connection()),
+    });
 
     next_state.set(StdbConnectionState::Connecting);
-}
-
-/// Polls an in-flight browser connection build until it produces a result.
-#[cfg(feature = "browser")]
-fn poll_pending_connection<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut bevy_ecs::world::World,
-) {
-    poll_browser_connection_build::<C>(world);
 }
 
 /// Inserts an active connection resource and starts the configured driver.
@@ -559,19 +588,12 @@ fn finalize_pending_connection<
 >(
     world: &mut bevy_ecs::world::World,
 ) {
-    let Some(ready_result) = take_pending_connection_result::<C>(world) else {
+    let Some((result, driver)) = try_take_pending_connection::<C, M>(world) else {
         return;
     };
 
-    match ready_result {
-        Ok(conn) => {
-            let driver = world
-                .get_resource::<StdbConnectionConfig<C, M>>()
-                .expect("StdbConnectionConfig should exist before finalizing a connection")
-                .driver
-                .clone();
-            activate_connection(world, conn, driver);
-        }
+    match result {
+        Ok(conn) => activate_connection(world, conn, driver),
         Err(_) => {
             world
                 .get_resource_mut::<NextState<StdbConnectionState>>()
