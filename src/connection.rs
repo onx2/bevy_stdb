@@ -109,7 +109,8 @@ where
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
 ///
 /// `Connected` and `Disconnected` are driven by SDK lifecycle messages, while
-/// `Exhausted` is a policy-oriented state managed by the reconnect subsystem.
+/// `Uninitialized`, `Connecting`, `Exhausted` are policy-oriented state managed
+/// by the connect and reconnect systems.
 #[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum StdbConnectionState {
     /// No connection attempt has been started yet.
@@ -485,12 +486,16 @@ impl<
             PreUpdate,
             start_requested_connection::<C, M>.run_if(
                 in_state(StdbConnectionState::Uninitialized)
-                    .or(in_state(StdbConnectionState::Connecting)),
+                    .or(in_state(StdbConnectionState::Disconnected))
+                    .or(in_state(StdbConnectionState::Exhausted)),
             ),
         );
 
-        // Finalize a completed connection build on all targets.
-        app.add_systems(PreUpdate, finalize_pending_connection::<C, M>);
+        // Finalize a completed connection build while a connection attempt is active.
+        app.add_systems(
+            PreUpdate,
+            finalize_pending_connection::<C, M>.run_if(in_state(StdbConnectionState::Connecting)),
+        );
 
         // Bind table callbacks when a new connection is established.
         app.add_systems(
