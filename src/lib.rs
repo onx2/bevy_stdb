@@ -71,7 +71,7 @@ mod connection;
 mod message;
 mod plugin;
 mod reconnect;
-pub mod set;
+mod set;
 mod subscription;
 mod table;
 
