@@ -144,19 +144,16 @@ impl<
     }
 }
 
-/// Handles entering the `Disconnected` state for reconnect purposes.
+/// Begins or advances a reconnect cycle on entering [`StdbConnectionState::Disconnected`].
 ///
-/// If not already in a reconnect cycle, starts one with the initial delay.
-/// If already reconnecting, this means a retry just failed — increment the
-/// attempt counter and apply backoff. Transitions to [`StdbConnectionState::Exhausted`]
-/// when the maximum number of attempts has been reached.
+/// Transitions to [`StdbConnectionState::Exhausted`] when the maximum number
+/// of attempts has been reached.
 fn on_enter_disconnected(
     reconnect_config: Res<ReconnectConfig>,
     mut reconnect: ResMut<ReconnectBackoff>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
 ) {
     if reconnect.active {
-        // A retry just failed — increment attempt counter and apply backoff.
         reconnect.attempts += 1;
 
         if reconnect_config.max_attempts > 0 && reconnect.attempts >= reconnect_config.max_attempts
@@ -172,7 +169,6 @@ fn on_enter_disconnected(
             .mul_f32(reconnect_config.backoff_factor);
         reconnect.current_delay = next_delay.min(reconnect_config.max_delay);
     } else {
-        // Fresh disconnect — start a new reconnect cycle.
         reconnect.active = true;
         reconnect.attempts = 0;
         reconnect.current_delay = reconnect_config.initial_delay;

@@ -220,10 +220,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Registers a table with a primary key.
     ///
-    /// Registers Bevy message channels for `TRow` during plugin build and stores
-    /// a deferred binding callback that attaches SDK table listeners after a
-    /// connection is established.
-    ///
     /// ```ignore
     /// .add_table::<PlayerRow>(|reg, db| reg.bind(db.player_info()))
     /// ```
@@ -244,10 +240,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Registers a table without a primary key.
-    ///
-    /// Registers Bevy message channels for `TRow` during plugin build and stores
-    /// a deferred binding callback that attaches SDK table listeners after a
-    /// connection is established.
     ///
     /// ```ignore
     /// .add_table_without_pk::<NearbyMonsterRow>(|reg, db| {
@@ -272,10 +264,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Registers a view.
     ///
-    /// Registers Bevy message channels for `TRow` during plugin build and stores
-    /// a deferred binding callback that attaches SDK table listeners after a
-    /// connection is established.
-    ///
     /// ```ignore
     /// .add_view::<CharacterRow>(|reg, db| reg.bind(db.character_selection_screen_view()))
     /// ```
@@ -296,10 +284,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Registers an event table.
-    ///
-    /// Registers Bevy message channels for `TRow` during plugin build and stores
-    /// a deferred binding callback that attaches SDK table listeners after a
-    /// connection is established.
     ///
     /// ```ignore
     /// .add_event_table::<LogEvent>(|reg, db| reg.bind(db.log_events()))
@@ -457,10 +441,6 @@ impl<
     ///
     /// Exactly one connection driver must be configured via
     /// [`StdbPlugin::with_background_driver`] or [`StdbPlugin::with_frame_driver`].
-    ///
-    /// Performs Bevy-side setup only — connection creation is handled later by
-    /// runtime systems, either eagerly at startup or lazily through
-    /// [`StdbConnectionController`](crate::prelude::StdbConnectionController).
     ///
     /// # Panics
     ///

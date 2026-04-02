@@ -205,7 +205,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 {
-    /// Internal helper to build the [`DbConnectionBuilder`] for this connection, shared across targets.
+    /// Produces a configured [`DbConnectionBuilder`] for this connection.
     fn connection_builder(&self) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
@@ -423,7 +423,7 @@ impl<
             app.add_systems(PreStartup, request_initial_connection);
         }
 
-        // Set our StdbConnectionState based on the connection state messages from SpacetimeDB.
+        // Sync connection state from SDK lifecycle messages.
         app.add_systems(PreUpdate, sync_connection_state::<C>);
 
         // Start a connection whenever it is requested.
@@ -449,7 +449,7 @@ impl<
             on_connected_bind::<C, M>,
         );
 
-        // We only need this system if frame tick driving is configured, which is a build time concern.
+        // Only added when frame-tick driving is configured.
         if matches!(self.driver, Some(ConnectionDriver::FrameTick(_))) {
             app.add_systems(
                 PreUpdate,
@@ -465,13 +465,9 @@ fn request_initial_connection(mut controller: ResMut<StdbConnectionController>) 
     controller.connect();
 }
 
-/// Starts building a connection when requested at runtime.
+/// Initiates a connection build from a pending [`StdbConnectionController`] request.
 ///
-/// Consumes the pending request from [`StdbConnectionController`], persists
-/// any token override into the stored config, and begins a native or
-/// browser-specific connection build.
-///
-/// Requests are dropped if a connection is already active or pending.
+/// Requests are ignored if a connection is already active or pending.
 fn start_requested_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -515,7 +511,7 @@ fn start_requested_connection<
     next_state.set(StdbConnectionState::Connecting);
 }
 
-/// Inserts an active connection resource and starts the configured driver.
+/// Activates a newly built SpacetimeDB connection.
 fn activate_connection<C, M>(world: &mut World, conn: Arc<C>)
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
@@ -534,11 +530,7 @@ where
     world.insert_resource(StdbConnection::new(conn));
 }
 
-/// Finalizes a completed connection build.
-///
-/// On success, inserts [`StdbConnection`] and starts the configured driver.
-/// On failure, transitions to [`StdbConnectionState::Disconnected`] so
-/// reconnect policy can take over if configured.
+/// Completes a pending connection build and transitions [`StdbConnectionState`] accordingly.
 fn finalize_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -566,9 +558,8 @@ fn finalize_pending_connection<
 
 /// Synchronizes [`StdbConnectionState`] from SDK lifecycle messages.
 ///
-/// `Disconnected` takes precedence over `Connected` when multiple lifecycle
-/// messages are observed in the same frame. On disconnect or connection error,
-/// the stale [`StdbConnection`] resource is removed via commands.
+/// [`StdbConnectionState::Disconnected`] takes precedence when multiple
+/// lifecycle messages arrive in the same frame.
 fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,

@@ -251,7 +251,7 @@ where
     subs.has_queued() && *state.get() == StdbConnectionState::Connected
 }
 
-/// Drops active subscription handles and re-queues their queries for the next connection.
+/// Re-queues all active subscriptions for re-application after a disconnect.
 fn queue_subscriptions_on_disconnect<K, M>(mut subs: ResMut<StdbSubscriptions<K, M>>)
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
