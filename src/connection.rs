@@ -7,6 +7,7 @@ use crate::{
     },
     channel_bridge::{channel_sender, register_channel},
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
+    set::StdbSet,
     table::TableBindCallback,
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
@@ -420,28 +421,42 @@ impl<
         app.init_resource::<StdbConnectionController>();
 
         if !self.delayed_connection {
-            app.add_systems(PreStartup, request_initial_connection);
+            app.add_systems(
+                PreStartup,
+                request_initial_connection.in_set(StdbSet::Connection),
+            );
         }
 
         // Sync connection state from SDK lifecycle messages.
-        app.add_systems(PreUpdate, sync_connection_state::<C>);
+        app.add_systems(
+            PreUpdate,
+            sync_connection_state::<C>.in_set(StdbSet::StateSync),
+        );
 
         // Start a connection whenever it is requested.
         app.add_systems(
             PreUpdate,
-            start_requested_connection::<C, M>.run_if(
-                in_state(StdbConnectionState::Uninitialized)
-                    .or(in_state(StdbConnectionState::Connecting))
-                    .or(in_state(StdbConnectionState::Disconnected)),
-            ),
+            start_requested_connection::<C, M>
+                .in_set(StdbSet::Connection)
+                .run_if(
+                    in_state(StdbConnectionState::Uninitialized)
+                        .or(in_state(StdbConnectionState::Connecting))
+                        .or(in_state(StdbConnectionState::Disconnected)),
+                ),
         );
 
         // Poll any in-flight browser connection build.
         #[cfg(feature = "browser")]
-        app.add_systems(PreUpdate, poll_browser_connection_build::<C>);
+        app.add_systems(
+            PreUpdate,
+            poll_browser_connection_build::<C>.in_set(StdbSet::Connection),
+        );
 
         // Finalize a completed connection build on all targets.
-        app.add_systems(PreUpdate, finalize_pending_connection::<C, M>);
+        app.add_systems(
+            PreUpdate,
+            finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
+        );
 
         // Bind table callbacks when a new connection is established.
         app.add_systems(
@@ -454,6 +469,7 @@ impl<
             app.add_systems(
                 PreUpdate,
                 drive_connection_frame_tick::<C, M>
+                    .in_set(StdbSet::Connection)
                     .run_if(in_state(StdbConnectionState::Connected)),
             );
         }

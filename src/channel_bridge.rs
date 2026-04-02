@@ -3,8 +3,9 @@
 //! Registers per-type channels and forwards messages from those
 //! channels into Bevy `Messages<T>`, such as SpacetimeDB table events
 //! or connection lifecycle messages.
+use crate::set::StdbSet;
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{Message, Messages, Mut, Resource, World};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Message, Messages, Mut, Resource, World};
 use crossbeam_channel::{Sender, unbounded};
 use std::any::{Any, TypeId, type_name};
 
@@ -27,7 +28,7 @@ pub(crate) struct ChannelBridgePlugin;
 impl Plugin for ChannelBridgePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChannelRegistry>();
-        app.add_systems(PreUpdate, drain_channels);
+        app.add_systems(PreUpdate, drain_channels.in_set(StdbSet::Flush));
     }
 }
 

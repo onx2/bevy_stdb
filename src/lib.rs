@@ -71,6 +71,7 @@ mod connection;
 mod message;
 mod plugin;
 mod reconnect;
+pub mod set;
 mod subscription;
 mod table;
 
@@ -89,6 +90,7 @@ pub mod prelude {
         },
         plugin::StdbPlugin,
         reconnect::StdbReconnectOptions,
+        set::StdbSet,
         subscription::StdbSubscriptions,
     };
 }

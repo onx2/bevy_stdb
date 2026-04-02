@@ -5,6 +5,7 @@
 //! and the connection module handles the actual connection building.
 
 use crate::connection::{StdbConnectionController, StdbConnectionState};
+use crate::set::StdbSet;
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
 use bevy_state::prelude::{NextState, OnEnter, in_state};
@@ -139,7 +140,9 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            tick_reconnect_timer.run_if(in_state(StdbConnectionState::Disconnected)),
+            tick_reconnect_timer
+                .in_set(StdbSet::Connection)
+                .run_if(in_state(StdbConnectionState::Disconnected)),
         );
     }
 }

@@ -2,6 +2,7 @@ use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
+    set::StdbSet,
     subscription::{StdbSubscriptions, SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
         EventTableBinder, TableBindCallback, TableBinder, TableRegistrationCallback,
@@ -9,7 +10,8 @@ use crate::{
         register_table_without_pk, register_view,
     },
 };
-use bevy_app::{App, Plugin};
+use bevy_app::{App, Plugin, PreStartup, PreUpdate};
+use bevy_ecs::prelude::IntoScheduleConfigs;
 use bevy_state::app::StatesPlugin;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
@@ -454,6 +456,18 @@ impl<
             app.add_plugins(StatesPlugin);
         }
         app.add_plugins(ChannelBridgePlugin);
+
+        app.configure_sets(PreStartup, StdbSet::Connection);
+        app.configure_sets(
+            PreUpdate,
+            (
+                StdbSet::Flush,
+                StdbSet::StateSync,
+                StdbSet::Connection,
+                StdbSet::Subscriptions,
+            )
+                .chain(),
+        );
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));
