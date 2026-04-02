@@ -22,8 +22,8 @@ pub struct StdbReconnectOptions {
     pub initial_delay: Duration,
     /// Maximum number of reconnect attempts before giving up.
     ///
-    /// If `None`, retries indefinitely.
-    pub max_attempts: Option<u32>,
+    /// `0` retries indefinitely.
+    pub max_attempts: u32,
     /// Multiplier applied after each failed reconnect attempt.
     ///
     /// Values below `1.0` are clamped to `1.0` to prevent the delay from
@@ -37,7 +37,7 @@ impl Default for StdbReconnectOptions {
     fn default() -> Self {
         Self {
             initial_delay: Duration::from_secs(1),
-            max_attempts: None,
+            max_attempts: 0,
             backoff_factor: 1.5,
             max_delay: Duration::from_secs(15),
         }
@@ -51,8 +51,8 @@ struct ReconnectConfig {
     initial_delay: Duration,
     /// Maximum number of reconnect attempts before giving up.
     ///
-    /// If `None`, retries indefinitely.
-    max_attempts: Option<u32>,
+    /// `0` retries indefinitely.
+    max_attempts: u32,
     /// Multiplier applied after each failed reconnect attempt.
     backoff_factor: f32,
     /// Maximum delay between reconnect attempts.
@@ -72,7 +72,7 @@ impl From<StdbReconnectOptions> for ReconnectConfig {
 
 /// Runtime state for reconnect attempts.
 #[derive(Resource)]
-struct ReconnectState {
+struct ReconnectBackoff {
     /// Whether a reconnect cycle is currently active.
     active: bool,
     /// Number of reconnect attempts made in the current cycle.
@@ -83,7 +83,7 @@ struct ReconnectState {
     timer: Option<Timer>,
 }
 
-impl Default for ReconnectState {
+impl Default for ReconnectBackoff {
     fn default() -> Self {
         Self {
             active: false,
@@ -125,7 +125,7 @@ impl<
 {
     fn build(&self, app: &mut App) {
         app.insert_resource(ReconnectConfig::from(self.reconnect_options.clone()));
-        app.init_resource::<ReconnectState>();
+        app.init_resource::<ReconnectBackoff>();
 
         app.add_systems(
             OnEnter(StdbConnectionState::Disconnected),
@@ -152,20 +152,19 @@ impl<
 /// when the maximum number of attempts has been reached.
 fn on_enter_disconnected(
     reconnect_config: Res<ReconnectConfig>,
-    mut reconnect: ResMut<ReconnectState>,
+    mut reconnect: ResMut<ReconnectBackoff>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
 ) {
     if reconnect.active {
         // A retry just failed — increment attempt counter and apply backoff.
         reconnect.attempts += 1;
 
-        if let Some(max_attempts) = reconnect_config.max_attempts {
-            if reconnect.attempts >= max_attempts {
-                reconnect.active = false;
-                reconnect.timer = None;
-                next_state.set(StdbConnectionState::Exhausted);
-                return;
-            }
+        if reconnect_config.max_attempts > 0 && reconnect.attempts >= reconnect_config.max_attempts
+        {
+            reconnect.active = false;
+            reconnect.timer = None;
+            next_state.set(StdbConnectionState::Exhausted);
+            return;
         }
 
         let next_delay = reconnect
@@ -183,7 +182,7 @@ fn on_enter_disconnected(
 }
 
 /// Resets reconnect state when a connection is successfully established.
-fn reset_reconnect_state(mut reconnect: ResMut<ReconnectState>) {
+fn reset_reconnect_state(mut reconnect: ResMut<ReconnectBackoff>) {
     reconnect.active = false;
     reconnect.attempts = 0;
     reconnect.current_delay = Duration::ZERO;
@@ -193,7 +192,7 @@ fn reset_reconnect_state(mut reconnect: ResMut<ReconnectState>) {
 /// Ticks the reconnect timer and requests a connection when it fires.
 fn tick_reconnect_timer(
     time: Res<Time>,
-    mut reconnect: ResMut<ReconnectState>,
+    mut reconnect: ResMut<ReconnectBackoff>,
     mut controller: ResMut<StdbConnectionController>,
 ) {
     let Some(timer) = reconnect.timer.as_mut() else {

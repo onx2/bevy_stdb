@@ -10,7 +10,9 @@ use crate::{
     table::TableBindCallback,
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, SystemCondition};
+use bevy_ecs::prelude::{
+    Commands, IntoScheduleConfigs, Res, ResMut, Resource, SystemCondition, World,
+};
 use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
 use crossbeam_channel::Sender;
 #[cfg(feature = "browser")]
@@ -39,10 +41,8 @@ pub(crate) struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
 
 /// Begins a browser connection build and stores its pending result as a resource.
 #[cfg(feature = "browser")]
-pub(crate) fn begin_browser_connection_build<C, F>(
-    commands: &mut bevy_ecs::system::Commands,
-    build: F,
-) where
+pub(crate) fn begin_browser_connection_build<C, F>(commands: &mut Commands, build: F)
+where
     C: DbContext + Send + Sync + 'static,
     F: 'static + std::future::Future<Output = ConnectionBuildResult<C>>,
 {
@@ -88,7 +88,7 @@ where
 
 /// Takes a completed pending connection build result, if one is ready.
 pub(crate) fn take_pending_connection_result<C>(
-    world: &mut bevy_ecs::world::World,
+    world: &mut World,
 ) -> Option<ConnectionBuildResult<C>>
 where
     C: DbContext + Send + Sync + 'static,
@@ -488,7 +488,7 @@ fn start_requested_connection<
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     active_connection: Option<Res<StdbConnection<C>>>,
     pending_connection: Option<Res<PendingConnectionState<C>>>,
-    mut commands: bevy_ecs::system::Commands,
+    mut commands: Commands,
 ) {
     let Some(token_override) = controller.take_request() else {
         return;
@@ -528,13 +528,13 @@ fn poll_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
-    world: &mut bevy_ecs::world::World,
+    world: &mut World,
 ) {
     poll_browser_connection_build::<C>(world);
 }
 
 /// Inserts an active connection resource and starts the configured driver.
-fn activate_connection<C, M>(world: &mut bevy_ecs::world::World, conn: Arc<C>)
+fn activate_connection<C, M>(world: &mut World, conn: Arc<C>)
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -561,7 +561,7 @@ fn finalize_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
-    world: &mut bevy_ecs::world::World,
+    world: &mut World,
 ) {
     let Some(ready_result) = take_pending_connection_result::<C>(world) else {
         return;
@@ -586,7 +586,7 @@ fn finalize_pending_connection<
 ///
 /// This ensures the connection module can start a fresh connection build
 /// on subsequent connection requests (including reconnect retries).
-fn cleanup_on_disconnect<C: DbContext + Send + Sync + 'static>(world: &mut bevy_ecs::world::World) {
+fn cleanup_on_disconnect<C: DbContext + Send + Sync + 'static>(world: &mut World) {
     world.remove_resource::<StdbConnection<C>>();
 }
 
@@ -616,7 +616,7 @@ fn on_connected_bind<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 >(
-    world: &mut bevy_ecs::world::World,
+    world: &mut World,
 ) {
     let config = world
         .get_resource::<StdbConnectionConfig<C, M>>()
