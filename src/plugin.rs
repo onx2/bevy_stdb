@@ -170,6 +170,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the remote module name.
     ///
     /// # Panics
+    ///
     /// Panics if called more than once.
     pub fn with_module_name(mut self, name: impl Into<String>) -> Self {
         assert!(
@@ -183,6 +184,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the SpacetimeDB host URI.
     ///
     /// # Panics
+    ///
     /// Panics if called more than once.
     pub fn with_uri(mut self, uri: impl Into<String>) -> Self {
         assert!(self.uri.is_none(), "`with_uri()` may only be called once");
@@ -197,6 +199,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// stored token used for subsequent reconnect attempts.
     ///
     /// # Panics
+    ///
     /// Panics if called more than once.
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         assert!(
@@ -210,6 +213,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Sets the connection compression mode.
     ///
     /// # Panics
+    ///
     /// Panics if called more than once.
     pub fn with_compression(mut self, compression: Compression) -> Self {
         assert!(
@@ -221,6 +225,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Registers a table with a primary key.
+    ///
+    /// # Example
     ///
     /// ```ignore
     /// .add_table::<PlayerRow>(|reg, db| reg.bind(db.player_info()))
@@ -242,6 +248,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Registers a table without a primary key.
+    ///
+    /// # Example
     ///
     /// ```ignore
     /// .add_table_without_pk::<NearbyMonsterRow>(|reg, db| {
@@ -266,6 +274,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Registers a view.
     ///
+    /// # Example
+    ///
     /// ```ignore
     /// .add_view::<CharacterRow>(|reg, db| reg.bind(db.character_selection_screen_view()))
     /// ```
@@ -286,6 +296,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Registers an event table.
+    ///
+    /// # Example
     ///
     /// ```ignore
     /// .add_event_table::<LogEvent>(|reg, db| reg.bind(db.log_events()))

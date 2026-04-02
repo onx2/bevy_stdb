@@ -1,8 +1,10 @@
 //! Subscription state and lifecycle management for SpacetimeDB.
 //!
 //! Manages subscription intent and active handles via Bevy systems and resources.
-use crate::connection::{StdbConnection, StdbConnectionState};
-use crate::set::StdbSet;
+use crate::{
+    connection::{StdbConnection, StdbConnectionState},
+    set::StdbSet,
+};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
 use bevy_state::prelude::{OnEnter, State};

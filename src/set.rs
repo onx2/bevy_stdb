@@ -1,9 +1,4 @@
 //! System sets for ordering `bevy_stdb` systems.
-//!
-//! [`StdbSet`] covers [`PreUpdate`](bevy_app::PreUpdate) systems and
-//! [`StdbStartupSet`] covers [`PreStartup`](bevy_app::PreStartup) systems.
-//! Consumers can order their own systems relative to these sets with
-//! `.before()` or `.after()`.
 use bevy_ecs::prelude::SystemSet;
 
 /// System sets for `bevy_stdb` systems in [`PreUpdate`](bevy_app::PreUpdate).
