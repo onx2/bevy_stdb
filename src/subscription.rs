@@ -4,7 +4,7 @@
 use crate::connection::{StdbConnection, StdbConnectionState};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
-use bevy_state::prelude::OnEnter;
+use bevy_state::prelude::{OnEnter, State};
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
     DbContext, Result as StdbResult, SubscriptionHandle as StdbSubscriptionHandle,
@@ -241,7 +241,7 @@ where
 
 fn should_apply_subscriptions<K, M>(
     subs: Res<StdbSubscriptions<K, M>>,
-    state: Res<bevy_state::state::State<StdbConnectionState>>,
+    state: Res<State<StdbConnectionState>>,
 ) -> bool
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,

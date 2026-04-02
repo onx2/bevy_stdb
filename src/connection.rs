@@ -41,7 +41,7 @@ pub(crate) struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
 
 /// Begins a browser connection build and stores its pending result as a resource.
 #[cfg(feature = "browser")]
-pub(crate) fn begin_browser_connection_build<C, F>(commands: &mut Commands, build: F)
+fn begin_browser_connection_build<C, F>(commands: &mut Commands, build: F)
 where
     C: DbContext + Send + Sync + 'static,
     F: 'static + std::future::Future<Output = ConnectionBuildResult<C>>,
@@ -60,7 +60,7 @@ where
 
 /// Polls an in-flight browser connection build until it produces a result.
 #[cfg(feature = "browser")]
-pub(crate) fn poll_browser_connection_build<C>(world: &mut World)
+fn poll_browser_connection_build<C>(world: &mut World)
 where
     C: DbContext + Send + Sync + 'static,
 {
@@ -87,9 +87,7 @@ where
 }
 
 /// Takes a completed pending connection build result, if one is ready.
-pub(crate) fn take_pending_connection_result<C>(
-    world: &mut World,
-) -> Option<ConnectionBuildResult<C>>
+fn take_pending_connection_result<C>(world: &mut World) -> Option<ConnectionBuildResult<C>>
 where
     C: DbContext + Send + Sync + 'static,
 {
@@ -426,12 +424,7 @@ impl<
         }
 
         // Set our StdbConnectionState based on the connection state messages from SpacetimeDB.
-        app.add_systems(PreUpdate, sync_connection_state);
-
-        app.add_systems(
-            OnEnter(StdbConnectionState::Disconnected),
-            cleanup_on_disconnect::<C>,
-        );
+        app.add_systems(PreUpdate, sync_connection_state::<C>);
 
         // Start a connection whenever it is requested.
         app.add_systems(
@@ -445,7 +438,7 @@ impl<
 
         // Poll any in-flight browser connection build.
         #[cfg(feature = "browser")]
-        app.add_systems(PreUpdate, poll_pending_connection::<C, M>);
+        app.add_systems(PreUpdate, poll_browser_connection_build::<C>);
 
         // Finalize a completed connection build on all targets.
         app.add_systems(PreUpdate, finalize_pending_connection::<C, M>);
@@ -522,17 +515,6 @@ fn start_requested_connection<
     next_state.set(StdbConnectionState::Connecting);
 }
 
-/// Polls an in-flight browser connection build until it produces a result.
-#[cfg(feature = "browser")]
-fn poll_pending_connection<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-) {
-    poll_browser_connection_build::<C>(world);
-}
-
 /// Inserts an active connection resource and starts the configured driver.
 fn activate_connection<C, M>(world: &mut World, conn: Arc<C>)
 where
@@ -582,31 +564,27 @@ fn finalize_pending_connection<
     }
 }
 
-/// Removes the active [`StdbConnection`] resource on disconnect.
-///
-/// This ensures the connection module can start a fresh connection build
-/// on subsequent connection requests (including reconnect retries).
-fn cleanup_on_disconnect<C: DbContext + Send + Sync + 'static>(world: &mut World) {
-    world.remove_resource::<StdbConnection<C>>();
-}
-
 /// Synchronizes [`StdbConnectionState`] from SDK lifecycle messages.
 ///
 /// `Disconnected` takes precedence over `Connected` when multiple lifecycle
-/// messages are observed in the same frame.
-fn sync_connection_state(
+/// messages are observed in the same frame. On disconnect or connection error,
+/// the stale [`StdbConnection`] resource is removed via commands.
+fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
     mut connection_error_msgs: ReadStdbConnectionErrorMessage,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
+    mut commands: Commands,
 ) {
     if connected_msgs.read().count() > 0 {
         next_state.set(StdbConnectionState::Connected);
     }
     if disconnected_msgs.read().count() > 0 {
+        commands.remove_resource::<StdbConnection<C>>();
         next_state.set(StdbConnectionState::Disconnected);
     }
     if connection_error_msgs.read().count() > 0 {
+        commands.remove_resource::<StdbConnection<C>>();
         next_state.set(StdbConnectionState::Disconnected);
     }
 }
