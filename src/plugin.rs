@@ -60,7 +60,7 @@ pub struct StdbPlugin<
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
     delayed_connection: bool,
-    subscriptions_plugin: Option<Arc<dyn Fn(&mut App) + Send + Sync>>,
+    subscriptions_initializer: Option<Arc<dyn Fn(&mut App) + Send + Sync>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
@@ -77,7 +77,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             driver: None,
             reconnect_options: None,
             delayed_connection: false,
-            subscriptions_plugin: None,
+            subscriptions_initializer: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
         }
@@ -354,11 +354,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             + 'static,
     {
         assert!(
-            self.subscriptions_plugin.is_none(),
+            self.subscriptions_initializer.is_none(),
             "`with_subscriptions()` may only be called once"
         );
 
-        self.subscriptions_plugin = Some(Arc::new(|app: &mut App| {
+        self.subscriptions_initializer = Some(Arc::new(|app: &mut App| {
             app.add_plugins(SubscriptionsPlugin::<K, C, M>::default());
         }));
 
@@ -481,7 +481,7 @@ impl<
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));
         }
 
-        if let Some(add_subscriptions_plugin) = self.subscriptions_plugin.clone() {
+        if let Some(add_subscriptions_plugin) = self.subscriptions_initializer.clone() {
             add_subscriptions_plugin(app);
         }
 
