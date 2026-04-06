@@ -78,16 +78,9 @@ mod table;
 /// Common imports for `bevy_stdb`.
 pub mod prelude {
     pub use crate::{
-        alias::{
-            ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
-            ReadUpdateMessage,
-        },
+        alias::*,
         connection::{StdbConnection, StdbConnectionController, StdbConnectionState},
-        message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-            StdbConnectionErrorMessage, StdbDisconnectedMessage, UpdateMessage,
-        },
+        message::*,
         plugin::StdbPlugin,
         reconnect::StdbReconnectOptions,
         set::StdbSet,

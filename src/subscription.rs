@@ -2,12 +2,14 @@
 //!
 //! Manages subscription intent and active handles via Bevy systems and resources.
 use crate::{
+    channel_bridge::{channel_sender, register_channel},
     connection::{StdbConnection, StdbConnectionState},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
 use bevy_state::prelude::{OnEnter, State};
+use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
     DbContext, Result as StdbResult, SubscriptionHandle as StdbSubscriptionHandle,
@@ -25,6 +27,27 @@ struct SubscriptionEntry<H> {
     sql: String,
     /// Whether this subscription should be applied on the next active connection.
     queued: bool,
+}
+
+/// Stores senders for subscription lifecycle messages.
+#[derive(Resource)]
+struct SubscriptionMessageSenders<K>
+where
+    K: Clone + Send + Sync + 'static,
+{
+    applied: Sender<crate::message::StdbSubscriptionAppliedMessage<K>>,
+    error: Sender<crate::message::StdbSubscriptionErrorMessage<K>>,
+}
+
+/// Configures a queued subscription registration.
+pub struct SubscriptionRegistration<'a, K, M>
+where
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    M: SpacetimeModule,
+    M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
+{
+    _key: K,
+    _subs: &'a mut StdbSubscriptions<K, M>,
 }
 
 /// SpacetimeDB subscription [`Resource`].
@@ -62,33 +85,50 @@ where
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
     /// Stores a typed query for `key` and queues it to be applied.
-    pub fn subscribe_query<T, Q>(&mut self, key: K, query: impl Fn(M::QueryBuilder) -> Q)
+    pub fn subscribe_query<T, Q>(
+        &mut self,
+        key: K,
+        query: impl Fn(M::QueryBuilder) -> Q,
+    ) -> SubscriptionRegistration<'_, K, M>
     where
         Q: Query<T>,
     {
         let res = query(M::QueryBuilder::default());
         let sql = Query::into_sql(res);
-        self.subscribe_sql(key, sql);
+        self.subscribe_sql(key, sql)
     }
 
     /// Stores a SQL query for `key` and queues it to be applied.
-    pub fn subscribe_sql(&mut self, key: K, sql: impl Into<String>) {
+    pub fn subscribe_sql(
+        &mut self,
+        key: K,
+        sql: impl Into<String>,
+    ) -> SubscriptionRegistration<'_, K, M> {
         let sql = sql.into();
 
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.sql = sql;
             entry.queued = true;
-            return;
+
+            return SubscriptionRegistration {
+                _key: key,
+                _subs: self,
+            };
         }
 
         self.entries.insert(
-            key,
+            key.clone(),
             SubscriptionEntry {
                 handle: None,
                 sql,
                 queued: true,
             },
         );
+
+        SubscriptionRegistration {
+            _key: key,
+            _subs: self,
+        }
     }
 
     /// Unsubscribes `key` and removes its stored query.
@@ -152,8 +192,17 @@ where
         self.entries.values().any(|entry| entry.queued)
     }
 
+    /// Re-queues all active subscriptions for re-application after a disconnect.
+    fn queue_on_disconnect(&mut self) {
+        for entry in self.entries.values_mut() {
+            if entry.handle.take().is_some() {
+                entry.queued = true;
+            }
+        }
+    }
+
     /// Sends queued subscriptions to the active connection.
-    fn apply_queued<C>(&mut self, conn: &StdbConnection<C>)
+    fn apply_queued<C>(&mut self, conn: &StdbConnection<C>, senders: &SubscriptionMessageSenders<K>)
     where
         C: DbConnection<Module = M>
             + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
@@ -162,15 +211,34 @@ where
             + 'static,
         M: SpacetimeModule<DbConnection = C>,
     {
-        for entry in self.entries.values_mut() {
+        for (key, entry) in self.entries.iter_mut() {
             if !entry.queued {
                 continue;
             }
 
-            let handle = conn.subscription_builder().subscribe(entry.sql.as_str());
+            let applied_key = key.clone();
+            let applied_sender = senders.applied.clone();
+            let error_key = key.clone();
+            let error_sender = senders.error.clone();
+
+            let handle = conn
+                .subscription_builder()
+                .on_applied(move |_ctx| {
+                    let _ = applied_sender
+                        .send(crate::message::StdbSubscriptionAppliedMessage { key: applied_key });
+                })
+                .on_error(move |_ctx, err| {
+                    let _ = error_sender.send(crate::message::StdbSubscriptionErrorMessage {
+                        key: error_key,
+                        err,
+                    });
+                })
+                .subscribe(entry.sql.as_str());
+
             if let Some(old_handle) = entry.handle.replace(handle) {
                 let _ = old_handle.unsubscribe();
             }
+
             entry.queued = false;
         }
     }
@@ -215,7 +283,7 @@ where
 
 impl<K, C, M> Plugin for SubscriptionsPlugin<K, C, M>
 where
-    K: Eq + Hash + Clone + Send + Sync + 'static,
+    K: Eq + Hash + Clone + PartialEq + Send + Sync + 'static,
     C: DbConnection<Module = M>
         + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
         + Send
@@ -226,9 +294,21 @@ where
 {
     /// Installs the subscription resource and lifecycle systems.
     fn build(&self, app: &mut App) {
+        register_channel::<crate::message::StdbSubscriptionAppliedMessage<K>>(app);
+        register_channel::<crate::message::StdbSubscriptionErrorMessage<K>>(app);
+
+        let world = app.world();
+        let senders = SubscriptionMessageSenders {
+            applied: channel_sender::<crate::message::StdbSubscriptionAppliedMessage<K>>(world),
+            error: channel_sender::<crate::message::StdbSubscriptionErrorMessage<K>>(world),
+        };
+
+        app.insert_resource(senders);
         app.init_resource::<StdbSubscriptions<K, M>>();
+
         let mut subs = app.world_mut().resource_mut::<StdbSubscriptions<K, M>>();
         (self.initializer)(&mut subs);
+        drop(subs);
 
         app.add_systems(
             OnEnter(StdbConnectionState::Disconnected),
@@ -263,16 +343,13 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    for entry in subs.entries.values_mut() {
-        if entry.handle.take().is_some() {
-            entry.queued = true;
-        }
-    }
+    subs.queue_on_disconnect();
 }
 
 /// Sends queued subscriptions to the current connection.
 fn apply_queued_subscriptions<K, C, M>(
     conn: Res<StdbConnection<C>>,
+    senders: Res<SubscriptionMessageSenders<K>>,
     mut subs: ResMut<StdbSubscriptions<K, M>>,
 ) where
     K: Eq + Hash + Clone + Send + Sync + 'static,
@@ -284,5 +361,5 @@ fn apply_queued_subscriptions<K, C, M>(
     M: SpacetimeModule<DbConnection = C>,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    subs.apply_queued(&conn);
+    subs.apply_queued(&conn, &senders);
 }

@@ -1,4 +1,4 @@
-//! Bevy message types for SpacetimeDB connection lifecycle and table events.
+//! Bevy message types for SpacetimeDB connection, subscription, and table events.
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{Error, Identity};
 
@@ -23,6 +23,36 @@ pub struct StdbDisconnectedMessage {
 pub struct StdbConnectionErrorMessage {
     /// The connection error.
     pub err: Error,
+}
+
+/// A [`Message`] sent when a subscription is applied.
+#[derive(Message, Clone, Debug)]
+pub struct StdbSubscriptionAppliedMessage<K> {
+    /// The subscription key associated with the applied subscription.
+    pub key: K,
+}
+
+impl<K: PartialEq> StdbSubscriptionAppliedMessage<K> {
+    /// Returns `true` when this message belongs to `key`.
+    pub fn is(&self, key: &K) -> bool {
+        &self.key == key
+    }
+}
+
+/// A [`Message`] sent when a subscription application fails.
+#[derive(Message, Clone, Debug)]
+pub struct StdbSubscriptionErrorMessage<K> {
+    /// The subscription key associated with the failed subscription.
+    pub key: K,
+    /// The subscription error.
+    pub err: Error,
+}
+
+impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
+    /// Returns `true` when this message belongs to `key`.
+    pub fn is(&self, key: &K) -> bool {
+        &self.key == key
+    }
 }
 
 /// A [`Message`] sent when a row is inserted into a subscribed table.
