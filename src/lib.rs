@@ -44,13 +44,20 @@
 //!                 .with_uri("http://localhost:3000")
 //!                 .with_background_driver(DbConnection::run_threaded)
 //!                 .with_reconnect(StdbReconnectOptions::default())
-//!                 .with_subscriptions(|subs: &mut StdbSubscriptions<SubKey, RemoteModule>| {
-//!                     subs.subscribe_sql(SubKey::Players, "SELECT * FROM player");
-//!                 })
+//!                 .add_systems(Update, subscribe_players_on_connect)
 //!                 .add_table::<PlayerRow>(|reg, db| reg.bind(db.player()))
 //!         )
 //!         .add_systems(Update, on_player_insert)
 //!         .run();
+//! }
+//!
+//! fn subscribe_players_on_connect(
+//!     mut connected: ReadStdbConnectedMessage,
+//!     mut subs: ResMut<StdbSubscriptions<SubKey, RemoteModule>>,
+//! ) {
+//!     if connected.read().next().is_some() {
+//!         subs.subscribe_sql(SubKey::Players, "SELECT * FROM player");
+//!     }
 //! }
 //!
 //! fn on_player_insert(mut msgs: ReadInsertMessage<PlayerRow>) {

@@ -3,7 +3,7 @@ use crate::{
     connection::{ConnectionDriver, StdbConnectionPlugin},
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
     set::StdbSet,
-    subscription::{StdbSubscriptions, SubscriptionsInitializer, SubscriptionsPlugin},
+    subscription::SubscriptionsPlugin,
     table::{
         EventTableBinder, TableBindCallback, TableBinder, TableRegistrationCallback,
         TableWithoutPkBinder, ViewBinder, register_event_table, register_table,
@@ -30,11 +30,19 @@ use std::{hash::Hash, sync::Arc};
 ///         .with_uri("http://localhost:3000")
 ///         .with_background_driver(DbConnection::run_threaded)
 ///         .with_reconnect(StdbReconnectOptions::default())
-///         .with_subscriptions(|subs: &mut StdbSubscriptions<SubKey, Module>| {
-///             subs.subscribe_sql(SubKey::Chat, "SELECT * FROM chat_message");
-///         })
+///         .with_subscriptions::<SubKey>()
 ///         .add_table::<ChatMessageRow>(|reg, db| reg.bind(db.chat_message()))
-/// );
+/// )
+/// .add_systems(Update, subscribe_on_connected);
+///
+/// fn subscribe_on_connected(
+///     mut connected: ReadStdbConnectedMessage,
+///     mut subs: ResMut<StdbSubscriptions<SubKey, Module>>,
+/// ) {
+///     if connected.read().next().is_some() {
+///         subs.subscribe_sql(SubKey::Chat, "SELECT * FROM chat_message");
+///     }
+/// }
 /// ```
 ///
 /// # Panics
@@ -52,7 +60,7 @@ pub struct StdbPlugin<
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
     delayed_connection: bool,
-    subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
+    subscriptions_plugin: Option<Arc<dyn Fn(&mut App) + Send + Sync>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
@@ -69,7 +77,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             driver: None,
             reconnect_options: None,
             delayed_connection: false,
-            subscriptions_initializer: None,
+            subscriptions_plugin: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
         }
@@ -320,30 +328,22 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Enables the subscription subsystem.
     ///
-    /// The initializer runs during plugin build and populates the
-    /// [`StdbSubscriptions`] resource with queries that should be managed
-    /// automatically. Queued subscriptions are applied when connected and
-    /// re-applied after reconnects.
+    /// Additional subscriptions can be queued at runtime from normal Bevy
+    /// systems by accessing [`StdbSubscriptions`] as a resource.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// .with_subscriptions(|subs: &mut StdbSubscriptions<SubKey, RemoteModule>| {
-    ///     subs.subscribe_sql(SubKey::Players, "SELECT * FROM player");
-    ///     subs.subscribe_query(SubKey::Chat, |q| q.from.chat_message());
-    /// })
+    /// .with_subscriptions::<SubKey>()
     /// ```
     ///
-    /// Additional subscriptions can be queued at runtime from normal Bevy
-    /// systems by accessing [`StdbSubscriptions`] as a resource.
+    /// The consumer can then queue subscriptions from systems, such as after
+    /// receiving [`ReadStdbConnectedMessage`](crate::prelude::ReadStdbConnectedMessage).
     ///
     /// # Panics
     ///
     /// Panics if called more than once.
-    pub fn with_subscriptions<K>(
-        mut self,
-        init: impl Fn(&mut StdbSubscriptions<K, M>) + Send + Sync + 'static,
-    ) -> Self
+    pub fn with_subscriptions<K>(mut self) -> Self
     where
         K: Eq + Hash + Clone + Send + Sync + 'static,
         M::SubscriptionHandle: SubscriptionHandle + Send + Sync + 'static,
@@ -354,16 +354,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             + 'static,
     {
         assert!(
-            self.subscriptions_initializer.is_none(),
+            self.subscriptions_plugin.is_none(),
             "`with_subscriptions()` may only be called once"
         );
 
-        let init = Arc::new(init);
-        self.subscriptions_initializer = Some(Arc::new(move |app: &mut App| {
-            let init = init.clone();
-            app.add_plugins(SubscriptionsPlugin::<K, C, M>::new(move |subs| {
-                init(subs);
-            }));
+        self.subscriptions_plugin = Some(Arc::new(|app: &mut App| {
+            app.add_plugins(SubscriptionsPlugin::<K, C, M>::default());
         }));
 
         self
@@ -485,8 +481,8 @@ impl<
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));
         }
 
-        if let Some(init) = self.subscriptions_initializer.clone() {
-            init(app);
+        if let Some(add_subscriptions_plugin) = self.subscriptions_plugin.clone() {
+            add_subscriptions_plugin(app);
         }
 
         for register in &self.table_registrations {
