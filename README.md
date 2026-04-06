@@ -192,7 +192,20 @@ That means you can:
 - queue additional subscriptions later from normal Bevy systems
 - automatically re-apply queued subscription intent after reconnect
 
-Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe.
+Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
+
+There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
+
+```rust
+// Check the client cache once a particular subscription has been applied.
+fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
+  for message in applied_messages.read() {
+    if message.is(&SubKey::MyCharacters) {
+      println!("You have {} characters.", conn.db().my_characters().count());
+    }
+  }
+}
+```
 
 ## Reconnects
 
