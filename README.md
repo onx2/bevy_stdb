@@ -40,7 +40,7 @@ The library is organized around connection-scoped lifecycle concerns:
 ```rust
 use bevy::prelude::*;
 use bevy_stdb::prelude::*;
-use crate::module_bindings::{DbConnection, RemoteModule};
+use crate::module_bindings::{DbConnection, PlayerInfo, RemoteModule};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum MySubKey {
@@ -58,14 +58,21 @@ fn main() {
                 .with_module_name("my_module")
                 .with_uri("http://localhost:3000")
                 .add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
-                .with_subscriptions::<MySubKey>(|subs| {
-                    subs.subscribe_query(MySubKey::PlayerInfo, |q| q.from.player_info());
-                })
+                .with_subscriptions::<MySubKey>()
                 .with_reconnect(StdbReconnectOptions::default())
                 .with_background_driver(DbConnection::run_threaded),
         )
-        .add_systems(Update, on_player_info_insert)
+        .add_systems(Update, (subscribe_on_connect, on_player_info_insert))
         .run();
+}
+
+fn subscribe_on_connect(
+    mut connected: ReadStdbConnectedMessage,
+    mut subs: ResMut<StdbSubs>,
+) {
+    if connected.read().next().is_some() {
+        subs.subscribe_query(MySubKey::PlayerInfo, |q| q.from.player_info());
+    }
 }
 
 fn on_player_info_insert(mut msgs: ReadInsertMessage<PlayerInfo>) {
@@ -188,8 +195,8 @@ This lets normal Bevy systems react to database changes using message readers.
 
 That means you can:
 
-- declare global _(or any other)_ subscriptions during plugin setup using `with_subscriptions`
-- queue additional subscriptions later from normal Bevy systems
+- enable subscription management during plugin setup using `with_subscriptions`
+- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
 - automatically re-apply queued subscription intent after reconnect
 
 Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
@@ -286,7 +293,7 @@ Use `connect_with_token(...)` instead when you want to supply a token at runtime
 | bevy_stdb | bevy   | spacetimedb_sdk |
 | --------- | ------ | --------------- |
 | 0.1 - 0.2 | 0.18   | 2.0             |
-| 0.3 - 0.5 | 0.18   | 2.1             |
+| 0.3 - 0.6 | 0.18   | 2.1             |
 
 ## Notes
 

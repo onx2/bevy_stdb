@@ -31,8 +31,8 @@ struct SubscriptionEntry<H> {
 
 /// SpacetimeDB subscription [`Resource`].
 ///
-/// Keeps subscription intent separate from active handles so queries can be
-/// reapplied after reconnects.
+/// Keeps subscription intent separate from active handles so queued queries can
+/// be reapplied after reconnects.
 #[derive(Resource)]
 pub struct StdbSubscriptions<K, M>
 where
