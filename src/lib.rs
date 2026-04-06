@@ -87,7 +87,8 @@ pub mod prelude {
         connection::{StdbConnection, StdbConnectionController, StdbConnectionState},
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-            StdbConnectionErrorMessage, StdbDisconnectedMessage, UpdateMessage,
+            StdbConnectionErrorMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+            StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
         reconnect::StdbReconnectOptions,
