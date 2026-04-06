@@ -3,7 +3,7 @@ use crate::{
     connection::{ConnectionDriver, StdbConnectionPlugin},
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
     set::StdbSet,
-    subscription::SubscriptionsPlugin,
+    subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
         EventTableBinder, TableBindCallback, TableBinder, TableRegistrationCallback,
         TableWithoutPkBinder, ViewBinder, register_event_table, register_table,
@@ -60,7 +60,7 @@ pub struct StdbPlugin<
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
     delayed_connection: bool,
-    subscriptions_initializer: Option<Arc<dyn Fn(&mut App) + Send + Sync>>,
+    subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
