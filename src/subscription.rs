@@ -263,7 +263,7 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    subs.has_queued() && *state.get() == StdbConnectionState::Connected
+    *state.get() == StdbConnectionState::Connected && subs.has_queued()
 }
 
 /// Re-queues all active subscriptions for re-application after a disconnect.
