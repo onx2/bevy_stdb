@@ -47,8 +47,7 @@
 //!                 .with_subscriptions::<SubKey>()
 //!                 .add_table::<PlayerRow>(|reg, db| reg.bind(db.player()))
 //!         )
-//!         .add_systems(Update, subscribe_players_on_connect)
-//!         .add_systems(Update, on_player_insert)
+//!         .add_systems(Update, (on_player_insert, subscribe_players_on_connect))
 //!         .run();
 //! }
 //!
