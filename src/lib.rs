@@ -44,9 +44,10 @@
 //!                 .with_uri("http://localhost:3000")
 //!                 .with_background_driver(DbConnection::run_threaded)
 //!                 .with_reconnect(StdbReconnectOptions::default())
-//!                 .add_systems(Update, subscribe_players_on_connect)
+//!                 .with_subscriptions::<SubKey>()
 //!                 .add_table::<PlayerRow>(|reg, db| reg.bind(db.player()))
 //!         )
+//!         .add_systems(Update, subscribe_players_on_connect)
 //!         .add_systems(Update, on_player_insert)
 //!         .run();
 //! }
