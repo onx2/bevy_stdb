@@ -40,17 +40,6 @@ where
     error: Sender<StdbSubscriptionErrorMessage<K>>,
 }
 
-/// Configures a queued subscription registration.
-pub struct SubscriptionRegistration<'a, K, M>
-where
-    K: Eq + Hash + Clone + Send + Sync + 'static,
-    M: SpacetimeModule,
-    M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
-{
-    _key: K,
-    _subs: &'a mut StdbSubscriptions<K, M>,
-}
-
 /// SpacetimeDB subscription [`Resource`].
 ///
 /// Keeps subscription intent separate from active handles so queries can be
@@ -86,50 +75,33 @@ where
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
     /// Stores a typed query for `key` and queues it to be applied.
-    pub fn subscribe_query<T, Q>(
-        &mut self,
-        key: K,
-        query: impl Fn(M::QueryBuilder) -> Q,
-    ) -> SubscriptionRegistration<'_, K, M>
+    pub fn subscribe_query<T, Q>(&mut self, key: K, query: impl Fn(M::QueryBuilder) -> Q)
     where
         Q: Query<T>,
     {
         let res = query(M::QueryBuilder::default());
         let sql = Query::into_sql(res);
-        self.subscribe_sql(key, sql)
+        self.subscribe_sql(key, sql);
     }
 
     /// Stores a SQL query for `key` and queues it to be applied.
-    pub fn subscribe_sql(
-        &mut self,
-        key: K,
-        sql: impl Into<String>,
-    ) -> SubscriptionRegistration<'_, K, M> {
+    pub fn subscribe_sql(&mut self, key: K, sql: impl Into<String>) {
         let sql = sql.into();
 
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.sql = sql;
             entry.queued = true;
-
-            return SubscriptionRegistration {
-                _key: key,
-                _subs: self,
-            };
+            return;
         }
 
         self.entries.insert(
-            key.clone(),
+            key,
             SubscriptionEntry {
                 handle: None,
                 sql,
                 queued: true,
             },
         );
-
-        SubscriptionRegistration {
-            _key: key,
-            _subs: self,
-        }
     }
 
     /// Unsubscribes `key` and removes its stored query.
