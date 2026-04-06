@@ -30,16 +30,6 @@ struct SubscriptionEntry<H> {
     queued: bool,
 }
 
-/// Stores senders for subscription lifecycle messages.
-#[derive(Resource)]
-struct SubscriptionMessageSenders<K>
-where
-    K: Clone + Send + Sync + 'static,
-{
-    applied: Sender<StdbSubscriptionAppliedMessage<K>>,
-    error: Sender<StdbSubscriptionErrorMessage<K>>,
-}
-
 /// SpacetimeDB subscription [`Resource`].
 ///
 /// Keeps subscription intent separate from active handles so queries can be
@@ -53,6 +43,10 @@ where
 {
     /// Subscription entries keyed by user-defined subscription key.
     entries: HashMap<K, SubscriptionEntry<M::SubscriptionHandle>>,
+    /// Sender for subscription applied lifecycle messages.
+    applied_sender: Option<Sender<StdbSubscriptionAppliedMessage<K>>>,
+    /// Sender for subscription error lifecycle messages.
+    error_sender: Option<Sender<StdbSubscriptionErrorMessage<K>>>,
 }
 
 impl<K, M> Default for StdbSubscriptions<K, M>
@@ -64,6 +58,8 @@ where
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            applied_sender: None,
+            error_sender: None,
         }
     }
 }
@@ -165,17 +161,8 @@ where
         self.entries.values().any(|entry| entry.queued)
     }
 
-    /// Re-queues all active subscriptions for re-application after a disconnect.
-    fn queue_on_disconnect(&mut self) {
-        for entry in self.entries.values_mut() {
-            if entry.handle.take().is_some() {
-                entry.queued = true;
-            }
-        }
-    }
-
     /// Sends queued subscriptions to the active connection.
-    fn apply_queued<C>(&mut self, conn: &StdbConnection<C>, senders: &SubscriptionMessageSenders<K>)
+    fn apply_queued<C>(&mut self, conn: &StdbConnection<C>)
     where
         C: DbConnection<Module = M>
             + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
@@ -184,15 +171,22 @@ where
             + 'static,
         M: SpacetimeModule<DbConnection = C>,
     {
+        let Some(applied_sender) = self.applied_sender.clone() else {
+            return;
+        };
+        let Some(error_sender) = self.error_sender.clone() else {
+            return;
+        };
+
         for (key, entry) in self.entries.iter_mut() {
             if !entry.queued {
                 continue;
             }
 
             let applied_key = key.clone();
-            let applied_sender = senders.applied.clone();
+            let applied_sender = applied_sender.clone();
             let error_key = key.clone();
-            let error_sender = senders.error.clone();
+            let error_sender = error_sender.clone();
 
             let handle = conn
                 .subscription_builder()
@@ -271,17 +265,17 @@ where
         register_channel::<StdbSubscriptionErrorMessage<K>>(app);
 
         let world = app.world();
-        let senders = SubscriptionMessageSenders {
-            applied: channel_sender::<StdbSubscriptionAppliedMessage<K>>(world),
-            error: channel_sender::<StdbSubscriptionErrorMessage<K>>(world),
-        };
+        let applied_sender = channel_sender::<StdbSubscriptionAppliedMessage<K>>(world);
+        let error_sender = channel_sender::<StdbSubscriptionErrorMessage<K>>(world);
 
-        app.insert_resource(senders);
         app.init_resource::<StdbSubscriptions<K, M>>();
 
-        let mut subs = app.world_mut().resource_mut::<StdbSubscriptions<K, M>>();
-        (self.initializer)(&mut subs);
-        drop(subs);
+        {
+            let mut subs = app.world_mut().resource_mut::<StdbSubscriptions<K, M>>();
+            subs.applied_sender = Some(applied_sender);
+            subs.error_sender = Some(error_sender);
+            (self.initializer)(&mut subs);
+        }
 
         app.add_systems(
             OnEnter(StdbConnectionState::Disconnected),
@@ -316,13 +310,16 @@ where
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    subs.queue_on_disconnect();
+    for entry in subs.entries.values_mut() {
+        if entry.handle.take().is_some() {
+            entry.queued = true;
+        }
+    }
 }
 
 /// Sends queued subscriptions to the current connection.
 fn apply_queued_subscriptions<K, C, M>(
     conn: Res<StdbConnection<C>>,
-    senders: Res<SubscriptionMessageSenders<K>>,
     mut subs: ResMut<StdbSubscriptions<K, M>>,
 ) where
     K: Eq + Hash + Clone + Send + Sync + 'static,
@@ -334,5 +331,5 @@ fn apply_queued_subscriptions<K, C, M>(
     M: SpacetimeModule<DbConnection = C>,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    subs.apply_queued(&conn, &senders);
+    subs.apply_queued(&conn);
 }
