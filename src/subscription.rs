@@ -44,24 +44,9 @@ where
     /// Subscription entries keyed by user-defined subscription key.
     entries: HashMap<K, SubscriptionEntry<M::SubscriptionHandle>>,
     /// Sender for subscription applied lifecycle messages.
-    applied_sender: Option<Sender<StdbSubscriptionAppliedMessage<K>>>,
+    applied_sender: Sender<StdbSubscriptionAppliedMessage<K>>,
     /// Sender for subscription error lifecycle messages.
-    error_sender: Option<Sender<StdbSubscriptionErrorMessage<K>>>,
-}
-
-impl<K, M> Default for StdbSubscriptions<K, M>
-where
-    K: Eq + Hash + Clone + Send + Sync + 'static,
-    M: SpacetimeModule,
-    M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
-{
-    fn default() -> Self {
-        Self {
-            entries: HashMap::new(),
-            applied_sender: None,
-            error_sender: None,
-        }
-    }
+    error_sender: Sender<StdbSubscriptionErrorMessage<K>>,
 }
 
 impl<K, M> StdbSubscriptions<K, M>
@@ -171,22 +156,15 @@ where
             + 'static,
         M: SpacetimeModule<DbConnection = C>,
     {
-        let Some(applied_sender) = self.applied_sender.clone() else {
-            return;
-        };
-        let Some(error_sender) = self.error_sender.clone() else {
-            return;
-        };
-
         for (key, entry) in self.entries.iter_mut() {
             if !entry.queued {
                 continue;
             }
 
             let applied_key = key.clone();
-            let applied_sender = applied_sender.clone();
+            let applied_sender = self.applied_sender.clone();
             let error_key = key.clone();
-            let error_sender = error_sender.clone();
+            let error_sender = self.error_sender.clone();
 
             let handle = conn
                 .subscription_builder()
@@ -265,17 +243,14 @@ where
         register_channel::<StdbSubscriptionErrorMessage<K>>(app);
 
         let world = app.world();
-        let applied_sender = channel_sender::<StdbSubscriptionAppliedMessage<K>>(world);
-        let error_sender = channel_sender::<StdbSubscriptionErrorMessage<K>>(world);
+        app.insert_resource(StdbSubscriptions::<K, M> {
+            entries: HashMap::default(),
+            applied_sender: channel_sender::<StdbSubscriptionAppliedMessage<K>>(world),
+            error_sender: channel_sender::<StdbSubscriptionErrorMessage<K>>(world),
+        });
 
-        app.init_resource::<StdbSubscriptions<K, M>>();
-
-        {
-            let mut subs = app.world_mut().resource_mut::<StdbSubscriptions<K, M>>();
-            subs.applied_sender = Some(applied_sender);
-            subs.error_sender = Some(error_sender);
-            (self.initializer)(&mut subs);
-        }
+        let mut subs = app.world_mut().resource_mut::<StdbSubscriptions<K, M>>();
+        (self.initializer)(&mut subs);
 
         app.add_systems(
             OnEnter(StdbConnectionState::Disconnected),
