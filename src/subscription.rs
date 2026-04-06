@@ -4,6 +4,7 @@
 use crate::{
     channel_bridge::{channel_sender, register_channel},
     connection::{StdbConnection, StdbConnectionState},
+    message::{StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
@@ -35,8 +36,8 @@ struct SubscriptionMessageSenders<K>
 where
     K: Clone + Send + Sync + 'static,
 {
-    applied: Sender<crate::message::StdbSubscriptionAppliedMessage<K>>,
-    error: Sender<crate::message::StdbSubscriptionErrorMessage<K>>,
+    applied: Sender<StdbSubscriptionAppliedMessage<K>>,
+    error: Sender<StdbSubscriptionErrorMessage<K>>,
 }
 
 /// Configures a queued subscription registration.
@@ -224,11 +225,11 @@ where
             let handle = conn
                 .subscription_builder()
                 .on_applied(move |_ctx| {
-                    let _ = applied_sender
-                        .send(crate::message::StdbSubscriptionAppliedMessage { key: applied_key });
+                    let _ =
+                        applied_sender.send(StdbSubscriptionAppliedMessage { key: applied_key });
                 })
                 .on_error(move |_ctx, err| {
-                    let _ = error_sender.send(crate::message::StdbSubscriptionErrorMessage {
+                    let _ = error_sender.send(StdbSubscriptionErrorMessage {
                         key: error_key,
                         err,
                     });
@@ -294,13 +295,13 @@ where
 {
     /// Installs the subscription resource and lifecycle systems.
     fn build(&self, app: &mut App) {
-        register_channel::<crate::message::StdbSubscriptionAppliedMessage<K>>(app);
-        register_channel::<crate::message::StdbSubscriptionErrorMessage<K>>(app);
+        register_channel::<StdbSubscriptionAppliedMessage<K>>(app);
+        register_channel::<StdbSubscriptionErrorMessage<K>>(app);
 
         let world = app.world();
         let senders = SubscriptionMessageSenders {
-            applied: channel_sender::<crate::message::StdbSubscriptionAppliedMessage<K>>(world),
-            error: channel_sender::<crate::message::StdbSubscriptionErrorMessage<K>>(world),
+            applied: channel_sender::<StdbSubscriptionAppliedMessage<K>>(world),
+            error: channel_sender::<StdbSubscriptionErrorMessage<K>>(world),
         };
 
         app.insert_resource(senders);
