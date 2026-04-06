@@ -156,11 +156,7 @@ where
             + 'static,
         M: SpacetimeModule<DbConnection = C>,
     {
-        for (key, entry) in self.entries.iter_mut() {
-            if !entry.queued {
-                continue;
-            }
-
+        for (key, entry) in self.entries.iter_mut().filter(|(_, entry)| entry.queued) {
             let applied_key = key.clone();
             let applied_sender = self.applied_sender.clone();
             let error_key = key.clone();
