@@ -481,8 +481,8 @@ impl<
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));
         }
 
-        if let Some(add_subscriptions_plugin) = self.subscriptions_initializer.clone() {
-            add_subscriptions_plugin(app);
+        if let Some(init) = self.subscriptions_initializer.clone() {
+            init(app);
         }
 
         for register in &self.table_registrations {
