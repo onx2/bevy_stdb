@@ -228,7 +228,7 @@ where
 
 impl<K, C, M> Plugin for SubscriptionsPlugin<K, C, M>
 where
-    K: Eq + Hash + Clone + PartialEq + Send + Sync + 'static,
+    K: Eq + Hash + Clone + Send + Sync + 'static,
     C: DbConnection<Module = M>
         + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
         + Send
