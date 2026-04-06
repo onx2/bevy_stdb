@@ -27,12 +27,12 @@ pub struct StdbConnectionErrorMessage {
 
 /// A [`Message`] sent when a subscription is applied.
 #[derive(Message, Clone, Debug)]
-pub struct StdbSubscriptionAppliedMessage<K> {
+pub struct StdbSubAppliedMessage<K> {
     /// The subscription key associated with the applied subscription.
     pub key: K,
 }
 
-impl<K: PartialEq> StdbSubscriptionAppliedMessage<K> {
+impl<K: PartialEq> StdbSubAppliedMessage<K> {
     /// Returns `true` when this message belongs to `key`.
     pub fn is(&self, key: &K) -> bool {
         &self.key == key
@@ -41,14 +41,14 @@ impl<K: PartialEq> StdbSubscriptionAppliedMessage<K> {
 
 /// A [`Message`] sent when a subscription application fails.
 #[derive(Message, Clone, Debug)]
-pub struct StdbSubscriptionErrorMessage<K> {
+pub struct StdbSubErrorMessage<K> {
     /// The subscription key associated with the failed subscription.
     pub key: K,
     /// The subscription error.
     pub err: Error,
 }
 
-impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
+impl<K: PartialEq> StdbSubErrorMessage<K> {
     /// Returns `true` when this message belongs to `key`.
     pub fn is(&self, key: &K) -> bool {
         &self.key == key

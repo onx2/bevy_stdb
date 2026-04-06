@@ -4,7 +4,7 @@
 use crate::{
     channel_bridge::{channel_sender, register_channel},
     connection::{StdbConnection, StdbConnectionState},
-    message::{StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage},
+    message::{StdbSubAppliedMessage, StdbSubErrorMessage},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
@@ -44,9 +44,9 @@ where
     /// Subscription entries keyed by user-defined subscription key.
     entries: HashMap<K, SubscriptionEntry<M::SubscriptionHandle>>,
     /// Sender for subscription applied lifecycle messages.
-    applied_sender: Sender<StdbSubscriptionAppliedMessage<K>>,
+    applied_sender: Sender<StdbSubAppliedMessage<K>>,
     /// Sender for subscription error lifecycle messages.
-    error_sender: Sender<StdbSubscriptionErrorMessage<K>>,
+    error_sender: Sender<StdbSubErrorMessage<K>>,
 }
 
 impl<K, M> StdbSubscriptions<K, M>
@@ -169,11 +169,10 @@ where
             let handle = conn
                 .subscription_builder()
                 .on_applied(move |_ctx| {
-                    let _ =
-                        applied_sender.send(StdbSubscriptionAppliedMessage { key: applied_key });
+                    let _ = applied_sender.send(StdbSubAppliedMessage { key: applied_key });
                 })
                 .on_error(move |_ctx, err| {
-                    let _ = error_sender.send(StdbSubscriptionErrorMessage {
+                    let _ = error_sender.send(StdbSubErrorMessage {
                         key: error_key,
                         err,
                     });
@@ -239,14 +238,14 @@ where
 {
     /// Installs the subscription resource and lifecycle systems.
     fn build(&self, app: &mut App) {
-        register_channel::<StdbSubscriptionAppliedMessage<K>>(app);
-        register_channel::<StdbSubscriptionErrorMessage<K>>(app);
+        register_channel::<StdbSubAppliedMessage<K>>(app);
+        register_channel::<StdbSubErrorMessage<K>>(app);
 
         let world = app.world();
         app.insert_resource(StdbSubscriptions::<K, M> {
             entries: HashMap::default(),
-            applied_sender: channel_sender::<StdbSubscriptionAppliedMessage<K>>(world),
-            error_sender: channel_sender::<StdbSubscriptionErrorMessage<K>>(world),
+            applied_sender: channel_sender::<StdbSubAppliedMessage<K>>(world),
+            error_sender: channel_sender::<StdbSubErrorMessage<K>>(world),
         });
 
         let mut subs = app.world_mut().resource_mut::<StdbSubscriptions<K, M>>();
