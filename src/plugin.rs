@@ -328,7 +328,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Enables the subscription subsystem.
     ///
-    /// Additional subscriptions can be queued at runtime from normal Bevy
+    /// Subscriptions can be queued at runtime from normal Bevy
     /// systems by accessing [`StdbSubscriptions`] as a resource.
     ///
     /// # Example
@@ -336,9 +336,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// ```ignore
     /// .with_subscriptions::<SubKey>()
     /// ```
-    ///
-    /// The consumer can then queue subscriptions from systems, such as after
-    /// receiving [`ReadStdbConnectedMessage`](crate::prelude::ReadStdbConnectedMessage).
     ///
     /// # Panics
     ///
