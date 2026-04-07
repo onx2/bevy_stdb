@@ -187,7 +187,25 @@ Depending on the table shape, `bevy_stdb` forwards updates into Bevy messages su
 - `UpdateMessage<T>`
 - `InsertUpdateMessage<T>`
 
-This lets normal Bevy systems react to database changes using message readers.
+This lets normal Bevy systems react to database changes using message readers. These messages include both the affected row data and the SpacetimeDB event that triggered the change.
+
+```rust
+use crate::module_bindings::Reducer;
+use bevy_stdb::prelude::*;
+use spacetimedb_sdk::Event;
+
+fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
+  for msg in messages.read() {
+    match &msg.event {
+      Event::Reducer(r) => {
+        /* r.status, r.timestamp, r.reducer */ 
+        if let Reducer::CreatePerson(p) = &r.reducer { /* ... */ }
+      },
+      _ => ={ /* ... */ }
+    }
+  }
+}
+```
 
 ## Subscriptions
 
@@ -287,13 +305,19 @@ fn connect_after_delay(
 
 Use `connect_with_token(...)` instead when you want to supply a token at runtime.
 
+### Connection-dependent resources
+
+`bevy_stdb` resources are only available while a connection is active. Systems that access those resources should either be guarded with a run condition such as `resource_exists::<StdbConnection<_>>()`, or accept them as optional system parameters.
+
+This avoids runtime failures when a system runs before the connection has been established or after it has been lost.
+
 
 ## Compatibility
 
 | bevy_stdb | bevy   | spacetimedb_sdk |
 | --------- | ------ | --------------- |
 | 0.1 - 0.2 | 0.18   | 2.0             |
-| 0.3 - 0.6 | 0.18   | 2.1             |
+| 0.3 - 0.7 | 0.18   | 2.1             |
 
 ## Notes
 
