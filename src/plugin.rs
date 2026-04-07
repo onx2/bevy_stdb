@@ -15,7 +15,7 @@ use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use bevy_state::app::StatesPlugin;
 use spacetimedb_sdk::{
-    __codegen::{DbConnection, InModule, SpacetimeModule},
+    __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
     Compression, DbContext, SubscriptionHandle,
 };
 use std::{hash::Hash, sync::Arc};
@@ -245,7 +245,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(TableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
+        TRow: Send + Sync + Clone + InModule + 'static,
         RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
@@ -352,7 +352,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         K: Eq + Hash + Clone + Send + Sync + 'static,
         M::SubscriptionHandle: SubscriptionHandle + Send + Sync + 'static,
         C: DbConnection<Module = M>
-            + DbContext<SubscriptionBuilder = spacetimedb_sdk::__codegen::SubscriptionBuilder<M>>
+            + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
             + Send
             + Sync
             + 'static,

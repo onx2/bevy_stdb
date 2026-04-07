@@ -12,7 +12,7 @@ use crate::{
 use bevy_app::App;
 use bevy_ecs::prelude::World;
 use spacetimedb_sdk::{
-    __codegen::{AbstractEventContext, InModule, SpacetimeModule},
+    __codegen::{AbstractEventContext, DbContext, InModule, SpacetimeModule},
     EventTable, Table, TableWithPrimaryKey,
 };
 use std::marker::PhantomData;
@@ -21,9 +21,8 @@ use std::marker::PhantomData;
 pub(crate) type TableRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
 
 /// Stored callback that binds SpacetimeDB table listeners for a concrete database view.
-pub(crate) type TableBindCallback<C> = dyn for<'db> Fn(&World, &'db <C as spacetimedb_sdk::__codegen::DbContext>::DbView)
-    + Send
-    + Sync;
+pub(crate) type TableBindCallback<C> =
+    dyn for<'db> Fn(&World, &'db <C as DbContext>::DbView) + Send + Sync;
 
 /// Binds callbacks for a table with a primary key.
 ///
