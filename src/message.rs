@@ -1,6 +1,13 @@
 //! Bevy message types for SpacetimeDB connection, subscription, and table events.
 use bevy_ecs::prelude::Message;
-use spacetimedb_sdk::{Error, Identity};
+use spacetimedb_sdk::{
+    __codegen::{AbstractEventContext, InModule, SpacetimeModule},
+    Error, Identity,
+};
+
+/// Event metadata associated with row callbacks for a SpacetimeDB row type.
+pub type RowEvent<T> =
+    <<<T as InModule>::Module as SpacetimeModule>::EventContext as AbstractEventContext>::Event;
 
 /// A [`Message`] sent when a SpacetimeDB connection is established.
 #[derive(Message, Debug)]
@@ -57,21 +64,39 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
 
 /// A [`Message`] sent when a row is inserted into a subscribed table.
 #[derive(Message, Debug)]
-pub struct InsertMessage<T> {
+pub struct InsertMessage<T>
+where
+    T: InModule,
+    RowEvent<T>: Send + Sync,
+{
+    /// The SpacetimeDB event that triggered the row callback.
+    pub event: RowEvent<T>,
     /// The affected row.
     pub row: T,
 }
 
 /// A [`Message`] sent when a row is deleted from a subscribed table.
 #[derive(Message, Debug)]
-pub struct DeleteMessage<T> {
+pub struct DeleteMessage<T>
+where
+    T: InModule,
+    RowEvent<T>: Send + Sync,
+{
+    /// The SpacetimeDB event that triggered the row callback.
+    pub event: RowEvent<T>,
     /// The affected row.
     pub row: T,
 }
 
 /// A [`Message`] sent when a row in a subscribed table is updated.
 #[derive(Message, Debug)]
-pub struct UpdateMessage<T> {
+pub struct UpdateMessage<T>
+where
+    T: InModule,
+    RowEvent<T>: Send + Sync,
+{
+    /// The SpacetimeDB event that triggered the row callback.
+    pub event: RowEvent<T>,
     /// The previous row value.
     pub old: T,
     /// The updated row value.
@@ -80,7 +105,13 @@ pub struct UpdateMessage<T> {
 
 /// A [`Message`] sent when a row in a subscribed table is inserted or updated.
 #[derive(Message, Debug)]
-pub struct InsertUpdateMessage<T> {
+pub struct InsertUpdateMessage<T>
+where
+    T: InModule,
+    RowEvent<T>: Send + Sync,
+{
+    /// The SpacetimeDB event that triggered the row callback.
+    pub event: RowEvent<T>,
     /// The previous row value, if this was an update.
     pub old: Option<T>,
     /// The current row value.

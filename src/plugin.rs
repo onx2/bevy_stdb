@@ -244,7 +244,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(TableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + 'static,
+        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
+        crate::message::RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_table::<TRow>));
@@ -269,7 +270,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(TableWithoutPkBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + 'static,
+        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
+        crate::message::RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_table_without_pk::<TRow>));
@@ -292,7 +294,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(ViewBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + 'static,
+        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
+        crate::message::RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_view::<TRow>));
@@ -315,7 +318,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(EventTableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + 'static,
+        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
+        crate::message::RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_event_table::<TRow>));
