@@ -7,7 +7,7 @@
 //! [`InsertUpdateMessage`](crate::message::InsertUpdateMessage).
 use crate::{
     channel_bridge::{channel_sender, register_channel},
-    message::{DeleteMessage, InsertMessage, InsertUpdateMessage, UpdateMessage},
+    message::{DeleteMessage, InsertMessage, InsertUpdateMessage, RowEvent, UpdateMessage},
 };
 use bevy_app::App;
 use bevy_ecs::prelude::World;
@@ -47,7 +47,7 @@ impl<'w, TRow> TableBinder<'w, TRow> {
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        RowEvent<TRow>: Send + Sync,
         TTable: Table<
                 Row = TRow,
                 EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
@@ -82,7 +82,7 @@ impl<'w, TRow> TableWithoutPkBinder<'w, TRow> {
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        RowEvent<TRow>: Send + Sync,
         TTable: Table<
                 Row = TRow,
                 EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
@@ -115,7 +115,7 @@ impl<'w, TRow> ViewBinder<'w, TRow> {
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        RowEvent<TRow>: Send + Sync,
         TTable: Table<
                 Row = TRow,
                 EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
@@ -148,7 +148,7 @@ impl<'w, TRow> EventTableBinder<'w, TRow> {
     pub fn bind<TTable>(self, table: TTable)
     where
         TRow: Send + Sync + Clone + InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        RowEvent<TRow>: Send + Sync,
         TTable: Table<
                 Row = TRow,
                 EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
@@ -162,7 +162,7 @@ impl<'w, TRow> EventTableBinder<'w, TRow> {
 pub(crate) fn register_table<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
 {
     register_channel::<InsertMessage<TRow>>(app);
     register_channel::<DeleteMessage<TRow>>(app);
@@ -174,7 +174,7 @@ where
 pub(crate) fn register_table_without_pk<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
 {
     register_channel::<InsertMessage<TRow>>(app);
     register_channel::<DeleteMessage<TRow>>(app);
@@ -184,7 +184,7 @@ where
 pub(crate) fn register_view<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
 {
     register_table_without_pk::<TRow>(app);
 }
@@ -193,7 +193,7 @@ where
 pub(crate) fn register_event_table<TRow>(app: &mut App)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
 {
     register_channel::<InsertMessage<TRow>>(app);
 }
@@ -201,12 +201,12 @@ where
 fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
     TTable: Table<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
         >,
-    TTable::EventContext: AbstractEventContext<Event = crate::message::RowEvent<TRow>>,
+    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<InsertMessage<TRow>>(world);
     table.on_insert(move |ctx, row| {
@@ -220,12 +220,12 @@ where
 fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
     TTable: Table<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
         >,
-    TTable::EventContext: AbstractEventContext<Event = crate::message::RowEvent<TRow>>,
+    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<DeleteMessage<TRow>>(world);
     table.on_delete(move |ctx, row| {
@@ -239,12 +239,12 @@ where
 fn bind_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
     TTable: Table<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
         > + TableWithPrimaryKey<Row = TRow>,
-    TTable::EventContext: AbstractEventContext<Event = crate::message::RowEvent<TRow>>,
+    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<UpdateMessage<TRow>>(world);
     table.on_update(move |ctx, old, new| {
@@ -259,12 +259,12 @@ where
 fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
-    crate::message::RowEvent<TRow>: Send + Sync,
+    RowEvent<TRow>: Send + Sync,
     TTable: Table<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
         > + TableWithPrimaryKey<Row = TRow>,
-    TTable::EventContext: AbstractEventContext<Event = crate::message::RowEvent<TRow>>,
+    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender_insert = channel_sender::<InsertUpdateMessage<TRow>>(world);
     table.on_insert(move |ctx, row| {
