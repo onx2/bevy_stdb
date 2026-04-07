@@ -1,6 +1,7 @@
 use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
+    message::RowEvent,
     reconnect::{ReconnectPlugin, StdbReconnectOptions},
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
@@ -14,7 +15,7 @@ use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use bevy_state::app::StatesPlugin;
 use spacetimedb_sdk::{
-    __codegen::{DbConnection, SpacetimeModule},
+    __codegen::{DbConnection, InModule, SpacetimeModule},
     Compression, DbContext, SubscriptionHandle,
 };
 use std::{hash::Hash, sync::Arc};
@@ -245,7 +246,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ) -> Self
     where
         TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_table::<TRow>));
@@ -270,8 +271,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(TableWithoutPkBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        TRow: Send + Sync + Clone + InModule + 'static,
+        RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_table_without_pk::<TRow>));
@@ -294,8 +295,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(ViewBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        TRow: Send + Sync + Clone + InModule + 'static,
+        RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_view::<TRow>));
@@ -318,8 +319,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         bind: impl for<'db> Fn(EventTableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
     ) -> Self
     where
-        TRow: Send + Sync + Clone + spacetimedb_sdk::__codegen::InModule + 'static,
-        crate::message::RowEvent<TRow>: Send + Sync,
+        TRow: Send + Sync + Clone + InModule + 'static,
+        RowEvent<TRow>: Send + Sync,
     {
         self.table_registrations
             .push(Arc::new(register_event_table::<TRow>));
