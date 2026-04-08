@@ -3,7 +3,10 @@
 A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.com).
 
 [![crates.io](https://img.shields.io/crates/v/bevy_stdb)](https://crates.io/crates/bevy_stdb)
+![Dependabot](https://img.shields.io/badge/dependabot-enabled-brightgreen.svg)
 [![docs.rs](https://docs.rs/bevy_stdb/badge.svg)](https://docs.rs/bevy_stdb)
+[![CI](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml/badge.svg)](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/onx2/bevy_stdb/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/onx2/bevy_stdb/actions/workflows/github-code-scanning/codeql)
 
 ![Useless AI generated image that kind of looks cool](https://github.com/user-attachments/assets/b6cf0408-0c0d-4997-bf9c-e2e0989ab5f3)
 _Please enjoy this useless AI generated image based on the README contents of this repo._
