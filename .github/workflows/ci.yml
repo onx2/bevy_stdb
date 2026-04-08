@@ -10,9 +10,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  rust:
-    name: Rust CI (stable)
+  fmt:
+    name: Format
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  native:
+    name: Native default (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
     env:
       RUSTDOCFLAGS: -D warnings
 
@@ -22,21 +48,51 @@ jobs:
 
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: cargo fmt --all --check
+      - name: Run cargo check
+        run: cargo check --all-targets --locked
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Run tests
-        run: cargo test --all-targets --all-features --locked
+        run: cargo test --all-targets --locked
 
       - name: Build docs
-        run: cargo doc --no-deps --all-features --locked
+        run: cargo doc --no-deps --locked
+
+  browser:
+    name: Browser wasm
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust with wasm target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo check
+        run: cargo check --target wasm32-unknown-unknown --features browser --locked
+
+      - name: Run clippy
+        run: cargo clippy --target wasm32-unknown-unknown --features browser --locked -- -D warnings
+
+      - name: Build docs
+        run: cargo doc --target wasm32-unknown-unknown --no-deps --features browser --locked
 
   msrv:
     name: MSRV check
