@@ -75,16 +75,17 @@ where
 
             entry.sql = sql;
             entry.queued = true;
-        } else {
-            self.entries.insert(
-                key,
-                SubscriptionEntry {
-                    handle: None,
-                    sql,
-                    queued: true,
-                },
-            );
+            return;
         }
+
+        self.entries.insert(
+            key,
+            SubscriptionEntry {
+                handle: None,
+                sql,
+                queued: true,
+            },
+        );
     }
 
     /// Unsubscribes `key` and removes its stored query.
