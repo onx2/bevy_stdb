@@ -69,19 +69,22 @@ where
         let sql = sql.into();
 
         if let Some(entry) = self.entries.get_mut(&key) {
+            if entry.sql == sql && (entry.queued || entry.handle.is_some()) {
+                return;
+            }
+
             entry.sql = sql;
             entry.queued = true;
-            return;
+        } else {
+            self.entries.insert(
+                key,
+                SubscriptionEntry {
+                    handle: None,
+                    sql,
+                    queued: true,
+                },
+            );
         }
-
-        self.entries.insert(
-            key,
-            SubscriptionEntry {
-                handle: None,
-                sql,
-                queued: true,
-            },
-        );
     }
 
     /// Unsubscribes `key` and removes its stored query.
