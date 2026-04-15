@@ -15,20 +15,7 @@ _Please enjoy this useless AI generated image based on the README contents of th
 
 ## Overview
 
-`bevy_stdb` adapts SpacetimeDB's connection and callback model into Bevy-style resources, systems, plugins, and messages. Its built around a few core ideas:
-
-- Configure everything through `StdbPlugin`
-- Expose the active live connection as a Bevy resource via `StdbConnection`
-- Forward SpacetimeDB table callbacks into Bevy `Message`s
-- Store subscription intent independently from the live connection with `StdbSubscriptions`
-- Optionally retry failed connections with `StdbReconnectOptions`
-
-The library is organized around connection-scoped lifecycle concerns:
-
-- **connection lifecycle**: establish the initial connection eagerly or on demand, expose the active connection resource, and track connection state
-- **table lifecycle**: initialize table message channels once and re-bind table callbacks whenever a connection becomes active
-- **subscription lifecycle**: store desired subscription intent and re-apply queued subscriptions when connected
-- **reconnect lifecycle**: optionally retry connection attempts after disconnects using configurable backoff
+`bevy_stdb` adapts SpacetimeDB's connection and callback model into Bevy-style resources, systems, plugins, and messages.
 
 ## Features
 
@@ -37,6 +24,7 @@ The library is organized around connection-scoped lifecycle concerns:
 - **Table event bridging** into normal Bevy `Message`s
 - **Managed subscription intent** through `StdbSubscriptions`
 - **Optional reconnect support** through `StdbReconnectOptions`
+- **Optional delayed connection** through `with_delayed_connection`
 
 ## Example
 
