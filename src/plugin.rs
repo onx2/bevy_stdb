@@ -1,4 +1,5 @@
 use crate::{
+    auth::StdbAuthOptions,
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
     message::RowEvent,
@@ -59,6 +60,7 @@ pub struct StdbPlugin<
     token: Option<String>,
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
+    auth_options: Option<StdbAuthOptions>,
     reconnect_options: Option<StdbReconnectOptions>,
     delayed_connection: bool,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
@@ -76,6 +78,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             token: None,
             compression: None,
             driver: None,
+            auth_options: None,
             reconnect_options: None,
             delayed_connection: false,
             subscriptions_initializer: None,
@@ -442,6 +445,15 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_delayed_connection()` may only be called once"
         );
         self.delayed_connection = true;
+        self
+    }
+
+    /// TODO
+    pub fn with_auth(mut self) -> Self {
+        // assert!(
+        //     self.auth_options.is_none(),,
+        //     "`with_auth()` may only be called once"
+        // );
         self
     }
 }
