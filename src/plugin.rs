@@ -1,5 +1,5 @@
 use crate::{
-    auth::StdbAuthOptions,
+    auth::{StdbAuthOptions, StdbAuthPlugin},
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
     message::RowEvent,
@@ -448,12 +448,17 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// TODO
-    pub fn with_auth(mut self) -> Self {
-        // assert!(
-        //     self.auth_options.is_none(),,
-        //     "`with_auth()` may only be called once"
-        // );
+    /// Enables OIDC authentication for connection startup and runtime connect requests.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
+    pub fn with_auth(mut self, auth_options: StdbAuthOptions) -> Self {
+        assert!(
+            self.auth_options.is_none(),
+            "`with_auth()` may only be called once"
+        );
+        self.auth_options = Some(auth_options);
         self
     }
 }
@@ -492,6 +497,13 @@ impl<
             )
                 .chain(),
         );
+
+        if let Some(auth_options) = self.auth_options.clone() {
+            app.add_plugins(StdbAuthPlugin::<C, M>::new(
+                auth_options,
+                self.token.clone(),
+            ));
+        }
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));

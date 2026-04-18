@@ -92,7 +92,11 @@ pub mod prelude {
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage,
         },
-        auth::StdbAuthOptions,
+        auth::{
+            AuthFailureMessage, AuthSuccessMessage, RequestLoginMessage, RequestLogoutMessage,
+            StdbAuthOptions, StdbAuthStartupBehavior, StdbAuthState, StdbCurrentTokens,
+            StdbTokenStorage, TokenResponse,
+        },
         connection::{StdbConnection, StdbConnectionController, StdbConnectionState},
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,

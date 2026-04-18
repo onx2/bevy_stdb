@@ -5,6 +5,7 @@ use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
+    auth::{StdbAuthConfig, StdbAuthRuntime, StdbAuthState, StdbCurrentTokens},
     channel_bridge::{channel_sender, register_channel},
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
     set::StdbSet,
@@ -275,6 +276,9 @@ pub struct StdbConnectionController {
 impl StdbConnectionController {
     /// Requests a connection using the currently stored token, if any.
     ///
+    /// When auth is configured, this request may wait for authentication
+    /// before the connection is built.
+    ///
     /// Has no effect if a connection is already active or in progress.
     pub fn connect(&mut self) {
         self.requested = true;
@@ -483,6 +487,9 @@ fn request_initial_connection(mut controller: ResMut<StdbConnectionController>) 
 
 /// Initiates a connection build from a pending [`StdbConnectionController`] request.
 ///
+/// When auth is configured, token-less requests are queued until a token is
+/// available.
+///
 /// Requests are ignored if a connection is already active or pending.
 fn start_requested_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
@@ -493,6 +500,10 @@ fn start_requested_connection<
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     active_connection: Option<Res<StdbConnection<C>>>,
     pending_connection: Option<Res<PendingConnectionState<C>>>,
+    mut auth_runtime: Option<ResMut<StdbAuthRuntime>>,
+    mut auth_tokens: Option<ResMut<StdbCurrentTokens>>,
+    auth_config: Option<Res<StdbAuthConfig>>,
+    mut next_auth_state: Option<ResMut<NextState<StdbAuthState>>>,
     mut commands: Commands,
 ) {
     let Some(token_override) = controller.take_request() else {
@@ -505,7 +516,48 @@ fn start_requested_connection<
     }
 
     if let Some(token) = token_override {
-        config.token = Some(token);
+        config.token = Some(token.clone());
+
+        if let Some(tokens) = auth_tokens.as_mut() {
+            tokens.set_access_token(token);
+        }
+
+        if let Some(runtime) = auth_runtime.as_mut() {
+            runtime.connect_blocked = false;
+            runtime.pending_connect = false;
+        }
+    } else if auth_config.is_some() {
+        let access_token = auth_tokens
+            .as_ref()
+            .and_then(|tokens| tokens.access_token().map(|token| token.to_owned()));
+
+        if let Some(token) = access_token {
+            config.token = Some(token);
+
+            if let Some(runtime) = auth_runtime.as_mut() {
+                runtime.connect_blocked = false;
+                runtime.pending_connect = false;
+            }
+        } else {
+            let connect_blocked = auth_runtime
+                .as_ref()
+                .map(|runtime| runtime.connect_blocked)
+                .unwrap_or(false);
+
+            if connect_blocked {
+                return;
+            }
+
+            if let Some(runtime) = auth_runtime.as_mut() {
+                runtime.pending_connect = true;
+            }
+
+            if let Some(next_auth_state) = next_auth_state.as_mut() {
+                next_auth_state.set(StdbAuthState::Authenticating);
+            }
+
+            return;
+        }
     }
 
     let connect_config = config.clone();

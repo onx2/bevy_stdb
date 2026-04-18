@@ -1,8 +1,11 @@
 //! [`MessageReader`] type aliases for connection lifecycle and table messages.
-use crate::message::{
-    DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-    StdbConnectionErrorMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
-    StdbSubscriptionErrorMessage, UpdateMessage,
+use crate::{
+    auth::{AuthFailureMessage, AuthSuccessMessage, RequestLoginMessage, RequestLogoutMessage},
+    message::{
+        DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
+        StdbConnectionErrorMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+        StdbSubscriptionErrorMessage, UpdateMessage,
+    },
 };
 use bevy_ecs::prelude::MessageReader;
 
@@ -26,6 +29,18 @@ pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconn
 
 /// A [`MessageReader`] for [`StdbConnectionErrorMessage`].
 pub type ReadStdbConnectionErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectionErrorMessage>;
+
+/// A [`MessageReader`] for [`RequestLoginMessage`].
+pub type ReadRequestLoginMessage<'w, 's> = MessageReader<'w, 's, RequestLoginMessage>;
+
+/// A [`MessageReader`] for [`RequestLogoutMessage`].
+pub type ReadRequestLogoutMessage<'w, 's> = MessageReader<'w, 's, RequestLogoutMessage>;
+
+/// A [`MessageReader`] for [`AuthSuccessMessage`].
+pub type ReadAuthSuccessMessage<'w, 's> = MessageReader<'w, 's, AuthSuccessMessage>;
+
+/// A [`MessageReader`] for [`AuthFailureMessage`].
+pub type ReadAuthFailureMessage<'w, 's> = MessageReader<'w, 's, AuthFailureMessage>;
 
 /// A [`MessageReader`] for [`StdbSubscriptionAppliedMessage<K>`].
 pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
