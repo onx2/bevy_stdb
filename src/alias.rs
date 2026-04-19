@@ -1,11 +1,9 @@
 //! [`MessageReader`] type aliases for connection lifecycle and table messages.
-use crate::{
-    auth::{AuthFailureMessage, AuthSuccessMessage, RequestLoginMessage, RequestLogoutMessage},
-    message::{
-        DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-        StdbConnectionErrorMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
-        StdbSubscriptionErrorMessage, UpdateMessage,
-    },
+use crate::message::{
+    AuthFailureMessage, AuthSuccessMessage, DeleteMessage, InsertMessage, InsertUpdateMessage,
+    RequestLoginMessage, RequestLogoutMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
+    StdbDisconnectedMessage, StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage,
+    UpdateMessage,
 };
 use bevy_ecs::prelude::MessageReader;
 

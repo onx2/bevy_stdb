@@ -23,10 +23,23 @@ bevy_time = "0.18"
 spacetimedb-sdk = "2.1"
 wasm-bindgen-futures = { version = "0.4", optional = true }
 crossbeam-channel = "0.5"
+keyring = "3.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+oauth2 = "5.0"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+url = "2.5"
+webbrowser = "1"
+web-sys = { version = "0.3", optional = true, features = ["Window", "Storage", "History", "Location", "Crypto"] }
+js-sys = { version = "0.3", optional = true }
+base64 = "0.22"
+sha2 = "0.10"
+futures-lite = "2"
+dirs = "6"
 
 [features]
 default = []
-browser = ["spacetimedb-sdk/browser", "wasm-bindgen-futures"]
+browser = ["spacetimedb-sdk/browser", "wasm-bindgen-futures", "web-sys", "js-sys"]
 
 
 [package.metadata.docs.rs]

@@ -218,6 +218,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             self.token.is_none(),
             "`with_token()` may only be called once"
         );
+        assert!(
+            self.auth_options.is_none(),
+            "`with_token()` cannot be used with `with_auth()`"
+        );
         self.token = Some(token.into());
         self
     }
@@ -458,6 +462,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             self.auth_options.is_none(),
             "`with_auth()` may only be called once"
         );
+        assert!(
+            self.token.is_none(),
+            "`with_auth()` cannot be used with `with_token()`"
+        );
         self.auth_options = Some(auth_options);
         self
     }
@@ -499,10 +507,7 @@ impl<
         );
 
         if let Some(auth_options) = self.auth_options.clone() {
-            app.add_plugins(StdbAuthPlugin::<C, M>::new(
-                auth_options,
-                self.token.clone(),
-            ));
+            app.add_plugins(StdbAuthPlugin::<C, M>::new(auth_options));
         }
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {

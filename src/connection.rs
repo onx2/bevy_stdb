@@ -5,7 +5,7 @@ use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
-    auth::{StdbAuthConfig, StdbAuthRuntime, StdbAuthState, StdbCurrentTokens},
+    auth::{CurrentAuthTokens, PendingAuthMode, PendingAuthResume, PendingAuthState, StdbAuthConfig, StdbAuthStartupBehavior},
     channel_bridge::{channel_sender, register_channel},
     message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
     set::StdbSet,
@@ -487,8 +487,8 @@ fn request_initial_connection(mut controller: ResMut<StdbConnectionController>) 
 
 /// Initiates a connection build from a pending [`StdbConnectionController`] request.
 ///
-/// When auth is configured, token-less requests are queued until a token is
-/// available.
+/// When auth is configured, token-less requests are queued until auth resolves
+/// credentials for the pending connection.
 ///
 /// Requests are ignored if a connection is already active or pending.
 fn start_requested_connection<
@@ -500,10 +500,10 @@ fn start_requested_connection<
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     active_connection: Option<Res<StdbConnection<C>>>,
     pending_connection: Option<Res<PendingConnectionState<C>>>,
-    mut auth_runtime: Option<ResMut<StdbAuthRuntime>>,
-    mut auth_tokens: Option<ResMut<StdbCurrentTokens>>,
+    mut auth_tokens: Option<ResMut<CurrentAuthTokens>>,
     auth_config: Option<Res<StdbAuthConfig>>,
-    mut next_auth_state: Option<ResMut<NextState<StdbAuthState>>>,
+    pending_auth_state: Option<Res<PendingAuthState>>,
+    mut pending_auth_resume: Option<ResMut<PendingAuthResume>>,
     mut commands: Commands,
 ) {
     let Some(token_override) = controller.take_request() else {
@@ -521,41 +521,35 @@ fn start_requested_connection<
         if let Some(tokens) = auth_tokens.as_mut() {
             tokens.set_access_token(token);
         }
-
-        if let Some(runtime) = auth_runtime.as_mut() {
-            runtime.connect_blocked = false;
-            runtime.pending_connect = false;
-        }
-    } else if auth_config.is_some() {
+    } else if let Some(auth_config) = auth_config {
         let access_token = auth_tokens
             .as_ref()
-            .and_then(|tokens| tokens.access_token().map(|token| token.to_owned()));
+            .and_then(|tokens| tokens.access_token().map(ToOwned::to_owned));
 
         if let Some(token) = access_token {
             config.token = Some(token);
-
-            if let Some(runtime) = auth_runtime.as_mut() {
-                runtime.connect_blocked = false;
-                runtime.pending_connect = false;
-            }
         } else {
-            let connect_blocked = auth_runtime
-                .as_ref()
-                .map(|runtime| runtime.connect_blocked)
-                .unwrap_or(false);
+            let mode = if let Some(pending_auth_state) = pending_auth_state.as_ref() {
+                pending_auth_state.mode
+            } else {
+                match auth_config.options.startup_behavior {
+                    StdbAuthStartupBehavior::Silent => PendingAuthMode::Silent,
+                    StdbAuthStartupBehavior::Interactive => PendingAuthMode::Interactive,
+                }
+            };
 
-            if connect_blocked {
-                return;
+            if let Some(pending_auth_resume) = pending_auth_resume.as_mut() {
+                pending_auth_resume.requested = true;
+                pending_auth_resume.mode = mode;
             }
 
-            if let Some(runtime) = auth_runtime.as_mut() {
-                runtime.pending_connect = true;
-            }
-
-            if let Some(next_auth_state) = next_auth_state.as_mut() {
-                next_auth_state.set(StdbAuthState::Authenticating);
-            }
-
+            commands.insert_resource(PendingAuthState {
+                mode,
+                status: crate::auth::PendingAuthStatus::Ready(Err(
+                    "Interactive auth start must be implemented by the platform auth module."
+                        .to_string(),
+                )),
+            });
             return;
         }
     }
