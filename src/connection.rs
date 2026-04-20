@@ -1,7 +1,6 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
-
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
