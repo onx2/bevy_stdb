@@ -1,3 +1,5 @@
+#[cfg(feature = "auth")]
+use crate::auth::StdbAuthOptions;
 use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
@@ -60,6 +62,8 @@ pub struct StdbPlugin<
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
+    #[cfg(feature = "auth")]
+    auth_options: Option<StdbAuthOptions>,
     delayed_connection: bool,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
@@ -77,6 +81,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             compression: None,
             driver: None,
             reconnect_options: None,
+            #[cfg(feature = "auth")]
+            auth_options: None,
             delayed_connection: false,
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
@@ -440,6 +446,25 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_delayed_connection()` may only be called once"
         );
         self.delayed_connection = true;
+        self
+    }
+
+    /// Enables OIDC authentication for connection startup and runtime connect requests.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
+    #[cfg(feature = "auth")]
+    pub fn with_auth(mut self, auth_options: StdbAuthOptions) -> Self {
+        assert!(
+            self.auth_options.is_none(),
+            "`with_auth()` may only be called once"
+        );
+        assert!(
+            self.token.is_none(),
+            "`with_auth()` cannot be used with `with_token()`"
+        );
+        self.auth_options = Some(auth_options);
         self
     }
 }

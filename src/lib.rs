@@ -74,6 +74,8 @@
 pub(crate) mod channel_bridge;
 
 mod alias;
+#[cfg(feature = "auth")]
+mod auth;
 mod connection;
 mod message;
 mod plugin;
@@ -103,4 +105,7 @@ pub mod prelude {
         set::StdbSet,
         subscription::StdbSubscriptions,
     };
+
+    #[cfg(feature = "auth")]
+    pub use crate::auth::StdbAuthOptions;
 }

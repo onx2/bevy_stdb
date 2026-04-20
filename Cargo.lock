@@ -344,6 +344,7 @@ dependencies = [
  "bevy_state",
  "bevy_time",
  "crossbeam-channel",
+ "serde",
  "spacetimedb-sdk",
  "wasm-bindgen-futures",
 ]

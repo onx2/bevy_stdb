@@ -21,13 +21,14 @@ bevy_ecs = "0.18"
 bevy_state = "0.18"
 bevy_time = "0.18"
 spacetimedb-sdk = "2.1"
-wasm-bindgen-futures = { version = "0.4", optional = true }
 crossbeam-channel = "0.5"
+wasm-bindgen-futures = { version = "0.4", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
 default = []
 browser = ["spacetimedb-sdk/browser", "wasm-bindgen-futures"]
-
+auth = ["serde"]
 
 [package.metadata.docs.rs]
 all-features = true
