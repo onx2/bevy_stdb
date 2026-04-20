@@ -297,11 +297,6 @@ impl<
 
         app.insert_resource(config);
 
-        if !self.delayed_connection {
-            app.world_mut()
-                .write_message_default::<RequestStdbConnectionMessage>();
-        }
-
         // Sync connection state from SDK lifecycle messages.
         app.add_systems(
             PreUpdate,
@@ -334,6 +329,11 @@ impl<
                     .in_set(StdbSet::Connection)
                     .run_if(in_state(StdbConnectionState::Connected)),
             );
+        }
+
+        if !self.delayed_connection {
+            app.world_mut()
+                .write_message_default::<RequestStdbConnectionMessage>();
         }
     }
 }
