@@ -374,6 +374,12 @@ fn handle_connection_request<
         if let Some(token) = latest_request.token {
             config.token = Some(token);
         }
+        if let Some(uri) = latest_request.uri {
+            config.uri = uri;
+        }
+        if let Some(module_name) = latest_request.module_name {
+            config.module_name = module_name;
+        }
         config.clone()
     };
 
