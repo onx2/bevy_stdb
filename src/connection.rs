@@ -328,9 +328,15 @@ impl<
         if matches!(self.driver, Some(ConnectionDriver::FrameTick(_))) {
             app.add_systems(
                 PreUpdate,
-                drive_connection_frame_tick::<C, M>
-                    .in_set(StdbSet::Connection)
-                    .run_if(in_state(StdbConnectionState::Connected)),
+                (|conn: Res<StdbConnection<C>>, config: Res<StdbConnectionConfig<C, M>>| {
+                    let Some(ConnectionDriver::FrameTick(frame_tick)) = config.driver.as_ref() else {
+                        panic!("frame tick system should only be added when the frame tick driver is configured");
+                    };
+
+                    let _ = frame_tick(conn.conn.as_ref());
+                })
+                .in_set(StdbSet::Connection)
+                .run_if(in_state(StdbConnectionState::Connected)),
             );
         }
 
@@ -472,25 +478,4 @@ fn on_connected_bind<
     for bind in &config.table_bindings {
         bind(&*world, db);
     }
-}
-
-/// Ticks the active connection once per frame.
-///
-/// Only added when [`ConnectionDriver::FrameTick`] is configured.
-fn drive_connection_frame_tick<
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
->(
-    conn: Res<StdbConnection<C>>,
-    config: Res<StdbConnectionConfig<C, M>>,
-) {
-    let ConnectionDriver::FrameTick(frame_tick) = config
-        .driver
-        .as_ref()
-        .expect("frame tick system should only be added when a driver is configured")
-    else {
-        panic!("frame tick system should only be added when the frame tick driver is configured");
-    };
-
-    let _ = frame_tick(conn.conn.as_ref());
 }
