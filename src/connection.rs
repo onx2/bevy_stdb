@@ -357,7 +357,7 @@ fn handle_connection_request<
     #[cfg(feature = "browser")] world: &World,
 ) {
     if active_connection.is_some() {
-        request_msgs.read().count();
+        request_msgs.clear();
         return;
     }
 
