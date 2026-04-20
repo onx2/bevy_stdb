@@ -357,24 +357,22 @@ fn handle_connection_request<
     world: &mut World,
 ) {
     if world.get_resource::<StdbConnection<C>>().is_some() {
-        world
+        return world
             .resource_mut::<Messages<RequestStdbConnectionMessage>>()
             .clear();
-        return;
     }
 
-    let latest_request = {
-        let mut request_msgs = world.resource_mut::<Messages<RequestStdbConnectionMessage>>();
-        request_msgs.drain().last()
-    };
-
-    let Some(request) = latest_request else {
+    let Some(latest_request) = world
+        .resource_mut::<Messages<RequestStdbConnectionMessage>>()
+        .drain()
+        .last()
+    else {
         return;
     };
 
     let connect_config = {
         let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-        if let Some(token) = request.token {
+        if let Some(token) = latest_request.token {
             config.token = Some(token);
         }
         config.clone()
@@ -385,17 +383,17 @@ fn handle_connection_request<
         .set(StdbConnectionState::Connecting);
 
     #[cfg(not(feature = "browser"))]
-    {
-        let result = connect_config.build_connection();
-        world.write_message(ConnectionBuildFinishedMessage { result });
-    }
+    world.write_message(ConnectionBuildFinishedMessage {
+        result: connect_config.build_connection(),
+    });
 
     #[cfg(feature = "browser")]
     {
         let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
         wasm_bindgen_futures::spawn_local(async move {
-            let result = connect_config.build_connection().await;
-            let _ = sender.send(ConnectionBuildFinishedMessage { result });
+            let _ = sender.send(ConnectionBuildFinishedMessage {
+                result: connect_config.build_connection().await,
+            });
         });
     }
 }
