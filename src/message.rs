@@ -127,6 +127,10 @@ where
 pub struct RequestStdbConnectionMessage {
     /// Optional token to use for this connection attempt.
     pub token: Option<String>,
+    /// Optional URI to use for this connection attempt.
+    pub uri: Option<String>,
+    /// Optional module name to use for this connection attempt.
+    pub module_name: Option<String>,
 }
 
 /// Internal completion message for a finished connection build.
