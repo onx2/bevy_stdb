@@ -124,7 +124,7 @@ If you target both native and browser, I recommend selecting the background driv
 
 ```rust
 fn main() {
-    let mut plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+    let mut stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
         .with_module_name("my_module")
         .with_uri("http://localhost:3000");
 
@@ -286,15 +286,15 @@ fn main() {
 fn connect_after_delay(
     time: Res<Time>,
     mut timer: ResMut<ConnectTimer>,
-    mut controller: ResMut<StdbConnectionController>,
+    mut request: WriteRequestStdbConnectionMessage,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        controller.connect();
+        request.write_default();
     }
 }
 ```
 
-Use `connect_with_token(...)` instead when you want to supply a token at runtime.
+Use `request.write(RequestStdbConnectionMessage { token })` instead when you want to supply a token at runtime.
 
 ### Connection-dependent resources
 

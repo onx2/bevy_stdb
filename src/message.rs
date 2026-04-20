@@ -2,8 +2,9 @@
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
-    Error, Identity,
+    DbContext, Error, Identity, Result,
 };
+use std::sync::Arc;
 
 /// Event metadata associated with row callbacks for a SpacetimeDB row type.
 pub type RowEvent<T> =
@@ -116,4 +117,20 @@ where
     pub old: Option<T>,
     /// The current row value.
     pub new: T,
+}
+
+/// Requests a SpacetimeDB connection attempt.
+///
+/// If `token` is `Some`, it overrides the currently stored token and becomes the
+/// token used for this attempt and future reconnect attempts.
+#[derive(Message, Clone, Debug, Default)]
+pub struct RequestStdbConnectionMessage {
+    /// Optional token to use for this connection attempt.
+    pub token: Option<String>,
+}
+
+/// Internal completion message for a finished connection build.
+#[derive(Message)]
+pub(crate) struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
+    pub result: Result<Arc<C>>,
 }
