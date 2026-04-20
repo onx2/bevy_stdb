@@ -346,7 +346,7 @@ impl<
     }
 }
 
-/// Initiates a connection build from a pending connection request message.
+/// Initiates a connection build from a connection request message.
 ///
 /// Requests are ignored if a connection is already active.
 fn handle_connection_request<

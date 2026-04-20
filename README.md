@@ -286,10 +286,10 @@ fn main() {
 fn connect_after_delay(
     time: Res<Time>,
     mut timer: ResMut<ConnectTimer>,
-    mut controller: ResMut<StdbConnectionController>,
+    mut request: WriteRequestStdbConnectionMessage,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        controller.connect();
+        request.write_default();
     }
 }
 ```
