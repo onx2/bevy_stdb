@@ -3,8 +3,7 @@
 //! Manages the active connection, lifecycle states, and related resources.
 use crate::{
     alias::{
-        ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage,
-        ReadStdbDisconnectedMessage,
+        ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
     channel_bridge::{channel_sender, register_channel},
     message::{
@@ -16,7 +15,7 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Message, MessageWriter, Res, ResMut, Resource, World, not,
+    Commands, IntoScheduleConfigs, Message, Messages, Res, ResMut, Resource, World, not,
 };
 use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
 use crossbeam_channel::Sender;
@@ -281,7 +280,6 @@ impl<
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
         register_channel::<RequestStdbConnectionMessage>(app);
-        app.add_message::<ConnectionBuildFinishedMessage<C>>();
 
         let world = app.world();
         let config = StdbConnectionConfig::<C, M> {
@@ -310,18 +308,16 @@ impl<
             sync_connection_state::<C>.in_set(StdbSet::StateSync),
         );
 
-        // Start a connection whenever it is requested.
         app.add_systems(
             PreUpdate,
-            handle_connection_request::<C, M>
+            (
+                handle_connection_request::<C, M>,
+                finalize_pending_connection::<C, M>,
+            )
+                .chain()
                 .in_set(StdbSet::Connection)
-                .run_if(not(in_state(StdbConnectionState::Connected))),
-        );
-
-        // Finalize a completed connection build on all targets.
-        app.add_systems(
-            PreUpdate,
-            finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
+                .run_if(not(in_state(StdbConnectionState::Connected)))
+                .run_if(not(in_state(StdbConnectionState::Connecting))),
         );
 
         // Bind table callbacks when a new connection is established.
@@ -349,68 +345,66 @@ fn handle_connection_request<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
-    mut config: ResMut<StdbConnectionConfig<C, M>>,
-    mut request_msgs: ReadRequestStdbConnectionMessage,
-    mut build_finished: MessageWriter<ConnectionBuildFinishedMessage<C>>,
-    mut next_state: ResMut<NextState<StdbConnectionState>>,
-    active_connection: Option<Res<StdbConnection<C>>>,
-    #[cfg(feature = "browser")] world: &World,
+    world: &mut World,
 ) {
-    if active_connection.is_some() {
-        request_msgs.clear();
+    if world.get_resource::<StdbConnection<C>>().is_some() {
+        world
+            .resource_mut::<Messages<RequestStdbConnectionMessage>>()
+            .clear();
         return;
     }
 
-    let mut latest_request = None;
-    for msg in request_msgs.read() {
-        latest_request = Some(msg.clone());
-    }
+    let latest_request = {
+        let mut request_msgs = world.resource_mut::<Messages<RequestStdbConnectionMessage>>();
+        request_msgs.drain().last()
+    };
 
     let Some(request) = latest_request else {
         return;
     };
 
-    if let Some(token) = request.token {
-        config.token = Some(token);
-    }
+    let connect_config = {
+        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
+        if let Some(token) = request.token {
+            config.token = Some(token);
+        }
+        config.clone()
+    };
 
-    let connect_config = config.clone();
-    next_state.set(StdbConnectionState::Connecting);
+    world
+        .resource_mut::<NextState<StdbConnectionState>>()
+        .set(StdbConnectionState::Connecting);
 
-    #[cfg(feature = "browser")]
-    {
-        let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
-
-        wasm_bindgen_futures::spawn_local(async move {
-            let result = connect_config.build_connection().await;
-            let _ = sender.send(ConnectionBuildFinishedMessage { result });
-        });
-    }
-
-    #[cfg(not(feature = "browser"))]
-    {
-        let result = connect_config.build_connection();
-        build_finished.write(ConnectionBuildFinishedMessage { result });
-    }
+    start_connection_build::<C, M>(world, connect_config);
 }
 
-/// Activates a newly built SpacetimeDB connection.
-fn activate_connection<C, M>(world: &mut World, conn: Arc<C>)
-where
+#[cfg(feature = "browser")]
+fn start_connection_build<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    let driver = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist when activating a connection")
-        .driver
-        .clone();
+>(
+    world: &mut World,
+    connect_config: StdbConnectionConfig<C, M>,
+) {
+    let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
 
-    if let Some(ConnectionDriver::Background(background_driver)) = driver {
-        background_driver(conn.as_ref());
-    }
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = connect_config.build_connection().await;
+        let _ = sender.send(ConnectionBuildFinishedMessage { result });
+    });
+}
 
-    world.insert_resource(StdbConnection::new(conn));
+#[cfg(not(feature = "browser"))]
+fn start_connection_build<
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+>(
+    world: &mut World,
+    connect_config: StdbConnectionConfig<C, M>,
+) {
+    let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
+    let result = connect_config.build_connection();
+    let _ = sender.send(ConnectionBuildFinishedMessage { result });
 }
 
 /// Completes a pending connection build and transitions [`StdbConnectionState`] accordingly.
@@ -420,29 +414,31 @@ fn finalize_pending_connection<
 >(
     world: &mut World,
 ) {
-    let mut latest_result = None;
-
-    {
-        let mut finished_msgs =
-            world.resource_mut::<bevy_ecs::message::Messages<ConnectionBuildFinishedMessage<C>>>();
-
-        for msg in finished_msgs.drain() {
-            latest_result = Some(msg.result);
-        }
-    }
-
-    let Some(result) = latest_result else {
-        return;
+    let finished_msgs: Vec<ConnectionBuildFinishedMessage<C>> = {
+        let mut messages = world.resource_mut::<Messages<ConnectionBuildFinishedMessage<C>>>();
+        messages.drain().collect()
     };
 
-    match result {
-        Ok(conn) => {
-            activate_connection::<C, M>(world, conn);
-        }
-        Err(_) => {
-            world
-                .resource_mut::<NextState<StdbConnectionState>>()
-                .set(StdbConnectionState::Disconnected);
+    for msg in finished_msgs {
+        match msg.result {
+            Ok(conn) => {
+                let driver = world
+                    .get_resource::<StdbConnectionConfig<C, M>>()
+                    .expect("StdbConnectionConfig should exist when activating a connection")
+                    .driver
+                    .clone();
+
+                if let Some(ConnectionDriver::Background(background_driver)) = driver {
+                    background_driver(conn.as_ref());
+                }
+
+                world.insert_resource(StdbConnection::new(conn));
+            }
+            Err(_) => {
+                world
+                    .resource_mut::<NextState<StdbConnectionState>>()
+                    .set(StdbConnectionState::Disconnected);
+            }
         }
     }
 }
