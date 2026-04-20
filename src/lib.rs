@@ -90,7 +90,7 @@ pub mod prelude {
             ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage,
             ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
-            ReadUpdateMessage,
+            ReadUpdateMessage, WriteRequestStdbConnectionMessage,
         },
         connection::{StdbConnection, StdbConnectionState},
         message::{
