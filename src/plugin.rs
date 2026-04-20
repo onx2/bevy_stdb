@@ -426,7 +426,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///     .with_background_driver(DbConnection::run_threaded)
     ///
     /// // Later, from a system:
-    /// fn connect_on_button_press(mut requests: MessageWriter<RequestStdbConnectionMessage>) {
+    /// fn connect_on_button_press(mut requests: WriteRequestStdbConnectionMessage) {
     ///     requests.write_default();
     /// }
     /// ```
