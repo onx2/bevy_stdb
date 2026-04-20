@@ -279,7 +279,10 @@ impl<
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
+        #[cfg(feature = "browser")]
         register_channel::<RequestStdbConnectionMessage>(app);
+        #[cfg(not(feature = "browser"))]
+        app.add_message::<RequestStdbConnectionMessage>();
 
         let world = app.world();
         let config = StdbConnectionConfig::<C, M> {
@@ -375,36 +378,20 @@ fn handle_connection_request<
         .resource_mut::<NextState<StdbConnectionState>>()
         .set(StdbConnectionState::Connecting);
 
-    start_connection_build::<C, M>(world, connect_config);
-}
+    #[cfg(not(feature = "browser"))]
+    {
+        let result = connect_config.build_connection();
+        world.write_message(ConnectionBuildFinishedMessage { result });
+    }
 
-#[cfg(feature = "browser")]
-fn start_connection_build<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-    connect_config: StdbConnectionConfig<C, M>,
-) {
-    let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
-
-    wasm_bindgen_futures::spawn_local(async move {
-        let result = connect_config.build_connection().await;
-        let _ = sender.send(ConnectionBuildFinishedMessage { result });
-    });
-}
-
-#[cfg(not(feature = "browser"))]
-fn start_connection_build<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-    connect_config: StdbConnectionConfig<C, M>,
-) {
-    let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
-    let result = connect_config.build_connection();
-    let _ = sender.send(ConnectionBuildFinishedMessage { result });
+    #[cfg(feature = "browser")]
+    {
+        let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = connect_config.build_connection().await;
+            let _ = sender.send(ConnectionBuildFinishedMessage { result });
+        });
+    }
 }
 
 /// Completes a pending connection build and transitions [`StdbConnectionState`] accordingly.
