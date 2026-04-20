@@ -1,5 +1,4 @@
 //! Bevy message types for SpacetimeDB connection, subscription, and table events.
-use crate::auth2::TokenResponse;
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
@@ -127,23 +126,4 @@ where
 pub struct RequestStdbConnectionMessage {
     /// Optional token to use for this connection attempt.
     pub token: Option<String>,
-}
-
-/// Requests an interactive login attempt.
-#[derive(Message, Clone, Copy, Debug, Default)]
-pub struct RequestLoginMessage;
-
-/// Requests logout for the current auth session.
-#[derive(Message, Clone, Copy, Debug, Default)]
-pub struct RequestLogoutMessage;
-
-/// Reports a successful auth result.
-#[derive(Message, Clone, Debug)]
-pub struct AuthSuccessMessage(pub TokenResponse);
-
-/// Reports an auth failure.
-#[derive(Message, Clone, Debug)]
-pub struct AuthFailureMessage {
-    /// The failure description.
-    pub message: String,
 }

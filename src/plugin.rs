@@ -1,5 +1,4 @@
 use crate::{
-    auth2::{StdbAuthOptions, StdbAuthPlugin},
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
     message::RowEvent,
@@ -60,7 +59,6 @@ pub struct StdbPlugin<
     token: Option<String>,
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
-    auth_options: Option<StdbAuthOptions>,
     reconnect_options: Option<StdbReconnectOptions>,
     delayed_connection: bool,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
@@ -78,7 +76,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             token: None,
             compression: None,
             driver: None,
-            auth_options: None,
             reconnect_options: None,
             delayed_connection: false,
             subscriptions_initializer: None,
@@ -217,10 +214,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         assert!(
             self.token.is_none(),
             "`with_token()` may only be called once"
-        );
-        assert!(
-            self.auth_options.is_none(),
-            "`with_token()` cannot be used with `with_auth()`"
         );
         self.token = Some(token.into());
         self
@@ -449,24 +442,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.delayed_connection = true;
         self
     }
-
-    /// Enables OIDC authentication for connection startup and runtime connect requests.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    pub fn with_auth(mut self, auth_options: StdbAuthOptions) -> Self {
-        assert!(
-            self.auth_options.is_none(),
-            "`with_auth()` may only be called once"
-        );
-        assert!(
-            self.token.is_none(),
-            "`with_auth()` cannot be used with `with_token()`"
-        );
-        self.auth_options = Some(auth_options);
-        self
-    }
 }
 
 impl<
@@ -503,10 +478,6 @@ impl<
             )
                 .chain(),
         );
-
-        if let Some(auth_options) = self.auth_options.clone() {
-            app.add_plugins(StdbAuthPlugin::new(auth_options));
-        }
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));
