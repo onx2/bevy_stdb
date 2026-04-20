@@ -74,7 +74,7 @@
 pub(crate) mod channel_bridge;
 
 mod alias;
-mod auth;
+mod auth2;
 mod connection;
 mod message;
 mod plugin;
@@ -92,11 +92,8 @@ pub mod prelude {
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage,
         },
-        auth::{
-            CurrentAuthTokens, StdbAuthOptions, StdbAuthStartupBehavior, StdbTokenStorage,
-            TokenResponse,
-        },
-        connection::{StdbConnection, StdbConnectionController, StdbConnectionState},
+        auth2::*, // {}
+        connection::{StdbConnection, StdbConnectionState},
         message::{
             AuthFailureMessage, AuthSuccessMessage, DeleteMessage, InsertMessage,
             InsertUpdateMessage, RequestLoginMessage, RequestLogoutMessage, StdbConnectedMessage,

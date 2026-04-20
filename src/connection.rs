@@ -5,15 +5,18 @@ use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
-    auth::{CurrentAuthTokens, PendingAuthMode, PendingAuthResume, PendingAuthState, StdbAuthConfig, StdbAuthStartupBehavior},
     channel_bridge::{channel_sender, register_channel},
-    message::{StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage},
+    message::{
+        RequestConnectMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
+        StdbDisconnectedMessage,
+    },
     set::StdbSet,
     table::TableBindCallback,
 };
-use bevy_app::{App, Plugin, PreStartup, PreUpdate};
-use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Res, ResMut, Resource, SystemCondition, World,
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::{
+    message::MessageReader,
+    prelude::{Commands, IntoScheduleConfigs, Res, ResMut, Resource, SystemCondition, World},
 };
 use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
 use crossbeam_channel::Sender;
@@ -259,58 +262,6 @@ pub struct StdbConnection<T: DbContext + 'static> {
     conn: Arc<T>,
 }
 
-/// Runtime controller for eager or delayed connection startup.
-///
-/// Always inserted during plugin build. In eager mode the plugin requests an
-/// initial connection automatically. In delayed mode, call [`Self::connect`]
-/// or [`Self::connect_with_token`] to begin connecting.
-///
-/// Tokens provided through [`Self::connect_with_token`] become the stored
-/// token reused by future reconnect attempts.
-#[derive(Resource, Default)]
-pub struct StdbConnectionController {
-    requested: bool,
-    token_override: Option<String>,
-}
-
-impl StdbConnectionController {
-    /// Requests a connection using the currently stored token, if any.
-    ///
-    /// When auth is configured, this request may wait for authentication
-    /// before the connection is built.
-    ///
-    /// Has no effect if a connection is already active or in progress.
-    pub fn connect(&mut self) {
-        self.requested = true;
-        self.token_override = None;
-    }
-
-    /// Requests a connection using the supplied token.
-    ///
-    /// The supplied token becomes the stored token reused by future reconnect
-    /// attempts.
-    ///
-    /// Has no effect if a connection is already active or in progress.
-    pub fn connect_with_token(&mut self, token: impl Into<String>) {
-        self.requested = true;
-        self.token_override = Some(token.into());
-    }
-
-    fn take_request(&mut self) -> Option<Option<String>> {
-        if !self.requested {
-            return None;
-        }
-
-        self.requested = false;
-        Some(self.token_override.take())
-    }
-
-    fn clear_request(&mut self) {
-        self.requested = false;
-        self.token_override = None;
-    }
-}
-
 impl<T: DbContext> StdbConnection<T> {
     /// Wraps an existing shared connection.
     fn new(conn: Arc<T>) -> Self {
@@ -422,13 +373,12 @@ impl<
         };
 
         app.insert_resource(config);
-        app.init_resource::<StdbConnectionController>();
 
         if !self.delayed_connection {
-            app.add_systems(
-                PreStartup,
-                request_initial_connection.in_set(StdbSet::Connection),
-            );
+            app.world_mut()
+                .write_message::<RequestConnectMessage>(RequestConnectMessage {
+                    token: self.token.clone(),
+                });
         }
 
         // Sync connection state from SDK lifecycle messages.
@@ -480,15 +430,7 @@ impl<
     }
 }
 
-/// Requests an eager connection during startup.
-fn request_initial_connection(mut controller: ResMut<StdbConnectionController>) {
-    controller.connect();
-}
-
 /// Initiates a connection build from a pending [`StdbConnectionController`] request.
-///
-/// When auth is configured, token-less requests are queued until auth resolves
-/// credentials for the pending connection.
 ///
 /// Requests are ignored if a connection is already active or pending.
 fn start_requested_connection<
@@ -496,81 +438,41 @@ fn start_requested_connection<
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
     mut config: ResMut<StdbConnectionConfig<C, M>>,
-    mut controller: ResMut<StdbConnectionController>,
+    mut request_msgs: MessageReader<RequestConnectMessage>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     active_connection: Option<Res<StdbConnection<C>>>,
     pending_connection: Option<Res<PendingConnectionState<C>>>,
-    mut auth_tokens: Option<ResMut<CurrentAuthTokens>>,
-    auth_config: Option<Res<StdbAuthConfig>>,
-    pending_auth_state: Option<Res<PendingAuthState>>,
-    mut pending_auth_resume: Option<ResMut<PendingAuthResume>>,
     mut commands: Commands,
 ) {
-    let Some(token_override) = controller.take_request() else {
-        return;
-    };
-
     if active_connection.is_some() || pending_connection.is_some() {
-        controller.clear_request();
+        // Drop requests if a connection is already active or pending
+        request_msgs.read().count();
         return;
     }
 
-    if let Some(token) = token_override {
-        config.token = Some(token.clone());
-
-        if let Some(tokens) = auth_tokens.as_mut() {
-            tokens.set_access_token(token);
-        }
-    } else if let Some(auth_config) = auth_config {
-        let access_token = auth_tokens
-            .as_ref()
-            .and_then(|tokens| tokens.access_token().map(ToOwned::to_owned));
-
-        if let Some(token) = access_token {
+    for msg in request_msgs.read() {
+        if let Some(token) = msg.token.clone() {
             config.token = Some(token);
-        } else {
-            let mode = if let Some(pending_auth_state) = pending_auth_state.as_ref() {
-                pending_auth_state.mode
-            } else {
-                match auth_config.options.startup_behavior {
-                    StdbAuthStartupBehavior::Silent => PendingAuthMode::Silent,
-                    StdbAuthStartupBehavior::Interactive => PendingAuthMode::Interactive,
-                }
-            };
-
-            if let Some(pending_auth_resume) = pending_auth_resume.as_mut() {
-                pending_auth_resume.requested = true;
-                pending_auth_resume.mode = mode;
-            }
-
-            commands.insert_resource(PendingAuthState {
-                mode,
-                status: crate::auth::PendingAuthStatus::Ready(Err(
-                    "Interactive auth start must be implemented by the platform auth module."
-                        .to_string(),
-                )),
-            });
-            return;
         }
+
+        let connect_config = config.clone();
+
+        #[cfg(feature = "browser")]
+        {
+            begin_browser_connection_build::<C, _>(&mut commands, async move {
+                connect_config.build_connection().await
+            });
+        }
+
+        #[cfg(not(feature = "browser"))]
+        {
+            commands.insert_resource(PendingConnectionState::<C> {
+                status: PendingConnectionStatus::Ready(connect_config.build_connection()),
+            });
+        }
+
+        next_state.set(StdbConnectionState::Connecting);
     }
-
-    let connect_config = config.clone();
-
-    #[cfg(feature = "browser")]
-    {
-        begin_browser_connection_build::<C, _>(&mut commands, async move {
-            connect_config.build_connection().await
-        });
-    }
-
-    #[cfg(not(feature = "browser"))]
-    {
-        commands.insert_resource(PendingConnectionState::<C> {
-            status: PendingConnectionStatus::Ready(connect_config.build_connection()),
-        });
-    }
-
-    next_state.set(StdbConnectionState::Connecting);
 }
 
 /// Activates a newly built SpacetimeDB connection.

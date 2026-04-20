@@ -1,5 +1,5 @@
 //! Bevy message types for SpacetimeDB connection, subscription, and table events.
-use crate::auth::TokenResponse;
+use crate::auth2::TokenResponse;
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
@@ -117,6 +117,16 @@ where
     pub old: Option<T>,
     /// The current row value.
     pub new: T,
+}
+
+/// Requests a SpacetimeDB connection attempt.
+///
+/// If `token` is `Some`, it overrides the currently stored token and becomes the
+/// token used for this attempt and future reconnect attempts.
+#[derive(Message, Clone, Debug, Default)]
+pub struct RequestConnectMessage {
+    /// Optional token to use for this connection attempt.
+    pub token: Option<String>,
 }
 
 /// Requests an interactive login attempt.

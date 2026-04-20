@@ -1,5 +1,5 @@
 use crate::{
-    auth::{StdbAuthOptions, StdbAuthPlugin},
+    auth2::{StdbAuthOptions, StdbAuthPlugin},
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
     message::RowEvent,
@@ -507,7 +507,7 @@ impl<
         );
 
         if let Some(auth_options) = self.auth_options.clone() {
-            app.add_plugins(StdbAuthPlugin::<C, M>::new(auth_options));
+            app.add_plugins(StdbAuthPlugin::new(auth_options));
         }
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {

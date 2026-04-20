@@ -4,12 +4,12 @@
 //! a connection request is issued through [`StdbConnectionController`]
 //! and the connection module handles the actual connection building.
 
-use crate::{
-    connection::{StdbConnectionController, StdbConnectionState},
-    set::StdbSet,
-};
+use crate::{connection::StdbConnectionState, message::RequestConnectMessage, set::StdbSet};
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
+use bevy_ecs::{
+    message::MessageWriter,
+    prelude::{IntoScheduleConfigs, Res, ResMut, Resource},
+};
 use bevy_state::prelude::{NextState, OnEnter, in_state};
 use bevy_time::{Time, Timer, TimerMode};
 use spacetimedb_sdk::{
@@ -194,7 +194,7 @@ fn reset_reconnect_state(mut reconnect: ResMut<ReconnectBackoff>) {
 fn tick_reconnect_timer(
     time: Res<Time>,
     mut reconnect: ResMut<ReconnectBackoff>,
-    mut controller: ResMut<StdbConnectionController>,
+    mut requests: MessageWriter<RequestConnectMessage>,
 ) {
     let Some(timer) = reconnect.timer.as_mut() else {
         return;
@@ -204,6 +204,6 @@ fn tick_reconnect_timer(
 
     if timer.just_finished() {
         reconnect.timer = None;
-        controller.connect();
+        requests.write_default();
     }
 }
