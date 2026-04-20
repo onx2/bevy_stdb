@@ -4,7 +4,7 @@ use crate::message::{
     StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage,
     StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
 };
-use bevy_ecs::prelude::MessageReader;
+use bevy_ecs::prelude::{MessageReader, MessageWriter};
 
 /// A [`MessageReader`] for [`InsertMessage<T>`].
 pub type ReadInsertMessage<'w, 's, T> = MessageReader<'w, 's, InsertMessage<T>>;
@@ -30,6 +30,9 @@ pub type ReadStdbConnectionErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConn
 /// A [`MessageReader`] for [`RequestStdbConnectionMessage`].
 pub type ReadRequestStdbConnectionMessage<'w, 's> =
     MessageReader<'w, 's, RequestStdbConnectionMessage>;
+
+/// A [`MessageWriter`] for [`RequestStdbConnectionMessage`].
+pub type WriteRequestStdbConnectionMessage<'w> = MessageWriter<'w, RequestStdbConnectionMessage>;
 
 /// A [`MessageReader`] for [`StdbSubscriptionAppliedMessage<K>`].
 pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =

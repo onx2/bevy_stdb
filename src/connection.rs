@@ -4,7 +4,7 @@
 use crate::{
     alias::{
         ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage,
-        ReadStdbDisconnectedMessage,
+        ReadStdbDisconnectedMessage, WriteRequestStdbConnectionMessage,
     },
     channel_bridge::{channel_sender, register_channel},
     message::{
@@ -27,13 +27,10 @@ use spacetimedb_sdk::{
 };
 use std::sync::Arc;
 
-/// Internal runtime result type for a completed SpacetimeDB connection build.
-type ConnectionBuildResult<C> = Result<Arc<C>>;
-
 /// Internal completion message for a finished connection build.
 #[derive(Message)]
 struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
-    result: ConnectionBuildResult<C>,
+    result: Result<Arc<C>>,
 }
 
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
@@ -352,7 +349,7 @@ impl<
 }
 
 /// Requests an eager connection during startup.
-fn request_initial_connection(mut requests: MessageWriter<RequestStdbConnectionMessage>) {
+fn request_initial_connection(mut requests: WriteRequestStdbConnectionMessage) {
     requests.write_default();
 }
 
