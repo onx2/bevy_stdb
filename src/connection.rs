@@ -280,9 +280,15 @@ impl<
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
         #[cfg(feature = "browser")]
-        register_channel::<RequestStdbConnectionMessage>(app);
+        {
+            register_channel::<RequestStdbConnectionMessage>(app);
+            register_channel::<ConnectionBuildFinishedMessage<C>>(app);
+        }
         #[cfg(not(feature = "browser"))]
-        app.add_message::<RequestStdbConnectionMessage>();
+        {
+            app.add_message::<RequestStdbConnectionMessage>();
+            app.add_message::<ConnectionBuildFinishedMessage<C>>();
+        }
 
         let world = app.world();
         let config = StdbConnectionConfig::<C, M> {
@@ -308,14 +314,15 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            (
-                handle_connection_request::<C, M>,
-                finalize_pending_connection::<C, M>,
-            )
-                .chain()
+            handle_connection_request::<C, M>
                 .in_set(StdbSet::Connection)
                 .run_if(not(in_state(StdbConnectionState::Connected)))
                 .run_if(not(in_state(StdbConnectionState::Connecting))),
+        );
+
+        app.add_systems(
+            PreUpdate,
+            finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
         );
 
         // Bind table callbacks when a new connection is established.
