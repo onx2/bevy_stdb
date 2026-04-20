@@ -4,7 +4,7 @@
 use crate::{
     alias::{
         ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage,
-        ReadStdbDisconnectedMessage, WriteRequestStdbConnectionMessage,
+        ReadStdbDisconnectedMessage,
     },
     channel_bridge::{channel_sender, register_channel},
     message::{
@@ -14,10 +14,9 @@ use crate::{
     set::StdbSet,
     table::TableBindCallback,
 };
-use bevy_app::{App, Plugin, PreStartup, PreUpdate};
-use bevy_ecs::{
-    message::MessageWriter,
-    prelude::{Commands, IntoScheduleConfigs, Message, Res, ResMut, Resource, World},
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::prelude::{
+    Commands, IntoScheduleConfigs, Message, MessageWriter, Res, ResMut, Resource, World, not,
 };
 use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
 use crossbeam_channel::Sender;
@@ -68,6 +67,18 @@ pub(crate) enum ConnectionDriver<C: DbContext + Send + Sync + 'static> {
     Background(Arc<dyn Fn(&C) + Send + Sync>),
 }
 
+impl<C> Clone for ConnectionDriver<C>
+where
+    C: DbContext + Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        match self {
+            Self::FrameTick(frame_tick) => Self::FrameTick(*frame_tick),
+            Self::Background(background_driver) => Self::Background(background_driver.clone()),
+        }
+    }
+}
+
 /// Runtime configuration for the active SpacetimeDB connection.
 #[derive(Resource)]
 pub(crate) struct StdbConnectionConfig<
@@ -94,18 +105,6 @@ pub(crate) struct StdbConnectionConfig<
     disconnected_tx: Sender<StdbDisconnectedMessage>,
     /// Sender used by the SpacetimeDB on-connect-error callback.
     error_tx: Sender<StdbConnectionErrorMessage>,
-}
-
-impl<C> Clone for ConnectionDriver<C>
-where
-    C: DbContext + Send + Sync + 'static,
-{
-    fn clone(&self) -> Self {
-        match self {
-            Self::FrameTick(frame_tick) => Self::FrameTick(*frame_tick),
-            Self::Background(background_driver) => Self::Background(background_driver.clone()),
-        }
-    }
 }
 
 impl<C, M> Clone for StdbConnectionConfig<C, M>
@@ -301,10 +300,8 @@ impl<
         app.insert_resource(config);
 
         if !self.delayed_connection {
-            app.add_systems(
-                PreStartup,
-                request_initial_connection.in_set(StdbSet::Connection),
-            );
+            app.world_mut()
+                .write_message_default::<RequestStdbConnectionMessage>();
         }
 
         // Sync connection state from SDK lifecycle messages.
@@ -316,12 +313,9 @@ impl<
         // Start a connection whenever it is requested.
         app.add_systems(
             PreUpdate,
-            (
-                start_requested_connection::<C, M>
-                    .in_set(StdbSet::Connection)
-                    .run_if(in_state(StdbConnectionState::Uninitialized)),
-                retry_requested_connection::<C, M>,
-            ),
+            handle_connection_request::<C, M>
+                .in_set(StdbSet::Connection)
+                .run_if(not(in_state(StdbConnectionState::Connected))),
         );
 
         // Finalize a completed connection build on all targets.
@@ -348,60 +342,10 @@ impl<
     }
 }
 
-/// Requests an eager connection during startup.
-fn request_initial_connection(mut requests: WriteRequestStdbConnectionMessage) {
-    requests.write_default();
-}
-
 /// Initiates a connection build from a pending connection request message.
 ///
 /// Requests are ignored if a connection is already active.
-fn start_requested_connection<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    config: ResMut<StdbConnectionConfig<C, M>>,
-    request_msgs: ReadRequestStdbConnectionMessage,
-    build_finished: MessageWriter<ConnectionBuildFinishedMessage<C>>,
-    next_state: ResMut<NextState<StdbConnectionState>>,
-    active_connection: Option<Res<StdbConnection<C>>>,
-    #[cfg(feature = "browser")] world: &World,
-) {
-    start_requested_connection_impl::<C, M>(
-        config,
-        request_msgs,
-        build_finished,
-        next_state,
-        active_connection,
-        #[cfg(feature = "browser")]
-        world,
-    );
-}
-
-/// Retries a connection build after entering [`StdbConnectionState::Disconnected`].
-fn retry_requested_connection<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    config: ResMut<StdbConnectionConfig<C, M>>,
-    request_msgs: ReadRequestStdbConnectionMessage,
-    build_finished: MessageWriter<ConnectionBuildFinishedMessage<C>>,
-    next_state: ResMut<NextState<StdbConnectionState>>,
-    active_connection: Option<Res<StdbConnection<C>>>,
-    #[cfg(feature = "browser")] world: &World,
-) {
-    start_requested_connection_impl::<C, M>(
-        config,
-        request_msgs,
-        build_finished,
-        next_state,
-        active_connection,
-        #[cfg(feature = "browser")]
-        world,
-    );
-}
-
-fn start_requested_connection_impl<
+fn handle_connection_request<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
