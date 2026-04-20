@@ -1,21 +1,23 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
+
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
     channel_bridge::{channel_sender, register_channel},
     message::{
-        RequestStdbConnectionMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
-        StdbDisconnectedMessage,
+        ConnectionBuildFinishedMessage, RequestStdbConnectionMessage, StdbConnectedMessage,
+        StdbConnectionErrorMessage, StdbDisconnectedMessage,
     },
     set::StdbSet,
     table::TableBindCallback,
 };
+
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Message, Messages, Res, ResMut, Resource, World, not,
+    Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, not,
 };
 use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
 use crossbeam_channel::Sender;
@@ -24,12 +26,6 @@ use spacetimedb_sdk::{
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
 use std::sync::Arc;
-
-/// Internal completion message for a finished connection build.
-#[derive(Message)]
-struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
-    result: Result<Arc<C>>,
-}
 
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
 ///
@@ -275,20 +271,17 @@ impl<
     /// Initializes connection state, resources, and lifecycle systems.
     fn build(&self, app: &mut App) {
         app.init_state::<StdbConnectionState>();
+        app.add_message::<RequestStdbConnectionMessage>();
 
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
+
         #[cfg(feature = "browser")]
-        {
-            register_channel::<RequestStdbConnectionMessage>(app);
-            register_channel::<ConnectionBuildFinishedMessage<C>>(app);
-        }
+        register_channel::<ConnectionBuildFinishedMessage<C>>(app);
+
         #[cfg(not(feature = "browser"))]
-        {
-            app.add_message::<RequestStdbConnectionMessage>();
-            app.add_message::<ConnectionBuildFinishedMessage<C>>();
-        }
+        app.add_message::<ConnectionBuildFinishedMessage<C>>();
 
         let world = app.world();
         let config = StdbConnectionConfig::<C, M> {
