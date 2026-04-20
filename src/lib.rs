@@ -88,7 +88,8 @@ pub mod prelude {
     pub use crate::{
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
+            ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage,
+            ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage,
         },
@@ -96,9 +97,10 @@ pub mod prelude {
         connection::{StdbConnection, StdbConnectionState},
         message::{
             AuthFailureMessage, AuthSuccessMessage, DeleteMessage, InsertMessage,
-            InsertUpdateMessage, RequestLoginMessage, RequestLogoutMessage, StdbConnectedMessage,
-            StdbConnectionErrorMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
-            StdbSubscriptionErrorMessage, UpdateMessage,
+            InsertUpdateMessage, RequestLoginMessage, RequestLogoutMessage,
+            RequestStdbConnectionMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
+            StdbDisconnectedMessage, StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage,
+            UpdateMessage,
         },
         plugin::StdbPlugin,
         reconnect::StdbReconnectOptions,

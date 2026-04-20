@@ -3,25 +3,24 @@
 //! Manages the active connection, lifecycle states, and related resources.
 use crate::{
     alias::{
-        ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
+        ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage,
+        ReadStdbDisconnectedMessage,
     },
     channel_bridge::{channel_sender, register_channel},
     message::{
-        RequestConnectMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
+        RequestStdbConnectionMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
         StdbDisconnectedMessage,
     },
     set::StdbSet,
     table::TableBindCallback,
 };
-use bevy_app::{App, Plugin, PreUpdate};
+use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::{
-    message::MessageReader,
-    prelude::{Commands, IntoScheduleConfigs, Res, ResMut, Resource, SystemCondition, World},
+    message::MessageWriter,
+    prelude::{Commands, IntoScheduleConfigs, Message, Res, ResMut, Resource, World},
 };
 use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
 use crossbeam_channel::Sender;
-#[cfg(feature = "browser")]
-use crossbeam_channel::{Receiver, TryRecvError, bounded};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
@@ -31,82 +30,10 @@ use std::sync::Arc;
 /// Internal runtime result type for a completed SpacetimeDB connection build.
 type ConnectionBuildResult<C> = Result<Arc<C>>;
 
-/// Internal runtime status for an in-flight SpacetimeDB connection build.
-enum PendingConnectionStatus<C: DbContext + Send + Sync + 'static> {
-    #[cfg(feature = "browser")]
-    Pending(Receiver<ConnectionBuildResult<C>>),
-    Ready(ConnectionBuildResult<C>),
-}
-
-/// Internal runtime state for an in-flight SpacetimeDB connection build.
-#[derive(Resource)]
-pub(crate) struct PendingConnectionState<C: DbContext + Send + Sync + 'static> {
-    status: PendingConnectionStatus<C>,
-}
-
-/// Begins a browser connection build and stores its pending result as a resource.
-#[cfg(feature = "browser")]
-fn begin_browser_connection_build<C, F>(commands: &mut Commands, build: F)
-where
-    C: DbContext + Send + Sync + 'static,
-    F: 'static + std::future::Future<Output = ConnectionBuildResult<C>>,
-{
-    let (tx, rx) = bounded(1);
-
-    wasm_bindgen_futures::spawn_local(async move {
-        let result = build.await;
-        let _ = tx.send(result);
-    });
-
-    commands.insert_resource(PendingConnectionState::<C> {
-        status: PendingConnectionStatus::Pending(rx),
-    });
-}
-
-/// Polls an in-flight browser connection build until it produces a result.
-#[cfg(feature = "browser")]
-fn poll_browser_connection_build<C>(world: &mut World)
-where
-    C: DbContext + Send + Sync + 'static,
-{
-    let next_status = {
-        let Some(state) = world.get_resource::<PendingConnectionState<C>>() else {
-            return;
-        };
-
-        match &state.status {
-            PendingConnectionStatus::Ready(_) => None,
-            PendingConnectionStatus::Pending(rx) => match rx.try_recv() {
-                Ok(result) => Some(PendingConnectionStatus::Ready(result)),
-                Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => Some(PendingConnectionStatus::Ready(Err(
-                    spacetimedb_sdk::Error::Disconnected,
-                ))),
-            },
-        }
-    };
-
-    if let Some(status) = next_status {
-        world.insert_resource(PendingConnectionState::<C> { status });
-    }
-}
-
-/// Takes a completed pending connection build result, if one is ready.
-fn take_pending_connection_result<C>(world: &mut World) -> Option<ConnectionBuildResult<C>>
-where
-    C: DbContext + Send + Sync + 'static,
-{
-    let ready_result = {
-        let pending = world.get_resource::<PendingConnectionState<C>>()?;
-        match &pending.status {
-            #[cfg(feature = "browser")]
-            PendingConnectionStatus::Pending(_) => return None,
-            PendingConnectionStatus::Ready(result) => result.clone(),
-        }
-    };
-
-    world.remove_resource::<PendingConnectionState<C>>();
-    Some(ready_result)
+/// Internal completion message for a finished connection build.
+#[derive(Message)]
+struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
+    result: ConnectionBuildResult<C>,
 }
 
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
@@ -357,6 +284,8 @@ impl<
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
+        register_channel::<RequestStdbConnectionMessage>(app);
+        app.add_message::<ConnectionBuildFinishedMessage<C>>();
 
         let world = app.world();
         let config = StdbConnectionConfig::<C, M> {
@@ -375,10 +304,10 @@ impl<
         app.insert_resource(config);
 
         if !self.delayed_connection {
-            app.world_mut()
-                .write_message::<RequestConnectMessage>(RequestConnectMessage {
-                    token: self.token.clone(),
-                });
+            app.add_systems(
+                PreStartup,
+                request_initial_connection.in_set(StdbSet::Connection),
+            );
         }
 
         // Sync connection state from SDK lifecycle messages.
@@ -390,20 +319,12 @@ impl<
         // Start a connection whenever it is requested.
         app.add_systems(
             PreUpdate,
-            start_requested_connection::<C, M>
-                .in_set(StdbSet::Connection)
-                .run_if(
-                    in_state(StdbConnectionState::Uninitialized)
-                        .or(in_state(StdbConnectionState::Connecting))
-                        .or(in_state(StdbConnectionState::Disconnected)),
-                ),
-        );
-
-        // Poll any in-flight browser connection build.
-        #[cfg(feature = "browser")]
-        app.add_systems(
-            PreUpdate,
-            poll_browser_connection_build::<C>.in_set(StdbSet::Connection),
+            (
+                start_requested_connection::<C, M>
+                    .in_set(StdbSet::Connection)
+                    .run_if(in_state(StdbConnectionState::Uninitialized)),
+                retry_requested_connection::<C, M>,
+            ),
         );
 
         // Finalize a completed connection build on all targets.
@@ -430,48 +351,105 @@ impl<
     }
 }
 
-/// Initiates a connection build from a pending [`StdbConnectionController`] request.
+/// Requests an eager connection during startup.
+fn request_initial_connection(mut requests: MessageWriter<RequestStdbConnectionMessage>) {
+    requests.write_default();
+}
+
+/// Initiates a connection build from a pending connection request message.
 ///
-/// Requests are ignored if a connection is already active or pending.
+/// Requests are ignored if a connection is already active.
 fn start_requested_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
+    config: ResMut<StdbConnectionConfig<C, M>>,
+    request_msgs: ReadRequestStdbConnectionMessage,
+    build_finished: MessageWriter<ConnectionBuildFinishedMessage<C>>,
+    next_state: ResMut<NextState<StdbConnectionState>>,
+    active_connection: Option<Res<StdbConnection<C>>>,
+    #[cfg(feature = "browser")] world: &World,
+) {
+    start_requested_connection_impl::<C, M>(
+        config,
+        request_msgs,
+        build_finished,
+        next_state,
+        active_connection,
+        #[cfg(feature = "browser")]
+        world,
+    );
+}
+
+/// Retries a connection build after entering [`StdbConnectionState::Disconnected`].
+fn retry_requested_connection<
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+>(
+    config: ResMut<StdbConnectionConfig<C, M>>,
+    request_msgs: ReadRequestStdbConnectionMessage,
+    build_finished: MessageWriter<ConnectionBuildFinishedMessage<C>>,
+    next_state: ResMut<NextState<StdbConnectionState>>,
+    active_connection: Option<Res<StdbConnection<C>>>,
+    #[cfg(feature = "browser")] world: &World,
+) {
+    start_requested_connection_impl::<C, M>(
+        config,
+        request_msgs,
+        build_finished,
+        next_state,
+        active_connection,
+        #[cfg(feature = "browser")]
+        world,
+    );
+}
+
+fn start_requested_connection_impl<
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+>(
     mut config: ResMut<StdbConnectionConfig<C, M>>,
-    mut request_msgs: MessageReader<RequestConnectMessage>,
+    mut request_msgs: ReadRequestStdbConnectionMessage,
+    mut build_finished: MessageWriter<ConnectionBuildFinishedMessage<C>>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     active_connection: Option<Res<StdbConnection<C>>>,
-    pending_connection: Option<Res<PendingConnectionState<C>>>,
-    mut commands: Commands,
+    #[cfg(feature = "browser")] world: &World,
 ) {
-    if active_connection.is_some() || pending_connection.is_some() {
-        // Drop requests if a connection is already active or pending
+    if active_connection.is_some() {
         request_msgs.read().count();
         return;
     }
 
+    let mut latest_request = None;
     for msg in request_msgs.read() {
-        if let Some(token) = msg.token.clone() {
-            config.token = Some(token);
-        }
+        latest_request = Some(msg.clone());
+    }
 
-        let connect_config = config.clone();
+    let Some(request) = latest_request else {
+        return;
+    };
 
-        #[cfg(feature = "browser")]
-        {
-            begin_browser_connection_build::<C, _>(&mut commands, async move {
-                connect_config.build_connection().await
-            });
-        }
+    if let Some(token) = request.token {
+        config.token = Some(token);
+    }
 
-        #[cfg(not(feature = "browser"))]
-        {
-            commands.insert_resource(PendingConnectionState::<C> {
-                status: PendingConnectionStatus::Ready(connect_config.build_connection()),
-            });
-        }
+    let connect_config = config.clone();
+    next_state.set(StdbConnectionState::Connecting);
 
-        next_state.set(StdbConnectionState::Connecting);
+    #[cfg(feature = "browser")]
+    {
+        let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = connect_config.build_connection().await;
+            let _ = sender.send(ConnectionBuildFinishedMessage { result });
+        });
+    }
+
+    #[cfg(not(feature = "browser"))]
+    {
+        let result = connect_config.build_connection();
+        build_finished.write(ConnectionBuildFinishedMessage { result });
     }
 }
 
@@ -501,20 +479,28 @@ fn finalize_pending_connection<
 >(
     world: &mut World,
 ) {
-    let Some(ready_result) = take_pending_connection_result::<C>(world) else {
+    let mut latest_result = None;
+
+    {
+        let mut finished_msgs =
+            world.resource_mut::<bevy_ecs::message::Messages<ConnectionBuildFinishedMessage<C>>>();
+
+        for msg in finished_msgs.drain() {
+            latest_result = Some(msg.result);
+        }
+    }
+
+    let Some(result) = latest_result else {
         return;
     };
 
-    match ready_result {
+    match result {
         Ok(conn) => {
             activate_connection::<C, M>(world, conn);
         }
         Err(_) => {
             world
-                .get_resource_mut::<NextState<StdbConnectionState>>()
-                .expect(
-                    "NextState<StdbConnectionState> should exist before finalizing a connection",
-                )
+                .resource_mut::<NextState<StdbConnectionState>>()
                 .set(StdbConnectionState::Disconnected);
         }
     }

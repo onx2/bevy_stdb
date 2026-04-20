@@ -1,7 +1,7 @@
 //! [`MessageReader`] type aliases for connection lifecycle and table messages.
 use crate::message::{
     AuthFailureMessage, AuthSuccessMessage, DeleteMessage, InsertMessage, InsertUpdateMessage,
-    RequestConnectMessage, RequestLoginMessage, RequestLogoutMessage, StdbConnectedMessage,
+    RequestLoginMessage, RequestLogoutMessage, RequestStdbConnectionMessage, StdbConnectedMessage,
     StdbConnectionErrorMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
     StdbSubscriptionErrorMessage, UpdateMessage,
 };
@@ -28,6 +28,10 @@ pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconn
 /// A [`MessageReader`] for [`StdbConnectionErrorMessage`].
 pub type ReadStdbConnectionErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectionErrorMessage>;
 
+/// A [`MessageReader`] for [`RequestStdbConnectionMessage`].
+pub type ReadRequestStdbConnectionMessage<'w, 's> =
+    MessageReader<'w, 's, RequestStdbConnectionMessage>;
+
 /// A [`MessageReader`] for [`RequestLoginMessage`].
 pub type ReadRequestLoginMessage<'w, 's> = MessageReader<'w, 's, RequestLoginMessage>;
 
@@ -47,6 +51,3 @@ pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
 /// A [`MessageReader`] for [`StdbSubscriptionErrorMessage<K>`].
 pub type ReadStdbSubscriptionErrorMessage<'w, 's, K> =
     MessageReader<'w, 's, StdbSubscriptionErrorMessage<K>>;
-
-/// A [`MessageReader`] for [`RequestConnectMessage`].
-pub type ReadRequestConnectMessage<'w, 's> = MessageReader<'w, 's, RequestConnectMessage>;

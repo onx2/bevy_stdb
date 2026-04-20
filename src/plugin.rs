@@ -206,8 +206,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the authentication token used for the initial connection.
     ///
-    /// If [`StdbConnectionController::connect_with_token`](crate::prelude::StdbConnectionController::connect_with_token)
-    /// is later used at runtime, the most recently provided token becomes the
+    /// If a later [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
+    /// provides a token at runtime, the most recently provided token becomes the
     /// stored token used for subsequent reconnect attempts.
     ///
     /// # Panics
@@ -380,8 +380,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// When reconnect is enabled, reconnect attempts use the most recently
     /// stored token. That token comes from either [`Self::with_token`] or a
-    /// later runtime call to
-    /// [`StdbConnectionController::connect_with_token`](crate::prelude::StdbConnectionController::connect_with_token).
+    /// later runtime [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
+    /// with `token: Some(...)`.
     ///
     /// On a successful reconnect, table callbacks are re-bound and queued
     /// subscriptions are re-applied automatically.
@@ -418,10 +418,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Defers the initial connection until explicitly requested at runtime.
     ///
     /// Row-message registration still happens eagerly during plugin build, but
-    /// no connection is started. Call
-    /// [`StdbConnectionController::connect`](crate::prelude::StdbConnectionController::connect)
-    /// or
-    /// [`StdbConnectionController::connect_with_token`](crate::prelude::StdbConnectionController::connect_with_token)
+    /// no connection is started. Send a
+    /// [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
     /// to begin connecting.
     ///
     /// # Example
@@ -435,8 +433,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///     .with_background_driver(DbConnection::run_threaded)
     ///
     /// // Later, from a system:
-    /// fn connect_on_button_press(mut controller: ResMut<StdbConnectionController>) {
-    ///     controller.connect();
+    /// fn connect_on_button_press(mut requests: MessageWriter<RequestStdbConnectionMessage>) {
+    ///     requests.write_default();
     /// }
     /// ```
     ///

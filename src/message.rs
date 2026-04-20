@@ -124,7 +124,7 @@ where
 /// If `token` is `Some`, it overrides the currently stored token and becomes the
 /// token used for this attempt and future reconnect attempts.
 #[derive(Message, Clone, Debug, Default)]
-pub struct RequestConnectMessage {
+pub struct RequestStdbConnectionMessage {
     /// Optional token to use for this connection attempt.
     pub token: Option<String>,
 }
