@@ -294,7 +294,11 @@ fn connect_after_delay(
 }
 ```
 
-Use `request.write(RequestStdbConnectionMessage { token })` instead when you want to supply a token at runtime.
+You can also override configuration values for `token`, `uri`, and `module_name` using:
+
+```rust
+`request.write(RequestStdbConnectionMessage { token, uri, module_name })`
+```
 
 ### Connection-dependent resources
 
