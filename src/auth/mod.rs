@@ -26,9 +26,15 @@ pub(crate) struct TokenResponse {
     pub id_token: Option<String>,
 }
 
-/// Configures OIDC authentication for a SpacetimeDB connection.
+/// Configures authentication for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
-pub struct StdbAuthOptions {
+pub enum StdbAuthOptions {
+    Oidc(OidcOptions),
+    Steam(SteamOptions),
+}
+
+#[derive(Clone, Debug)]
+pub struct OidcOptions {
     /// The OAuth client identifier.
     pub client_id: String,
     /// The authorization endpoint.
@@ -41,29 +47,20 @@ pub struct StdbAuthOptions {
     pub scopes: Vec<String>,
 }
 
-/// Stores the configured auth options.
-#[derive(Resource, Clone, Debug)]
-pub(crate) struct StdbAuthConfig {
+#[derive(Clone, Debug)]
+pub struct SteamOptions {
     /// The OAuth client identifier.
     pub client_id: String,
-    /// The authorization endpoint.
-    pub auth_endpoint: String,
     /// The token endpoint.
     pub token_endpoint: String,
-    /// The redirect URI used by the client.
-    pub redirect_uri: String,
-    /// The requested scopes.
-    pub scopes: Vec<String>,
 }
+
+/// Stores the configured auth options.
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct StdbAuthConfig(pub StdbAuthOptions);
 impl From<StdbAuthOptions> for StdbAuthConfig {
     fn from(value: StdbAuthOptions) -> Self {
-        Self {
-            client_id: value.client_id,
-            auth_endpoint: value.auth_endpoint,
-            token_endpoint: value.token_endpoint,
-            redirect_uri: value.redirect_uri,
-            scopes: value.scopes,
-        }
+        Self(value)
     }
 }
 
