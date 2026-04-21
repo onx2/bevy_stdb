@@ -121,8 +121,8 @@ where
 
 /// Requests a SpacetimeDB connection attempt.
 ///
-/// If `token` is `Some`, it overrides the currently stored token and becomes the
-/// token used for this attempt and future reconnect attempts.
+/// If any field is `Some`, it overrides the currently stored value and becomes the
+/// value used for this attempt and future reconnect attempts.
 #[derive(Message, Clone, Debug, Default)]
 pub struct RequestStdbConnectionMessage {
     /// Optional token to use for this connection attempt.

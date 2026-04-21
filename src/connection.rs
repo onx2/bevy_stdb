@@ -348,7 +348,8 @@ impl<
 
 /// Initiates a connection build from a connection request message.
 ///
-/// Requests are ignored if a connection is already active.
+/// Requests can override the current connection configuration and
+/// while an active connection exists, this will clear any pending requests.
 fn handle_connection_request<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
@@ -369,6 +370,7 @@ fn handle_connection_request<
         return;
     };
 
+    // Get the current configuration and override if requested
     let connect_config = {
         let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
         if let Some(token) = latest_request.token {
