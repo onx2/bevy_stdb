@@ -27,7 +27,7 @@ url = { version = "2.5", optional = true }
 oauth2 = { version = "5.0", optional = true, default-features = false }
 
 [features]
-default = ["auth-oidc", "auth-steam"]
+default = []
 
 auth-core = [
     "dep:url",

@@ -14,25 +14,28 @@ mod auth_imp;
 pub(crate) struct TokenResponse {
     /// The access token used for SpacetimeDB connections.
     pub access_token: String,
-    /// The number of seconds before the access token expires.
-    pub expires_in: u64,
-    /// The optional refresh token.
-    pub refresh_token: Option<String>,
-    /// The granted scopes.
-    pub scope: Option<String>,
-    /// The token type.
+    /// The token type - "Bearer" for example
     pub token_type: String,
-    /// The optional ID token.
-    pub id_token: Option<String>,
+    /// The ID token for OIDC
+    pub id_token: String,
+    /// The number of seconds before the access token expires
+    pub expires_in: Option<u64>,
+    /// The optional refresh token - opaque string for requesting a new access token
+    pub refresh_token: Option<String>,
+    /// The granted scopes - "openid email profile" for example
+    pub scope: Option<String>,
 }
 
 /// Configures authentication for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
 pub enum StdbAuthOptions {
+    #[cfg(feature = "auth-oidc")]
     Oidc(OidcOptions),
+    #[cfg(feature = "auth-steam")]
     Steam(SteamOptions),
 }
 
+#[cfg(feature = "auth-oidc")]
 #[derive(Clone, Debug)]
 pub struct OidcOptions {
     /// The OAuth client identifier.
@@ -47,6 +50,7 @@ pub struct OidcOptions {
     pub scopes: Vec<String>,
 }
 
+#[cfg(feature = "auth-steam")]
 #[derive(Clone, Debug)]
 pub struct SteamOptions {
     /// The OAuth client identifier.
