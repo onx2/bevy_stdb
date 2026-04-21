@@ -82,14 +82,13 @@ fn on_player_info_insert(mut msgs: ReadInsertMessage<PlayerInfo>) {
 
 Exactly one driver must be configured. These modes are mutually exclusive, and in most applications you'll want `with_background_driver(...)`.
 
-If WASM support is needed, you can enable the `browser` feature flag in both this crate and your `spacetimedb-sdk` crate using a target cfg:
+If WASM support is needed, you can enable the `browser` feature flag in your `spacetimedb-sdk` crate using a target cfg:
 
 ```toml
 # Enable browser support for wasm builds.
 # Replace `*` with the versions you are using.
 [target.wasm32-unknown-unknown.dependencies]
 spacetimedb-sdk = { version = "*", features = ["browser"] }
-bevy_stdb = { version = "*", features = ["browser"] }
 ```
 
 > I recommend checking out the [bevy_cli 2d template](https://github.com/TheBevyFlock/bevy_new_2d/) for a good starter example using WASM + native with nice Bevy features configured.

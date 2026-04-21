@@ -155,7 +155,7 @@ where
     /// Synchronously builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
-    #[cfg(not(feature = "browser"))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn build_connection(&self) -> Result<Arc<C>> {
         self.connection_builder().build().map(Arc::new)
     }
@@ -163,7 +163,7 @@ where
     /// Asynchronously builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
-    #[cfg(feature = "browser")]
+    #[cfg(target_arch = "wasm32")]
     pub(crate) async fn build_connection(&self) -> Result<Arc<C>> {
         self.connection_builder().build().await.map(Arc::new)
     }
@@ -276,10 +276,10 @@ impl<
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
 
-        #[cfg(feature = "browser")]
+        #[cfg(target_arch = "wasm32")]
         register_channel::<ConnectionBuildFinishedMessage<C>>(app);
 
-        #[cfg(not(feature = "browser"))]
+        #[cfg(not(target_arch = "wasm32"))]
         app.add_message::<ConnectionBuildFinishedMessage<C>>();
 
         let world = app.world();
@@ -381,15 +381,15 @@ fn handle_connection_request<
         .resource_mut::<NextState<StdbConnectionState>>()
         .set(StdbConnectionState::Connecting);
 
-    #[cfg(not(feature = "browser"))]
+    #[cfg(not(target_arch = "wasm32"))]
     world.write_message(ConnectionBuildFinishedMessage {
         result: connect_config.build_connection(),
     });
 
-    #[cfg(feature = "browser")]
+    #[cfg(target_arch = "wasm32")]
     {
         let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
-        wasm_bindgen_futures::spawn_local(async move {
+        js_sys::futures::spawn_local(async move {
             let _ = sender.send(ConnectionBuildFinishedMessage {
                 result: connect_config.build_connection().await,
             });

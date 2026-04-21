@@ -1,15 +1,12 @@
 use bevy_ecs::prelude::Resource;
 
-#[cfg(all(feature = "browser", target_arch = "wasm32"))]
+#[cfg(target_arch = "wasm32")]
 #[path = "web.rs"]
 mod auth_imp;
 
-#[cfg(all(not(feature = "browser"), not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 #[path = "native.rs"]
 mod auth_imp;
-
-#[cfg(all(not(feature = "browser"), target_arch = "wasm32"))]
-compile_error!("wasm32 builds require the `browser` feature");
 
 /// Configures OIDC authentication for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
