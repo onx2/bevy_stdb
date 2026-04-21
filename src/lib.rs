@@ -71,11 +71,10 @@
 //! builder API and the [README](https://github.com/onx2/bevy_stdb)
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
-pub(crate) mod channel_bridge;
-
 mod alias;
 #[cfg(feature = "auth")]
 mod auth;
+mod channel_bridge;
 mod connection;
 mod message;
 mod plugin;

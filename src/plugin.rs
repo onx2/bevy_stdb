@@ -1,5 +1,5 @@
 #[cfg(feature = "auth")]
-use crate::auth::StdbAuthOptions;
+use crate::auth::{StdbAuthOptions, StdbAuthPlugin};
 use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
@@ -503,6 +503,11 @@ impl<
             )
                 .chain(),
         );
+
+        #[cfg(feature = "auth")]
+        if let Some(auth_options) = self.auth_options.clone() {
+            app.add_plugins(StdbAuthPlugin::new(auth_options));
+        }
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));

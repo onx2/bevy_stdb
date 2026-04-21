@@ -28,7 +28,7 @@ base64 = { version = "0.22", optional = true }
 sha2 = { version = "0.11", optional = true }
 
 [features]
-default = []
+default = ["auth"]
 
 auth = [
     "dep:url",
