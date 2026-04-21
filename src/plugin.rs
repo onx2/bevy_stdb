@@ -1,4 +1,4 @@
-#[cfg(feature = "auth")]
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 use crate::auth::{StdbAuthOptions, StdbAuthPlugin};
 use crate::{
     channel_bridge::ChannelBridgePlugin,
@@ -62,7 +62,7 @@ pub struct StdbPlugin<
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
-    #[cfg(feature = "auth")]
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     auth_options: Option<StdbAuthOptions>,
     delayed_connection: bool,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
@@ -81,7 +81,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             compression: None,
             driver: None,
             reconnect_options: None,
-            #[cfg(feature = "auth")]
+            #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
             auth_options: None,
             delayed_connection: false,
             subscriptions_initializer: None,
@@ -454,7 +454,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Panics
     ///
     /// Panics if called more than once.
-    #[cfg(feature = "auth")]
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub fn with_auth(mut self, auth_options: StdbAuthOptions) -> Self {
         assert!(
             self.auth_options.is_none(),
@@ -504,7 +504,7 @@ impl<
                 .chain(),
         );
 
-        #[cfg(feature = "auth")]
+        #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
         if let Some(auth_options) = self.auth_options.clone() {
             app.add_plugins(StdbAuthPlugin::new(auth_options));
         }

@@ -71,8 +71,14 @@
 //! builder API and the [README](https://github.com/onx2/bevy_stdb)
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
+
+#[cfg(all(feature = "auth-steam", target_arch = "wasm32", target_os = "unknown"))]
+compile_error!(
+    "`auth-steam` is not supported on `wasm32-unknown-unknown` because `steamworks` depends on the native Steamworks SDK."
+);
+
 mod alias;
-#[cfg(feature = "auth")]
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 mod auth;
 mod channel_bridge;
 mod connection;
@@ -105,6 +111,6 @@ pub mod prelude {
         subscription::StdbSubscriptions,
     };
 
-    #[cfg(feature = "auth")]
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub use crate::auth::StdbAuthOptions;
 }

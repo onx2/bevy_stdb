@@ -53,6 +53,9 @@ pub struct SteamOptions {
     pub client_id: String,
     /// The token endpoint.
     pub token_endpoint: String,
+    /// The identity of the web service that accepts Steam tickets
+    /// For example, "spacetimeauth" when using SpacetimeAuth
+    pub ticket_identity: String,
 }
 
 /// Stores the configured auth options.
