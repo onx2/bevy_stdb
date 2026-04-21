@@ -33,11 +33,11 @@ auth-core = [
     "dep:url",
     "dep:serde",
     "dep:ureq",
-    "dep:web-sys",
 ]
 auth-oidc = [
     "auth-core",
     # OIDC specific
+    "dep:web-sys",
     "dep:oauth2",
     "dep:keyring",
     "dep:webbrowser",
