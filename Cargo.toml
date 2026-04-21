@@ -24,52 +24,45 @@ crossbeam-channel = "0.5"
 
 serde = { version = "1.0", optional = true, features = ["derive"] }
 url = { version = "2.5", optional = true }
-base64 = { version = "0.22", optional = true }
-sha2 = { version = "0.11", optional = true }
+
 
 [features]
 default = ["auth"]
 
 auth = [
     "dep:url",
-    "dep:base64",
+    "dep:oauth2",
     "dep:serde",
     "dep:keyring",
     "dep:webbrowser",
     "dep:web-sys",
 ]
 
-# Native target crates
+# -----------------------------------------------------------------------------
+# Native-specific target crates
+# -----------------------------------------------------------------------------
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-spacetimedb-sdk = "2.1"
+spacetimedb-sdk = { version = "2.1" }
+
 keyring = { version = "3.6", optional = true }
 webbrowser = { version = "1", optional = true }
+oauth2 = { version = "5.0", optional = true, default-features = false, features = ["ureq"] }
 
-# Browser target crates
+# -----------------------------------------------------------------------------
+# Wasm32-specific (Browser) target crates
+# -----------------------------------------------------------------------------
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-spacetimedb-sdk = { version = "2.1", feature = ["browser"] }
+spacetimedb-sdk = { version = "2.1", features = ["browser"] }
 js-sys = { version = "0.3", default-features = false, features = ["futures"] }
+
+# `auth` features
 web-sys = { version = "0.3", default-features = false, optional = true, features = [
     "Window",
-    "Crypto"
+    "Location",
+    "History",
+    "Storage"
 ] }
-
-# reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-# url = "2.5"
-# webbrowser = "1"
-# web-sys = { version = "0.3", optional = true, features = ["Window", "Storage", "History", "Location", "Crypto"] }
-# js-sys = { version = "0.3", optional = true }
-# base64 = "0.22"
-# sha2 = "0.10"
-# futures-lite = "2"
-# dirs = "6"
-# web-sys = { version = "0.3", optional = true, default-features = false, features = ["futures"] }
-# serde = { version = "1.0", features = ["derive"], optional = true }
-# oauth2 = { version = "0.5", optional = true }
-# keyring = { version =  "3.6", optional = true }
-# https://crates.io/crates/ureq/3.3.0
-# reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-# url = "2.5"
+oauth2 = { version = "5.0", optional = true, default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

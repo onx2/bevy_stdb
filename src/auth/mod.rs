@@ -10,7 +10,7 @@ mod auth_imp;
 mod auth_imp;
 
 /// Stores the token payload returned by the token endpoint.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub(crate) struct TokenResponse {
     /// The access token used for SpacetimeDB connections.
     pub access_token: String,
