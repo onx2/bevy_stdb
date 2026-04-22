@@ -6,9 +6,9 @@ use crate::{
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
-        EventTableBinder, TableBindCallback, TableBinder, TableRegistrationCallback,
-        TableWithoutPkBinder, ViewBinder, register_event_table, register_table,
-        register_table_without_pk, register_view,
+        EventTableBinder, StdbTablePlugin, TableBindCallback, TableBinder,
+        TableRegistrationCallback, TableWithoutPkBinder, ViewBinder, register_event_table,
+        register_table, register_table_without_pk, register_view,
     },
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
@@ -487,10 +487,6 @@ impl<
             init(app);
         }
 
-        for register in &self.table_registrations {
-            register(app);
-        }
-
         app.add_plugins(StdbConnectionPlugin::<C, M> {
             module_name: self
                 .module_name
@@ -505,7 +501,11 @@ impl<
             }),
             compression: self.compression.unwrap_or_default(),
             delayed_connection: self.delayed_connection,
-            table_bindings: self.table_bindings.clone(),
         });
+
+        app.add_plugins(StdbTablePlugin::<C, M>::new(
+            self.table_bindings.clone(),
+            self.table_registrations.clone(),
+        ));
     }
 }
