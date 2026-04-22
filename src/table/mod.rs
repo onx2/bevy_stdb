@@ -12,7 +12,7 @@ use crate::connection::{StdbConnection, StdbConnectionState};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::{Resource, World};
 use bevy_state::prelude::OnEnter;
-pub(crate) use bind::*;
+pub(crate) use bind::{EventTableBinder, TableBinder, TableWithoutPkBinder, ViewBinder};
 pub(crate) use register::*;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};
 use std::sync::Arc;
@@ -26,7 +26,7 @@ pub(crate) type TableBindCallback<C> =
 
 /// Runtime configuration for the SpacetimeDB tables that were registered at build time.
 #[derive(Resource)]
-pub(crate) struct StdbTableConfig<
+struct StdbTableConfig<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 > {
