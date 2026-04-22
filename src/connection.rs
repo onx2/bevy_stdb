@@ -17,7 +17,6 @@ use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
     Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, not,
 };
-use bevy_log::info;
 use bevy_state::prelude::{AppExtStates, NextState, States, in_state};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
@@ -126,25 +125,21 @@ where
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
         let error_tx = self.error_tx.clone();
-        info!("connection_builder");
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
             .with_uri(self.uri.clone())
             .with_token(self.token.clone())
             .with_compression(self.compression)
             .on_connect(move |_ctx, id, token| {
-                info!("WHAT THE FUCK 0");
                 let _ = connected_tx.send(StdbConnectedMessage {
                     identity: id,
                     access_token: token.to_string(),
                 });
             })
             .on_disconnect(move |_ctx, err| {
-                info!("WHAT THE FUCK 1");
                 let _ = disconnected_tx.send(StdbDisconnectedMessage { err });
             })
             .on_connect_error(move |_ctx, err| {
-                info!("WHAT THE FUCK 2");
                 let _ = error_tx.send(StdbConnectionErrorMessage { err });
             })
     }
