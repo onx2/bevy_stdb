@@ -303,12 +303,6 @@ impl<
             finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
         );
 
-        // Bind table callbacks when a new connection is established.
-        // app.add_systems(
-        //     OnEnter(StdbConnectionState::Connected),
-        //     on_connected_bind::<C, M>,
-        // );
-
         // Only added when frame-tick driving is configured.
         if matches!(self.driver, Some(ConnectionDriver::FrameTick(_))) {
             app.add_systems(
