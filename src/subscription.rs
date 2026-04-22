@@ -69,9 +69,12 @@ where
         let sql = sql.into();
 
         if let Some(entry) = self.entries.get_mut(&key) {
+            // Noop when sql is identical and we are already subscribed
             if entry.sql == sql && (entry.queued || entry.handle.is_some()) {
                 return;
             }
+
+            // TBD whether de-duplication should be handled internally
 
             entry.sql = sql;
             entry.queued = true;
