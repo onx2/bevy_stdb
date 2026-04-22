@@ -1,12 +1,11 @@
 //! Reconnect policy and runtime state for SpacetimeDB connections.
 //!
 //! Manages reconnect timing and backoff. When the backoff timer fires,
-//! a connection request is issued through [`StdbConnectionController`]
-//! and the connection module handles the actual connection building.
+//! a [`RequestStdbConnectionMessage`] is sent and the connection module handles
+//! the actual connection building.
 
 use crate::{
-    connection::{StdbConnectionController, StdbConnectionState},
-    set::StdbSet,
+    alias::WriteRequestStdbConnectionMessage, connection::StdbConnectionState, set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
@@ -194,7 +193,7 @@ fn reset_reconnect_state(mut reconnect: ResMut<ReconnectBackoff>) {
 fn tick_reconnect_timer(
     time: Res<Time>,
     mut reconnect: ResMut<ReconnectBackoff>,
-    mut controller: ResMut<StdbConnectionController>,
+    mut request_connection: WriteRequestStdbConnectionMessage,
 ) {
     let Some(timer) = reconnect.timer.as_mut() else {
         return;
@@ -204,6 +203,6 @@ fn tick_reconnect_timer(
 
     if timer.just_finished() {
         reconnect.timer = None;
-        controller.connect();
+        request_connection.write_default();
     }
 }

@@ -5,7 +5,7 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 [![crates.io](https://img.shields.io/crates/v/bevy_stdb)](https://crates.io/crates/bevy_stdb)
 ![Dependabot](https://img.shields.io/badge/dependabot-enabled-brightgreen.svg)
 [![docs.rs](https://docs.rs/bevy_stdb/badge.svg)](https://docs.rs/bevy_stdb)
-[![CI](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml/badge.svg)](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml)
+[![CI](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml/badge.svg)](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml?query=branch%3Amain)
 [![CodeQL](https://github.com/onx2/bevy_stdb/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/onx2/bevy_stdb/actions/workflows/github-code-scanning/codeql)
 
 ![Useless AI generated image that kind of looks cool](https://github.com/user-attachments/assets/b6cf0408-0c0d-4997-bf9c-e2e0989ab5f3)
@@ -15,20 +15,7 @@ _Please enjoy this useless AI generated image based on the README contents of th
 
 ## Overview
 
-`bevy_stdb` adapts SpacetimeDB's connection and callback model into Bevy-style resources, systems, plugins, and messages. Its built around a few core ideas:
-
-- Configure everything through `StdbPlugin`
-- Expose the active live connection as a Bevy resource via `StdbConnection`
-- Forward SpacetimeDB table callbacks into Bevy `Message`s
-- Store subscription intent independently from the live connection with `StdbSubscriptions`
-- Optionally retry failed connections with `StdbReconnectOptions`
-
-The library is organized around connection-scoped lifecycle concerns:
-
-- **connection lifecycle**: establish the initial connection eagerly or on demand, expose the active connection resource, and track connection state
-- **table lifecycle**: initialize table message channels once and re-bind table callbacks whenever a connection becomes active
-- **subscription lifecycle**: store desired subscription intent and re-apply queued subscriptions when connected
-- **reconnect lifecycle**: optionally retry connection attempts after disconnects using configurable backoff
+`bevy_stdb` adapts SpacetimeDB's connection and callback model into Bevy-style resources, systems, plugins, and messages.
 
 ## Features
 
@@ -37,6 +24,7 @@ The library is organized around connection-scoped lifecycle concerns:
 - **Table event bridging** into normal Bevy `Message`s
 - **Managed subscription intent** through `StdbSubscriptions`
 - **Optional reconnect support** through `StdbReconnectOptions`
+- **Optional delayed connection** through `with_delayed_connection`
 
 ## Example
 
@@ -136,7 +124,7 @@ If you target both native and browser, I recommend selecting the background driv
 
 ```rust
 fn main() {
-    let mut plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+    let mut stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
         .with_module_name("my_module")
         .with_uri("http://localhost:3000");
 
@@ -298,15 +286,19 @@ fn main() {
 fn connect_after_delay(
     time: Res<Time>,
     mut timer: ResMut<ConnectTimer>,
-    mut controller: ResMut<StdbConnectionController>,
+    mut request: WriteRequestStdbConnectionMessage,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        controller.connect();
+        request.write_default();
     }
 }
 ```
 
-Use `connect_with_token(...)` instead when you want to supply a token at runtime.
+You can also override configuration values for `token`, `uri`, and `module_name` using:
+
+```rust
+`request.write(RequestStdbConnectionMessage { token, uri, module_name })`
+```
 
 ### Connection-dependent resources
 
