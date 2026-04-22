@@ -298,10 +298,10 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C>,
 {
+    /// Tables to register before binding to their callbacks
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     /// Stored bind callbacks invoked for each active connection.
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
-    // _marker: PhantomData<(C, M)>,
 }
 impl<C, M> StdbTablePlugin<C, M>
 where
