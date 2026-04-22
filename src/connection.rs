@@ -407,9 +407,7 @@ fn finalize_pending_connection<
 
                 world.insert_resource(StdbConnection::new(conn));
             }
-            Err(_err) => {
-                // TBD - should this trigger an error message? Right now SpacetimeDB SDK doesn't emit events for connect attempt failures.
-                // world.write_message(StdbConnectionErrorMessage { err });
+            Err(_) => {
                 world
                     .resource_mut::<NextState<StdbConnectionState>>()
                     .set(StdbConnectionState::Disconnected);
