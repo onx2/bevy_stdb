@@ -13,6 +13,7 @@ pub struct StdbSteamAuthOptions {
     pub app_id: u32,
 }
 
+/// Acquires a token response using Steam authentication.
 pub fn acquire_token_response(
     options: &StdbSteamAuthOptions,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
@@ -24,7 +25,7 @@ pub fn acquire_token_response(
 
     Ok(token)
 }
-
+/// Exchanges a Steam Web API ticket for a token response.
 fn exchange_steam_ticket_request(
     client_id: &str,
     steam_ticket: &[u8],
@@ -43,12 +44,7 @@ fn exchange_steam_ticket_request(
     Ok(token_data)
 }
 
-/// Requests a Steam Web API ticket for `identity`.
-///
-/// Blocks the current thread while polling Steam callbacks until the matching
-/// [`steamworks::TicketForWebApiResponse`] arrives or the request times out.
-///
-/// The returned ticket bytes can then be exchanged at the auth server token endpoint.
+/// Requests a Steam Web API ticket
 fn request_steam_webapi_ticket(client: &Client) -> Result<Vec<u8>, StdbAuthError> {
     let (tx, rx) = crossbeam_channel::bounded(1);
 
