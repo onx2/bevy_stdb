@@ -7,7 +7,7 @@ use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
-    auth::TokenResponse,
+    auth::StdbTokenResponse,
     channel_bridge::{channel_sender, register_channel},
     message::{
         RequestStdbConnectionMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
@@ -29,15 +29,15 @@ use std::sync::Arc;
 
 /// Internal completion message for a finished connection build.
 #[derive(Message)]
-struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
+struct StdbConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
     pub result: Result<Arc<C>>,
 }
 
 /// Internal completion message for a finished async authentication flow
 #[derive(Debug, Message)]
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-struct AuthFinishedMessage {
-    pub result: std::result::Result<TokenResponse, StdbAuthError>,
+#[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
+struct StdbAuthFinishedMessage {
+    pub result: std::result::Result<StdbTokenResponse, StdbAuthError>,
 }
 
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
@@ -277,11 +277,14 @@ impl<
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
 
+        #[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
+        register_channel::<StdbAuthFinishedMessage>(app);
+
         #[cfg(target_arch = "wasm32")]
-        register_channel::<ConnectionBuildFinishedMessage<C>>(app);
+        register_channel::<StdbConnectionBuildFinishedMessage<C>>(app);
 
         #[cfg(not(target_arch = "wasm32"))]
-        app.add_message::<ConnectionBuildFinishedMessage<C>>();
+        app.add_message::<StdbConnectionBuildFinishedMessage<C>>();
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
@@ -379,7 +382,7 @@ fn handle_connection_request<
             }
 
             world
-                .get_resource::<TokenResponse>()
+                .get_resource::<StdbTokenResponse>()
                 .map(|token_response| token_response.access_token.clone())
         };
         // Get the current configuration and override if requested
@@ -390,7 +393,7 @@ fn handle_connection_request<
             config.module_name = request.module_name.unwrap_or(config.module_name.clone());
             config.clone()
         };
-        world.write_message(ConnectionBuildFinishedMessage {
+        world.write_message(StdbConnectionBuildFinishedMessage {
             result: connect_config.build_connection(),
         });
     }
@@ -398,9 +401,9 @@ fn handle_connection_request<
     #[cfg(target_arch = "wasm32")]
     {
         if let Some(auth_source) = request.auth_source {
-            let sender = channel_sender::<AuthFinishedMessage>(world);
+            let sender = channel_sender::<StdbAuthFinishedMessage>(world);
             js_sys::futures::spawn_local(async move {
-                let _ = sender.send(AuthFinishedMessage {
+                let _ = sender.send(StdbAuthFinishedMessage {
                     result: auth_source.acquire_token_response().await,
                 });
             });
@@ -411,9 +414,9 @@ fn handle_connection_request<
                 config.module_name = request.module_name.unwrap_or(config.module_name.clone());
                 config.clone()
             };
-            let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
+            let sender = channel_sender::<StdbConnectionBuildFinishedMessage<C>>(world);
             js_sys::futures::spawn_local(async move {
-                let _ = sender.send(ConnectionBuildFinishedMessage {
+                let _ = sender.send(StdbConnectionBuildFinishedMessage {
                     result: connect_config.build_connection().await,
                 });
             });
@@ -427,8 +430,8 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    let results: Vec<AuthFinishedMessage> = {
-        let mut messages = world.resource_mut::<Messages<AuthFinishedMessage>>();
+    let results: Vec<StdbAuthFinishedMessage> = {
+        let mut messages = world.resource_mut::<Messages<StdbAuthFinishedMessage>>();
         messages.drain().collect()
     };
 
@@ -442,9 +445,9 @@ where
                 config.token = Some(access_token);
 
                 // Send with last used request data
-                let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
+                let sender = channel_sender::<StdbConnectionBuildFinishedMessage<C>>(world);
                 js_sys::futures::spawn_local(async move {
-                    let _ = sender.send(ConnectionBuildFinishedMessage {
+                    let _ = sender.send(StdbConnectionBuildFinishedMessage {
                         result: config.build_connection().await,
                     });
                 });
@@ -465,8 +468,8 @@ fn finalize_pending_connection<
 >(
     world: &mut World,
 ) {
-    let finished_msgs: Vec<ConnectionBuildFinishedMessage<C>> = {
-        let mut messages = world.resource_mut::<Messages<ConnectionBuildFinishedMessage<C>>>();
+    let finished_msgs: Vec<StdbConnectionBuildFinishedMessage<C>> = {
+        let mut messages = world.resource_mut::<Messages<StdbConnectionBuildFinishedMessage<C>>>();
         messages.drain().collect()
     };
 

@@ -21,10 +21,10 @@
  *       - Persist the refresh token in platform secure store
  *       - Connect to Spacetime using access token
  */
-use super::{StdbAuthError, StdbOidcAuthOptions, TokenResponse};
+use super::{StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse};
 
 pub fn acquire_token_response(
     options: &StdbOidcAuthOptions,
-) -> Result<TokenResponse, StdbAuthError> {
+) -> Result<StdbTokenResponse, StdbAuthError> {
     todo!()
 }

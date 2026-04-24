@@ -1,4 +1,4 @@
-use super::{StdbAuthError, TokenResponse};
+use super::{StdbAuthError, StdbTokenResponse};
 use std::{
     thread,
     time::{Duration, Instant},
@@ -15,7 +15,7 @@ pub struct StdbSteamAuthOptions {
 
 pub fn acquire_token_response(
     options: &StdbSteamAuthOptions,
-) -> Result<TokenResponse, StdbAuthError> {
+) -> Result<StdbTokenResponse, StdbAuthError> {
     let steam_client = Client::init_app(options.app_id).map_err(|error| {
         StdbAuthError::Internal(format!("failed to init Steam client: {error}"))
     })?;
@@ -28,7 +28,7 @@ pub fn acquire_token_response(
 fn exchange_steam_ticket_request(
     client_id: &str,
     steam_ticket: &[u8],
-) -> Result<TokenResponse, StdbAuthError> {
+) -> Result<StdbTokenResponse, StdbAuthError> {
     let response = ureq::post("https://auth.spacetimedb.com/oidc/token")
         .content_type("application/x-www-form-urlencoded")
         .send_form([
@@ -38,7 +38,7 @@ fn exchange_steam_ticket_request(
         ])?;
 
     let body = response.into_body().read_to_string()?;
-    let token_data: TokenResponse = serde_json::from_str(&body)?;
+    let token_data: StdbTokenResponse = serde_json::from_str(&body)?;
 
     Ok(token_data)
 }

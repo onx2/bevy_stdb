@@ -34,16 +34,29 @@ pub enum StdbAuthSource {
     Steam(StdbSteamAuthOptions),
 }
 impl StdbAuthSource {
-    pub(crate) fn acquire_token_response(&self) -> Option<TokenResponse> {
+    pub(crate) fn acquire_token_response(&self) -> Option<StdbTokenResponse> {
         match self {
             #[cfg(feature = "auth-oidc")]
             StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).ok(), // TODO handle error
             #[cfg(feature = "auth-steam")]
             StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts).ok(), // TODO handle error
-            StdbAuthSource::Token(token) => Some(TokenResponse {
+            StdbAuthSource::Token(token) => Some(StdbTokenResponse {
                 access_token: token.to_owned(),
-                ..TokenResponse::default()
+                ..StdbTokenResponse::default()
             }),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) async fn acquire_token_response(&self) -> Option<StdbTokenResponse> {
+        match self {
+            #[cfg(feature = "auth-oidc")]
+            StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).await.ok(), // TODO handle error
+            StdbAuthSource::Token(token) => Some(StdbTokenResponse {
+                access_token: token.to_owned(),
+                ..StdbTokenResponse::default()
+            }),
+            _ => unreachable!("Steam cannot be used in wasm32 environment"),
         }
     }
 }
@@ -54,7 +67,7 @@ impl StdbAuthSource {
     any(feature = "auth-oidc", feature = "auth-steam"),
     derive(serde::Deserialize)
 )]
-pub(crate) struct TokenResponse {
+pub(crate) struct StdbTokenResponse {
     /// The access token used for SpacetimeDB connections.
     pub access_token: String,
     /// The token type - "Bearer" for example

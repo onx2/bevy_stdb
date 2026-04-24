@@ -6,7 +6,7 @@ mod auth_imp;
 #[path = "native.rs"]
 mod auth_imp;
 
-use super::{StdbAuthError, TokenResponse};
+use super::{StdbAuthError, StdbTokenResponse};
 pub use auth_imp::acquire_token_response;
 
 #[derive(Clone, Debug)]
