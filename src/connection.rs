@@ -97,7 +97,7 @@ pub(crate) struct StdbConnectionConfig<
     module_name: String,
     /// The URI of the SpacetimeDB host.
     uri: String,
-    /// Optional authentication token response data.
+    /// Optional authentication token.
     token: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
