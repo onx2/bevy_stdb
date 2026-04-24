@@ -430,33 +430,36 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    let results: Vec<StdbAuthFinishedMessage> = {
-        let mut messages = world.resource_mut::<Messages<StdbAuthFinishedMessage>>();
-        messages.drain().collect()
+    let Some(msg) = world
+        .resource_mut::<Messages<StdbAuthFinishedMessage>>()
+        .drain()
+        .last()
+    else {
+        return;
     };
 
-    for msg in results {
-        match msg.result {
-            Ok(token_response) => {
-                let access_token = token_response.access_token.clone();
-                world.insert_resource(token_response);
+    match msg.result {
+        Ok(token_response) => {
+            let access_token = token_response.access_token.clone();
+            world.insert_resource(token_response);
 
+            let connect_config = {
                 let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
                 config.token = Some(access_token);
+                config.clone()
+            };
 
-                // Send with last used request data
-                let sender = channel_sender::<StdbConnectionBuildFinishedMessage<C>>(world);
-                js_sys::futures::spawn_local(async move {
-                    let _ = sender.send(StdbConnectionBuildFinishedMessage {
-                        result: config.build_connection().await,
-                    });
+            let sender = channel_sender::<StdbConnectionBuildFinishedMessage<C>>(world);
+            js_sys::futures::spawn_local(async move {
+                let _ = sender.send(StdbConnectionBuildFinishedMessage {
+                    result: connect_config.build_connection().await,
                 });
-            }
-            Err(_) => {
-                world
-                    .resource_mut::<NextState<StdbConnectionState>>()
-                    .set(StdbConnectionState::Disconnected);
-            }
+            });
+        }
+        Err(_) => {
+            world
+                .resource_mut::<NextState<StdbConnectionState>>()
+                .set(StdbConnectionState::Disconnected);
         }
     }
 }
