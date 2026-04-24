@@ -7,8 +7,7 @@ mod auth_imp;
 mod auth_imp;
 
 use super::{StdbAuthError, TokenResponse};
-use bevy_app::{App, Plugin};
-use bevy_ecs::prelude::Resource;
+pub use auth_imp::acquire_token_response;
 
 #[derive(Clone, Debug)]
 pub struct StdbOidcAuthOptions {
@@ -18,29 +17,4 @@ pub struct StdbOidcAuthOptions {
     pub redirect_uri: String,
     /// The requested scopes.
     pub scopes: Vec<String>,
-}
-
-/// Stores the configured auth options.
-#[derive(Resource, Clone, Debug)]
-pub(crate) struct StdbOidcAuthConfig(pub StdbOidcAuthOptions);
-
-pub struct StdbOidcAuthPlugin {
-    options: StdbOidcAuthOptions,
-}
-impl StdbOidcAuthPlugin {
-    pub fn new(options: StdbOidcAuthOptions) -> Self {
-        Self { options }
-    }
-}
-impl Plugin for StdbOidcAuthPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(StdbOidcAuthConfig(self.options.clone()));
-        // TODO
-    }
-}
-
-pub fn acquire_token_response(
-    options: &StdbOidcAuthOptions,
-) -> Result<TokenResponse, StdbAuthError> {
-    todo!()
 }

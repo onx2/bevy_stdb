@@ -3,9 +3,8 @@ use crate::auth::StdbAuthSource;
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
-    DbContext, Error, Identity, Result,
+    Error, Identity,
 };
-use std::sync::Arc;
 
 /// Event metadata associated with row callbacks for a SpacetimeDB row type.
 pub type RowEvent<T> =
@@ -164,10 +163,4 @@ impl RequestStdbConnectionMessage {
             module_name: Some(module_name.into()),
         }
     }
-}
-
-/// Internal completion message for a finished connection build.
-#[derive(Message)]
-pub(crate) struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
-    pub result: Result<Arc<C>>,
 }

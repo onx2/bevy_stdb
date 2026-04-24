@@ -1,5 +1,5 @@
 /*
- * OIDC Flow
+ * Native OIDC Flow
  * 1. RequestStdbConnectionMessage
  *    - auth_source: StdbAuthTarget::Oidc(OidcOptions { ... }) -> Pulled from config
  * 2. handle_connection_request (when `auth_source` exists)
@@ -21,3 +21,10 @@
  *       - Persist the refresh token in platform secure store
  *       - Connect to Spacetime using access token
  */
+use super::{StdbAuthError, StdbOidcAuthOptions, TokenResponse};
+
+pub fn acquire_token_response(
+    options: &StdbOidcAuthOptions,
+) -> Result<TokenResponse, StdbAuthError> {
+    todo!()
+}

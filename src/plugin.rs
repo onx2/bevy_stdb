@@ -417,7 +417,7 @@ impl<
         );
 
         #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-        app.add_plugins(StdbAuthPlugin::default());
+        app.add_plugins(StdbAuthPlugin::<C, M>::new());
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));

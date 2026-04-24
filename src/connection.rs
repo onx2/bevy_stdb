@@ -1,10 +1,8 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
-// #[cfg(feature = "auth-oidc")]
-// use crate::auth::oidc;
-// #[cfg(feature = "auth-steam")]
-// use crate::auth::steam;
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+use crate::auth::StdbAuthError;
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
@@ -12,14 +10,14 @@ use crate::{
     auth::TokenResponse,
     channel_bridge::{channel_sender, register_channel},
     message::{
-        ConnectionBuildFinishedMessage, RequestStdbConnectionMessage, StdbConnectedMessage,
-        StdbConnectionErrorMessage, StdbDisconnectedMessage,
+        RequestStdbConnectionMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
+        StdbDisconnectedMessage,
     },
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, not,
+    Commands, IntoScheduleConfigs, Message, Messages, Res, ResMut, Resource, World, not,
 };
 use bevy_state::prelude::{AppExtStates, NextState, States, in_state};
 use crossbeam_channel::Sender;
@@ -28,6 +26,19 @@ use spacetimedb_sdk::{
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
 use std::sync::Arc;
+
+/// Internal completion message for a finished connection build.
+#[derive(Message)]
+struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
+    pub result: Result<Arc<C>>,
+}
+
+/// Internal completion message for a finished async authentication flow
+#[derive(Debug, Message)]
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+struct AuthFinishedMessage {
+    pub result: std::result::Result<TokenResponse, StdbAuthError>,
+}
 
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
 ///
@@ -87,7 +98,7 @@ pub(crate) struct StdbConnectionConfig<
     /// The URI of the SpacetimeDB host.
     uri: String,
     /// Optional authentication token response data.
-    token: Option<TokenResponse>,
+    token: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -132,7 +143,7 @@ where
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
             .with_uri(self.uri.clone())
-            .with_token(self.token.clone().map(|t| t.access_token))
+            .with_token(self.token.clone())
             .with_compression(self.compression)
             .on_connect(move |_ctx, id, token| {
                 let _ = connected_tx.send(StdbConnectedMessage {
@@ -298,6 +309,14 @@ impl<
                 .run_if(not(in_state(StdbConnectionState::Connecting))),
         );
 
+        #[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
+        app.add_systems(
+            PreUpdate,
+            handle_auth_finished
+                .in_set(StdbSet::Connection)
+                .run_if(in_state(StdbConnectionState::Connecting)),
+        );
+
         app.add_systems(
             PreUpdate,
             finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
@@ -353,13 +372,20 @@ fn handle_connection_request<
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let token = {
+            if let Some(new_response) = request.auth_source.and_then(|s| s.acquire_token_response())
+            {
+                world.insert_resource(new_response);
+            }
+
+            world
+                .get_resource::<TokenResponse>()
+                .map(|token_response| token_response.access_token.clone())
+        };
         // Get the current configuration and override if requested
         let connect_config = {
             let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-            if let Some(auth_source) = request.auth_source {
-                config.token = auth_source.acquire_token_response();
-            }
-
+            config.token = token.or(config.token.take());
             config.uri = request.uri.unwrap_or(config.uri.clone());
             config.module_name = request.module_name.unwrap_or(config.module_name.clone());
             config.clone()
@@ -371,21 +397,64 @@ fn handle_connection_request<
 
     #[cfg(target_arch = "wasm32")]
     {
-        let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
-        js_sys::futures::spawn_local(async move {
-            // Get the current configuration and override if requested
+        if let Some(auth_source) = request.auth_source {
+            let sender = channel_sender::<AuthFinishedMessage>(world);
+            js_sys::futures::spawn_local(async move {
+                let _ = sender.send(AuthFinishedMessage {
+                    result: auth_source.acquire_token_response().await,
+                });
+            });
+        } else {
             let connect_config = {
-                if let Some(auth_source) = request.auth_source {
-                    config.token = auth_source.acquire_token_response();
-                }
+                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
                 config.uri = request.uri.unwrap_or(config.uri.clone());
                 config.module_name = request.module_name.unwrap_or(config.module_name.clone());
+                config.clone()
             };
-
-            let _ = sender.send(ConnectionBuildFinishedMessage {
-                result: connect_config.build_connection().await,
+            let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
+            js_sys::futures::spawn_local(async move {
+                let _ = sender.send(ConnectionBuildFinishedMessage {
+                    result: connect_config.build_connection().await,
+                });
             });
-        });
+        }
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
+fn handle_auth_finished<C, M>(world: &mut World)
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    let results: Vec<AuthFinishedMessage> = {
+        let mut messages = world.resource_mut::<Messages<AuthFinishedMessage>>();
+        messages.drain().collect()
+    };
+
+    for msg in results {
+        match msg.result {
+            Ok(token_response) => {
+                let access_token = token_response.access_token.clone();
+                world.insert_resource(token_response);
+
+                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
+                config.token = Some(access_token);
+
+                // Send with last used request data
+                let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
+                js_sys::futures::spawn_local(async move {
+                    let _ = sender.send(ConnectionBuildFinishedMessage {
+                        result: config.build_connection().await,
+                    });
+                });
+            }
+            Err(_) => {
+                world
+                    .resource_mut::<NextState<StdbConnectionState>>()
+                    .set(StdbConnectionState::Disconnected);
+            }
+        }
     }
 }
 

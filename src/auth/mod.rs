@@ -4,6 +4,8 @@
 //   -d "refresh_token=<REFRESH_TOKEN>" \
 //   -d "client_id=<CLIENT_ID>"
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub(crate) mod error;
 #[cfg(feature = "auth-oidc")]
 pub(crate) mod oidc;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
@@ -11,6 +13,8 @@ mod plugin;
 #[cfg(feature = "auth-steam")]
 pub(crate) mod steam;
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub(crate) use error::StdbAuthError;
 #[cfg(feature = "auth-oidc")]
 pub use oidc::StdbOidcAuthOptions;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
@@ -65,8 +69,3 @@ pub(crate) struct TokenResponse {
 
 // TODO:
 // persist refresh token to secure storage when the bevy app shuts down... how to do this?
-
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub(crate) mod error;
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub(crate) use error::StdbAuthError;
