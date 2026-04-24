@@ -1,5 +1,5 @@
 //! Bevy message types for SpacetimeDB connection, subscription, and table events.
-use crate::auth::StdbAuthTarget;
+use crate::auth::StdbAuthSource;
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
@@ -125,17 +125,17 @@ where
 #[derive(Message, Clone, Debug, Default)]
 pub struct RequestStdbConnectionMessage {
     /// Optional authentication options for the connection
-    pub auth_target: Option<StdbAuthTarget>,
+    pub auth_source: Option<StdbAuthSource>,
     /// Optional URI to use for this connection attempt.
     pub uri: Option<String>,
     /// Optional module name to use for this connection attempt.
     pub module_name: Option<String>,
 }
 impl RequestStdbConnectionMessage {
-    /// Build a [`RequestStdbConnectionMessage`] with default values and an `auth_target` override.
-    pub fn with_auth(auth_target: StdbAuthTarget) -> Self {
+    /// Build a [`RequestStdbConnectionMessage`] with default values and an `auth_source` override.
+    pub fn with_auth(auth_source: StdbAuthSource) -> Self {
         Self {
-            auth_target: Some(auth_target),
+            auth_source: Some(auth_source),
             uri: None,
             module_name: None,
         }
@@ -143,7 +143,7 @@ impl RequestStdbConnectionMessage {
     /// Build a [`RequestStdbConnectionMessage`] with default values and an `uri` override.
     pub fn with_uri(uri: impl Into<String>) -> Self {
         Self {
-            auth_target: None,
+            auth_source: None,
             uri: Some(uri.into()),
             module_name: None,
         }
@@ -151,15 +151,15 @@ impl RequestStdbConnectionMessage {
     /// Build a [`RequestStdbConnectionMessage`] with default values and an `module_name` override.
     pub fn with_module_name(module_name: impl Into<String>) -> Self {
         Self {
-            auth_target: None,
+            auth_source: None,
             uri: None,
             module_name: Some(module_name.into()),
         }
     }
-    /// Build a [`RequestStdbConnectionMessage`] with default `auth_target` only.
+    /// Build a [`RequestStdbConnectionMessage`] with default `auth_source` only.
     pub fn with_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
         Self {
-            auth_target: None,
+            auth_source: None,
             uri: Some(uri.into()),
             module_name: Some(module_name.into()),
         }

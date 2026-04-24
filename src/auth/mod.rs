@@ -6,37 +6,37 @@
 
 #[cfg(feature = "auth-oidc")]
 pub(crate) mod oidc;
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+mod plugin;
 #[cfg(feature = "auth-steam")]
 pub(crate) mod steam;
 
 #[cfg(feature = "auth-oidc")]
 pub use oidc::StdbOidcAuthOptions;
-#[cfg(feature = "auth-oidc")]
-pub(crate) use oidc::StdbOidcAuthPlugin;
-
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub use plugin::StdbAuthPlugin;
 #[cfg(feature = "auth-steam")]
 pub use steam::StdbSteamAuthOptions;
-#[cfg(feature = "auth-steam")]
-pub(crate) use steam::StdbSteamAuthPlugin;
+
+use bevy_ecs::prelude::Resource;
 
 /// The specific auth target for a given attempt
 #[derive(Clone, Debug)]
-pub enum StdbAuthTarget {
+pub enum StdbAuthSource {
     Token(String),
     #[cfg(feature = "auth-oidc")]
     Oidc(StdbOidcAuthOptions),
     #[cfg(feature = "auth-steam")]
     Steam(StdbSteamAuthOptions),
 }
-
-impl StdbAuthTarget {
+impl StdbAuthSource {
     pub(crate) fn acquire_token_response(&self) -> Option<TokenResponse> {
         match self {
             #[cfg(feature = "auth-oidc")]
-            StdbAuthTarget::Oidc(opts) => oidc::acquire_token_response(opts).ok(), // TODO handle error
+            StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).ok(), // TODO handle error
             #[cfg(feature = "auth-steam")]
-            StdbAuthTarget::Steam(opts) => steam::acquire_token_response(opts).ok(), // TODO handle error
-            StdbAuthTarget::Token(token) => Some(TokenResponse {
+            StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts).ok(), // TODO handle error
+            StdbAuthSource::Token(token) => Some(TokenResponse {
                 access_token: token.to_owned(),
                 ..TokenResponse::default()
             }),
@@ -45,7 +45,7 @@ impl StdbAuthTarget {
 }
 
 /// Stores the token payload returned by the token endpoint.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Resource)]
 #[cfg_attr(
     any(feature = "auth-oidc", feature = "auth-steam"),
     derive(serde::Deserialize)

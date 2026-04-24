@@ -1,8 +1,8 @@
 /*
  * OIDC Flow
  * 1. RequestStdbConnectionMessage
- *    - auth_target: StdbAuthTarget::Oidc(OidcOptions { ... }) -> Pulled from config
- * 2. handle_connection_request (when `auth_target` exists)
+ *    - auth_source: StdbAuthTarget::Oidc(OidcOptions { ... }) -> Pulled from config
+ * 2. handle_connection_request (when `auth_source` exists)
  *     - Build OIDC client (PKDE, auth_url, etc...)
  *     - Check for a refresh token in peristed store
  *       - YES:

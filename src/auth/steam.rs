@@ -1,36 +1,16 @@
 use super::{StdbAuthError, TokenResponse};
-use bevy_app::{App, Plugin};
-use bevy_ecs::prelude::Resource;
 use std::{
     thread,
     time::{Duration, Instant},
 };
 use steamworks::{Client, TicketForWebApiResponse};
+
 #[derive(Clone, Debug)]
 pub struct StdbSteamAuthOptions {
     /// The OAuth client identifier.
     pub client_id: String,
     /// The unique identifier for your Steam game.
     pub app_id: u32,
-}
-
-/// Stores the configured auth options.
-#[derive(Resource, Clone, Debug)]
-pub(crate) struct StdbSteamAuthConfig(pub StdbSteamAuthOptions);
-
-pub struct StdbSteamAuthPlugin {
-    options: StdbSteamAuthOptions,
-}
-impl StdbSteamAuthPlugin {
-    pub fn new(options: StdbSteamAuthOptions) -> Self {
-        Self { options }
-    }
-}
-impl Plugin for StdbSteamAuthPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(StdbSteamAuthConfig(self.options.clone()));
-        // TODO
-    }
 }
 
 pub fn acquire_token_response(

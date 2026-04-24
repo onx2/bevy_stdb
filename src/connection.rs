@@ -1,15 +1,15 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
-#[cfg(feature = "auth-oidc")]
-use crate::auth::oidc;
-#[cfg(feature = "auth-steam")]
-use crate::auth::steam;
+// #[cfg(feature = "auth-oidc")]
+// use crate::auth::oidc;
+// #[cfg(feature = "auth-steam")]
+// use crate::auth::steam;
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
-    auth::StdbAuthTarget,
+    auth::TokenResponse,
     channel_bridge::{channel_sender, register_channel},
     message::{
         ConnectionBuildFinishedMessage, RequestStdbConnectionMessage, StdbConnectedMessage,
@@ -86,9 +86,8 @@ pub(crate) struct StdbConnectionConfig<
     module_name: String,
     /// The URI of the SpacetimeDB host.
     uri: String,
-    /// Optional authentication token.
-    token: Option<String>,
-    auth_target: Option<StdbAuthTarget>,
+    /// Optional authentication token response data.
+    token: Option<TokenResponse>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -111,7 +110,6 @@ where
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
-            auth_target: self.auth_target.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
@@ -134,7 +132,7 @@ where
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
             .with_uri(self.uri.clone())
-            .with_token(self.token.clone())
+            .with_token(self.token.clone().map(|t| t.access_token))
             .with_compression(self.compression)
             .on_connect(move |_ctx, id, token| {
                 let _ = connected_tx.send(StdbConnectedMessage {
@@ -279,7 +277,6 @@ impl<
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: None,
-            auth_target: None,
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
@@ -359,12 +356,8 @@ fn handle_connection_request<
         // Get the current configuration and override if requested
         let connect_config = {
             let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-            if let Some(auth_target) = request.auth_target {
-                let token_response = auth_target.acquire_token_response();
-                // TODO: persist refresh token in a resource
-
-                config.token = token_response.map(|t| t.access_token);
-                config.auth_target = Some(auth_target);
+            if let Some(auth_source) = request.auth_source {
+                config.token = auth_source.acquire_token_response();
             }
 
             config.uri = request.uri.unwrap_or(config.uri.clone());
@@ -382,11 +375,9 @@ fn handle_connection_request<
         js_sys::futures::spawn_local(async move {
             // Get the current configuration and override if requested
             let connect_config = {
-                if let Some(auth_target) = request.auth_target {
-                    config.token = auth_target.acquire_token();
-                    config.auth_target = Some(auth_target);
+                if let Some(auth_source) = request.auth_source {
+                    config.token = auth_source.acquire_token_response();
                 }
-
                 config.uri = request.uri.unwrap_or(config.uri.clone());
                 config.module_name = request.module_name.unwrap_or(config.module_name.clone());
             };

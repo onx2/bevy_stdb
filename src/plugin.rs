@@ -1,7 +1,5 @@
-#[cfg(feature = "auth-oidc")]
-use crate::auth::{StdbOidcAuthOptions, StdbOidcAuthPlugin};
-#[cfg(feature = "auth-steam")]
-use crate::auth::{StdbSteamAuthOptions, StdbSteamAuthPlugin};
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+use crate::auth::StdbAuthPlugin;
 use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
@@ -63,12 +61,6 @@ pub struct StdbPlugin<
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
-
-    #[cfg(feature = "auth-oidc")]
-    oidc_options: Option<StdbOidcAuthOptions>,
-    #[cfg(feature = "auth-steam")]
-    steam_options: Option<StdbSteamAuthOptions>,
-
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
@@ -84,10 +76,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             compression: None,
             driver: None,
             reconnect_options: None,
-            #[cfg(feature = "auth-oidc")]
-            oidc_options: None,
-            #[cfg(feature = "auth-steam")]
-            steam_options: None,
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
@@ -294,20 +282,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Configures the plugin to support OIDC-based authentication flow
-    #[cfg(feature = "auth-oidc")]
-    pub fn with_oidc_auth(mut self, options: StdbOidcAuthOptions) -> Self {
-        self.oidc_options = Some(options);
-        self
-    }
-
-    /// Configures the plugin to support Steam-based authentication flow
-    #[cfg(feature = "auth-steam")]
-    pub fn with_steam_auth(mut self, options: StdbSteamAuthOptions) -> Self {
-        self.steam_options = Some(options);
-        self
-    }
-
     /// Registers a table with a primary key.
     ///
     /// # Example
@@ -442,15 +416,8 @@ impl<
                 .chain(),
         );
 
-        #[cfg(feature = "auth-oidc")]
-        if let Some(oidc_options) = self.oidc_options.clone() {
-            app.add_plugins(StdbOidcAuthPlugin::new(oidc_options));
-        }
-
-        #[cfg(feature = "auth-steam")]
-        if let Some(steam_options) = self.steam_options.clone() {
-            app.add_plugins(StdbSteamAuthPlugin::new(steam_options));
-        }
+        #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+        app.add_plugins(StdbAuthPlugin::default());
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));

@@ -98,7 +98,7 @@ pub mod prelude {
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage, WriteRequestStdbConnectionMessage,
         },
-        auth::StdbAuthTarget,
+        auth::StdbAuthSource,
         connection::{StdbConnection, StdbConnectionState},
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, RequestStdbConnectionMessage,
