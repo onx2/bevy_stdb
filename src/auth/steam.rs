@@ -83,7 +83,11 @@ impl Plugin for StdbSteamAuthPlugin {
     }
 }
 
-pub fn exchange_steam_ticket_request(
+pub fn authenticate(options: &StdbSteamAuthOptions) -> Option<String> {
+    None
+}
+
+fn exchange_steam_ticket_request(
     client_id: &str,
     steam_ticket: &[u8],
 ) -> Result<String, ureq::Error> {
@@ -105,7 +109,7 @@ pub fn exchange_steam_ticket_request(
 /// [`steamworks::TicketForWebApiResponse`] arrives or the request times out.
 ///
 /// The returned ticket bytes can then be exchanged at the auth server token endpoint.
-pub fn request_steam_webapi_ticket(client: &Client) -> Result<Vec<u8>, SteamError> {
+fn request_steam_webapi_ticket(client: &Client) -> Result<Vec<u8>, SteamError> {
     let (tx, rx) = crossbeam_channel::bounded(1);
 
     let requested_handle = client

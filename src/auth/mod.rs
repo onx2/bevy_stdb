@@ -14,13 +14,10 @@
 // /// For example, "spacetimeauth" when using SpacetimeAuth
 // pub ticket_identity: String,
 
-// #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-// mod plugin;
-
 #[cfg(feature = "auth-oidc")]
-mod oidc;
+pub(crate) mod oidc;
 #[cfg(feature = "auth-steam")]
-mod steam;
+pub(crate) mod steam;
 
 #[cfg(feature = "auth-oidc")]
 pub use oidc::StdbOidcAuthOptions;
@@ -40,4 +37,16 @@ pub enum StdbAuthTarget {
     Oidc(StdbOidcAuthOptions),
     #[cfg(feature = "auth-steam")]
     Steam(StdbSteamAuthOptions),
+}
+
+impl StdbAuthTarget {
+    pub fn acquire_token(&self) -> Option<String> {
+        match self {
+            #[cfg(feature = "auth-oidc")]
+            StdbAuthTarget::Oidc(opts) => oidc::authenticate(opts),
+            #[cfg(feature = "auth-steam")]
+            StdbAuthTarget::Steam(opts) => steam::authenticate(opts),
+            StdbAuthTarget::Token(token) => Some(token.to_owned()),
+        }
+    }
 }

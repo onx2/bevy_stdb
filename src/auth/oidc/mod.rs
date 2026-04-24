@@ -37,3 +37,7 @@ impl Plugin for StdbOidcAuthPlugin {
         // TODO
     }
 }
+
+pub fn authenticate(options: &StdbOidcAuthOptions) -> Option<String> {
+    None
+}
