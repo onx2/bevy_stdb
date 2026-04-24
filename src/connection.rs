@@ -5,6 +5,7 @@ use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
     },
+    auth::StdbAuthTarget,
     channel_bridge::{channel_sender, register_channel},
     message::{
         ConnectionBuildFinishedMessage, RequestStdbConnectionMessage, StdbConnectedMessage,
@@ -327,12 +328,14 @@ fn handle_connection_request<
 >(
     world: &mut World,
 ) {
+    // Ignore requests while currently connected
     if world.get_resource::<StdbConnection<C>>().is_some() {
         return world
             .resource_mut::<Messages<RequestStdbConnectionMessage>>()
             .clear();
     }
 
+    // Use the most recent request for the connection attempt
     let Some(request) = world
         .resource_mut::<Messages<RequestStdbConnectionMessage>>()
         .drain()
@@ -341,29 +344,49 @@ fn handle_connection_request<
         return;
     };
 
-    // Get the current configuration and override if requested
-    let connect_config = {
-        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-        // TODO - this is now auth_target
-        // config.token = request.token.or(config.token.take());
-        config.uri = request.uri.unwrap_or(config.uri.clone());
-        config.module_name = request.module_name.unwrap_or(config.module_name.clone());
-        config.clone()
-    };
-
     world
         .resource_mut::<NextState<StdbConnectionState>>()
         .set(StdbConnectionState::Connecting);
 
     #[cfg(not(target_arch = "wasm32"))]
-    world.write_message(ConnectionBuildFinishedMessage {
-        result: connect_config.build_connection(),
-    });
+    {
+        // Get the current configuration and override if requested
+        let connect_config = {
+            let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
+            if let Some(auth_target) = request.auth_target {
+                config.token = match auth_target {
+                    #[cfg(feature = "auth-oidc")]
+                    StdbAuthTarget::Oidc(opts) => None, // TODO: authenticate via OIDC... blocking
+                    #[cfg(feature = "auth-steam")]
+                    StdbAuthTarget::Steam(opts) => None, // TODO: authenticate via Steam... blocking
+                    StdbAuthTarget::Token(token) => Some(token),
+                };
+            };
+            // TODO - this is now auth_target
+            // config.token = request.token.or(config.token.take());
+            config.uri = request.uri.unwrap_or(config.uri.clone());
+            config.module_name = request.module_name.unwrap_or(config.module_name.clone());
+            config.clone()
+        };
+        world.write_message(ConnectionBuildFinishedMessage {
+            result: connect_config.build_connection(),
+        });
+    }
 
     #[cfg(target_arch = "wasm32")]
     {
         let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
         js_sys::futures::spawn_local(async move {
+            // Get the current configuration and override if requested
+            let connect_config = {
+                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
+                // TODO - this is now auth_target
+                // config.token = request.token.or(config.token.take());
+                config.uri = request.uri.unwrap_or(config.uri.clone());
+                config.module_name = request.module_name.unwrap_or(config.module_name.clone());
+                config.clone()
+            };
+
             let _ = sender.send(ConnectionBuildFinishedMessage {
                 result: connect_config.build_connection().await,
             });
