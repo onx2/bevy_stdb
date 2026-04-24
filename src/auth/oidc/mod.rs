@@ -6,6 +6,7 @@ mod auth_imp;
 #[path = "native.rs"]
 mod auth_imp;
 
+use super::{StdbAuthError, TokenResponse};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::Resource;
 
@@ -38,6 +39,8 @@ impl Plugin for StdbOidcAuthPlugin {
     }
 }
 
-pub fn authenticate(options: &StdbOidcAuthOptions) -> Option<String> {
-    None
+pub fn acquire_token_response(
+    options: &StdbOidcAuthOptions,
+) -> Result<TokenResponse, StdbAuthError> {
+    todo!()
 }

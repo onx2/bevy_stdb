@@ -360,7 +360,10 @@ fn handle_connection_request<
         let connect_config = {
             let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
             if let Some(auth_target) = request.auth_target {
-                config.token = auth_target.acquire_token();
+                let token_response = auth_target.acquire_token_response();
+                // TODO: persist refresh token in a resource
+
+                config.token = token_response.map(|t| t.access_token);
                 config.auth_target = Some(auth_target);
             }
 
