@@ -171,17 +171,3 @@ impl RequestStdbConnectionMessage {
 pub(crate) struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
     pub result: Result<Arc<C>>,
 }
-
-/// An internal message requesting the "/token" endpoint to respond with a token given.
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-#[derive(Message, Clone, Debug)]
-pub(crate) enum RequestStdbTokenMessage {
-    Oidc((String /* code */, bool /* is_refresh? */)),
-    Steam(String /* steam_ticket */),
-}
-
-// IDK if this should be separate... seems weird to request auth but not connect
-// /// A message requesting the SpacetimeAuth flow to start
-// #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-// #[derive(Message, Clone, Debug)]
-// pub struct RequestStdbAuthMessage(pub StdbAuthTarget);
