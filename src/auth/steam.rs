@@ -47,3 +47,91 @@
 
 //     std::process::exit(0);
 // }
+
+use bevy_app::{App, Plugin};
+use bevy_ecs::prelude::Resource;
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
+use steamworks::{Client, SteamError, TicketForWebApiResponse};
+
+#[derive(Clone, Debug)]
+pub struct StdbSteamAuthOptions {
+    /// The OAuth client identifier.
+    pub client_id: String,
+    /// The unique identifier for your Steam game.
+    pub app_id: usize,
+}
+
+/// Stores the configured auth options.
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct StdbSteamAuthConfig(pub StdbSteamAuthOptions);
+
+pub struct StdbSteamAuthPlugin {
+    options: StdbSteamAuthOptions,
+}
+impl StdbSteamAuthPlugin {
+    pub fn new(options: StdbSteamAuthOptions) -> Self {
+        Self { options }
+    }
+}
+impl Plugin for StdbSteamAuthPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(StdbSteamAuthConfig(self.options.clone()));
+        // TODO
+    }
+}
+
+pub fn exchange_steam_ticket_request(
+    client_id: &str,
+    steam_ticket: &[u8],
+) -> Result<String, ureq::Error> {
+    let steam_ticket = hex::encode(steam_ticket);
+    let response = ureq::post("https://auth.spacetimedb.com/oidc/token")
+        .content_type("application/x-www-form-urlencoded")
+        .send_form([
+            ("grant_type", "urn:spacetimeauth:steam-ticket"),
+            ("steam_ticket", steam_ticket.as_str()),
+            ("client_id", client_id),
+        ])?;
+
+    response.into_body().read_to_string()
+}
+
+/// Requests a Steam Web API ticket for `identity`.
+///
+/// Blocks the current thread while polling Steam callbacks until the matching
+/// [`steamworks::TicketForWebApiResponse`] arrives or the request times out.
+///
+/// The returned ticket bytes can then be exchanged at the auth server token endpoint.
+pub fn request_steam_webapi_ticket(client: &Client) -> Result<Vec<u8>, SteamError> {
+    let (tx, rx) = crossbeam_channel::bounded(1);
+
+    let requested_handle = client
+        .user()
+        .authentication_session_ticket_for_webapi("spacetimeauth");
+
+    let _cb = client.register_callback(move |response: TicketForWebApiResponse| {
+        if response.ticket_handle == requested_handle {
+            let _ = tx.send(response.result.map(|()| response.ticket));
+        }
+    });
+
+    let timeout = Duration::from_secs(5);
+    let start = Instant::now();
+
+    loop {
+        client.run_callbacks();
+
+        if let Ok(result) = rx.try_recv() {
+            return result;
+        }
+
+        if start.elapsed() >= timeout {
+            return Err(SteamError::Timeout);
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+}

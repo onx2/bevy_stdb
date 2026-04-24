@@ -131,6 +131,40 @@ pub struct RequestStdbConnectionMessage {
     /// Optional module name to use for this connection attempt.
     pub module_name: Option<String>,
 }
+impl RequestStdbConnectionMessage {
+    /// Build a [`RequestStdbConnectionMessage`] with default values and an `auth_target` override.
+    pub fn with_auth(auth_target: StdbAuthTarget) -> Self {
+        Self {
+            auth_target: Some(auth_target),
+            uri: None,
+            module_name: None,
+        }
+    }
+    /// Build a [`RequestStdbConnectionMessage`] with default values and an `uri` override.
+    pub fn with_uri(uri: impl Into<String>) -> Self {
+        Self {
+            auth_target: None,
+            uri: Some(uri.into()),
+            module_name: None,
+        }
+    }
+    /// Build a [`RequestStdbConnectionMessage`] with default values and an `module_name` override.
+    pub fn with_module_name(module_name: impl Into<String>) -> Self {
+        Self {
+            auth_target: None,
+            uri: None,
+            module_name: Some(module_name.into()),
+        }
+    }
+    /// Build a [`RequestStdbConnectionMessage`] with default `auth_target` only.
+    pub fn with_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
+        Self {
+            auth_target: None,
+            uri: Some(uri.into()),
+            module_name: Some(module_name.into()),
+        }
+    }
+}
 
 /// Internal completion message for a finished connection build.
 #[derive(Message)]

@@ -1,15 +1,15 @@
-use super::{OidcOptions, SteamOptions};
-use bevy_app::{App, Plugin};
-use bevy_ecs::prelude::Resource;
+// use super::{OidcOptions, SteamOptions};
+// use bevy_app::{App, Plugin};
+// use bevy_ecs::prelude::Resource;
 
 /// The configuration for all types of auth
-#[derive(Clone, Debug)]
-pub struct StdbAuthOptions {
-    #[cfg(feature = "auth-oidc")]
-    pub oidc: OidcOptions,
-    #[cfg(feature = "auth-steam")]
-    pub steam: SteamOptions,
-}
+// #[derive(Clone, Debug)]
+// pub struct StdbAuthOptions {
+//     #[cfg(feature = "auth-oidc")]
+//     pub oidc: OidcOptions,
+//     #[cfg(feature = "auth-steam")]
+//     pub steam: SteamOptions,
+// }
 
 /// Stores the token payload returned by the token endpoint.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
@@ -28,26 +28,26 @@ pub(crate) struct TokenResponse {
     // pub id_token: String,
 }
 
-/// Stores the configured auth options.
-#[derive(Resource, Clone, Debug)]
-pub(crate) struct StdbAuthConfig(pub StdbAuthOptions);
-impl From<StdbAuthOptions> for StdbAuthConfig {
-    fn from(value: StdbAuthOptions) -> Self {
-        Self(value)
-    }
-}
+// /// Stores the configured auth options.
+// #[derive(Resource, Clone, Debug)]
+// pub(crate) struct StdbAuthConfig(pub StdbAuthOptions);
+// impl From<StdbAuthOptions> for StdbAuthConfig {
+//     fn from(value: StdbAuthOptions) -> Self {
+//         Self(value)
+//     }
+// }
 
-pub(crate) struct StdbAuthPlugin {
-    pub options: StdbAuthOptions,
-}
-impl StdbAuthPlugin {
-    pub fn new(options: StdbAuthOptions) -> Self {
-        Self { options }
-    }
-}
-impl Plugin for StdbAuthPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(StdbAuthConfig::from(self.options.clone()));
-        // TODO
-    }
-}
+// pub(crate) struct StdbAuthPlugin {
+//     pub options: StdbAuthOptions,
+// }
+// impl StdbAuthPlugin {
+//     pub fn new(options: StdbAuthOptions) -> Self {
+//         Self { options }
+//     }
+// }
+// impl Plugin for StdbAuthPlugin {
+//     fn build(&self, app: &mut App) {
+//         app.insert_resource(StdbAuthConfig::from(self.options.clone()));
+//         // TODO
+//     }
+// }

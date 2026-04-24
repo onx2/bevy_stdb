@@ -14,51 +14,30 @@
 // /// For example, "spacetimeauth" when using SpacetimeAuth
 // pub ticket_identity: String,
 
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-#[cfg(target_arch = "wasm32")]
-#[path = "web.rs"]
-mod auth_imp;
+// #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+// mod plugin;
 
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "native.rs"]
-mod auth_imp;
+#[cfg(feature = "auth-oidc")]
+mod oidc;
+#[cfg(feature = "auth-steam")]
+mod steam;
 
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-mod plugin;
+#[cfg(feature = "auth-oidc")]
+pub use oidc::StdbOidcAuthOptions;
+#[cfg(feature = "auth-oidc")]
+pub(crate) use oidc::StdbOidcAuthPlugin;
 
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub use plugin::StdbAuthOptions;
-
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub(crate) use plugin::StdbAuthPlugin;
+#[cfg(feature = "auth-steam")]
+pub use steam::StdbSteamAuthOptions;
+#[cfg(feature = "auth-steam")]
+pub(crate) use steam::StdbSteamAuthPlugin;
 
 /// The specific auth target for a given attempt
 #[derive(Clone, Debug)]
 pub enum StdbAuthTarget {
     Token(String),
     #[cfg(feature = "auth-oidc")]
-    Oidc(OidcOptions),
+    Oidc(StdbOidcAuthOptions),
     #[cfg(feature = "auth-steam")]
-    Steam(SteamOptions),
-}
-
-#[cfg(feature = "auth-oidc")]
-#[derive(Clone, Debug)]
-pub struct OidcOptions {
-    /// The OAuth client identifier.
-    pub client_id: String,
-    /// The redirect URI used by the client.
-    pub redirect_uri: String,
-    /// The requested scopes.
-    pub scopes: Vec<String>,
-}
-
-#[cfg(feature = "auth-steam")]
-#[derive(Clone, Debug)]
-pub struct SteamOptions {
-    /// The OAuth client identifier.
-    pub client_id: String,
-    /// The unique identifier for your Steam game.
-    pub app_id: usize,
+    Steam(StdbSteamAuthOptions),
 }

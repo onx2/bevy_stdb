@@ -242,14 +242,10 @@ pub(crate) struct StdbConnectionPlugin<
     pub module_name: String,
     /// The URI of the SpacetimeDB host.
     pub uri: String,
-    /// Optional authentication token.
-    pub token: Option<String>,
     /// The configured connection driver.
     pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
-    /// Whether startup should wait for an explicit connection request.
-    pub delayed_connection: bool,
 }
 
 impl<
@@ -276,7 +272,7 @@ impl<
         app.insert_resource(StdbConnectionConfig::<C, M> {
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
-            token: self.token.clone(),
+            token: None,
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
@@ -317,12 +313,6 @@ impl<
                 .in_set(StdbSet::Connection)
                 .run_if(in_state(StdbConnectionState::Connected)),
             );
-        }
-
-        // Must come last so that `token`, `uri`, and `module_name` are already written to the config resource
-        if !self.delayed_connection {
-            app.world_mut()
-                .write_message_default::<RequestStdbConnectionMessage>();
         }
     }
 }

@@ -1,5 +1,7 @@
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-use crate::auth::{StdbAuthOptions, StdbAuthPlugin};
+#[cfg(feature = "auth-oidc")]
+use crate::auth::{StdbOidcAuthOptions, StdbOidcAuthPlugin};
+#[cfg(feature = "auth-steam")]
+use crate::auth::{StdbSteamAuthOptions, StdbSteamAuthPlugin};
 use crate::{
     channel_bridge::ChannelBridgePlugin,
     connection::{ConnectionDriver, StdbConnectionPlugin},
@@ -58,13 +60,15 @@ pub struct StdbPlugin<
 > {
     module_name: Option<String>,
     uri: Option<String>,
-    token: Option<String>,
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    auth_options: Option<StdbAuthOptions>,
-    delayed_connection: bool,
+
+    #[cfg(feature = "auth-oidc")]
+    oidc_options: Option<StdbOidcAuthOptions>,
+    #[cfg(feature = "auth-steam")]
+    steam_options: Option<StdbSteamAuthOptions>,
+
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
@@ -77,13 +81,13 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         Self {
             module_name: None,
             uri: None,
-            token: None,
             compression: None,
             driver: None,
             reconnect_options: None,
-            #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-            auth_options: None,
-            delayed_connection: false,
+            #[cfg(feature = "auth-oidc")]
+            oidc_options: None,
+            #[cfg(feature = "auth-steam")]
+            steam_options: None,
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
@@ -207,24 +211,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Sets the authentication token used for the initial connection.
-    ///
-    /// If a later [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
-    /// provides a token at runtime, the most recently provided token becomes the
-    /// stored token used for subsequent reconnect attempts.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    pub fn with_token(mut self, token: impl Into<String>) -> Self {
-        assert!(
-            self.token.is_none(),
-            "`with_token()` may only be called once"
-        );
-        self.token = Some(token.into());
-        self
-    }
-
     /// Sets the connection compression mode.
     ///
     /// # Panics
@@ -236,6 +222,89 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_compression()` may only be called once"
         );
         self.compression = Some(compression);
+        self
+    }
+
+    /// Enables the subscription subsystem.
+    ///
+    /// This installs [`crate::subscription::StdbSubscriptions`] as a Bevy
+    /// resource so subscriptions can be queued at runtime from normal Bevy
+    /// systems, for example in response to
+    /// [`crate::prelude::StdbConnectedMessage`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// .with_subscriptions::<SubKey>()
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
+    pub fn with_subscriptions<K>(mut self) -> Self
+    where
+        K: Eq + Hash + Clone + Send + Sync + 'static,
+        M::SubscriptionHandle: SubscriptionHandle + Send + Sync + 'static,
+        C: DbConnection<Module = M>
+            + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        assert!(
+            self.subscriptions_initializer.is_none(),
+            "`with_subscriptions()` may only be called once"
+        );
+
+        self.subscriptions_initializer = Some(Arc::new(|app: &mut App| {
+            app.add_plugins(SubscriptionsPlugin::<K, C, M>::default());
+        }));
+
+        self
+    }
+
+    /// Enables automatic reconnects with the given options.
+    ///
+    /// When reconnect is enabled, reconnect attempts use the most recently
+    /// stored token. That token comes from either [`Self::with_token`] or a
+    /// later runtime [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
+    /// with `token: Some(...)`.
+    ///
+    /// On a successful reconnect, table callbacks are re-bound and queued
+    /// subscriptions are re-applied automatically.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// // Use defaults (1s initial delay, 1.5x backoff, 15s max, infinite retries):
+    /// .with_reconnect(StdbReconnectOptions::default())
+    ///
+    /// // Or customize:
+    /// .with_reconnect(StdbReconnectOptions {
+    ///     initial_delay: Duration::from_secs(2),
+    ///     max_attempts: Some(5),
+    ///     backoff_factor: 2.0,
+    ///     max_delay: Duration::from_secs(30),
+    /// })
+    /// ```
+    pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
+        self.reconnect_options = Some(reconnect_config);
+        self
+    }
+
+    /// Configures the plugin to support OIDC-based authentication flow
+    #[cfg(feature = "auth-oidc")]
+    pub fn with_oidc_auth(mut self, options: StdbOidcAuthOptions) -> Self {
+        self.oidc_options = Some(options);
+        self
+    }
+
+    /// Configures the plugin to support Steam-based authentication flow
+    #[cfg(feature = "auth-steam")]
+    pub fn with_steam_auth(mut self, options: StdbSteamAuthOptions) -> Self {
+        self.steam_options = Some(options);
         self
     }
 
@@ -336,137 +405,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         }));
         self
     }
-
-    /// Enables the subscription subsystem.
-    ///
-    /// This installs [`crate::subscription::StdbSubscriptions`] as a Bevy
-    /// resource so subscriptions can be queued at runtime from normal Bevy
-    /// systems, for example in response to
-    /// [`crate::prelude::StdbConnectedMessage`].
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// .with_subscriptions::<SubKey>()
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    pub fn with_subscriptions<K>(mut self) -> Self
-    where
-        K: Eq + Hash + Clone + Send + Sync + 'static,
-        M::SubscriptionHandle: SubscriptionHandle + Send + Sync + 'static,
-        C: DbConnection<Module = M>
-            + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        assert!(
-            self.subscriptions_initializer.is_none(),
-            "`with_subscriptions()` may only be called once"
-        );
-
-        self.subscriptions_initializer = Some(Arc::new(|app: &mut App| {
-            app.add_plugins(SubscriptionsPlugin::<K, C, M>::default());
-        }));
-
-        self
-    }
-
-    /// Enables automatic reconnects with the given options.
-    ///
-    /// When reconnect is enabled, reconnect attempts use the most recently
-    /// stored token. That token comes from either [`Self::with_token`] or a
-    /// later runtime [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
-    /// with `token: Some(...)`.
-    ///
-    /// On a successful reconnect, table callbacks are re-bound and queued
-    /// subscriptions are re-applied automatically.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use std::time::Duration;
-    ///
-    /// // Use defaults (1s initial delay, 1.5x backoff, 15s max, infinite retries):
-    /// .with_reconnect(StdbReconnectOptions::default())
-    ///
-    /// // Or customize:
-    /// .with_reconnect(StdbReconnectOptions {
-    ///     initial_delay: Duration::from_secs(2),
-    ///     max_attempts: Some(5),
-    ///     backoff_factor: 2.0,
-    ///     max_delay: Duration::from_secs(30),
-    /// })
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
-        assert!(
-            self.reconnect_options.is_none(),
-            "`with_reconnect()` may only be called once"
-        );
-        self.reconnect_options = Some(reconnect_config);
-        self
-    }
-
-    /// Defers the initial connection until explicitly requested at runtime.
-    ///
-    /// Row-message registration still happens eagerly during plugin build, but
-    /// no connection is started. Send a
-    /// [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
-    /// to begin connecting.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // During setup:
-    /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
-    ///     .with_uri("http://localhost:3000")
-    ///     .with_delayed_connection()
-    ///     .with_background_driver(DbConnection::run_threaded)
-    ///
-    /// // Later, from a system:
-    /// fn connect_on_button_press(mut requests: WriteRequestStdbConnectionMessage) {
-    ///     requests.write_default();
-    /// }
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    pub fn with_delayed_connection(mut self) -> Self {
-        assert!(
-            !self.delayed_connection,
-            "`with_delayed_connection()` may only be called once"
-        );
-        self.delayed_connection = true;
-        self
-    }
-
-    /// Enables OIDC authentication for connection startup and runtime connect requests.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub fn with_auth(mut self, auth_options: StdbAuthOptions) -> Self {
-        assert!(
-            self.auth_options.is_none(),
-            "`with_auth()` may only be called once"
-        );
-        assert!(
-            self.token.is_none(),
-            "`with_auth()` cannot be used with `with_token()`"
-        );
-        self.auth_options = Some(auth_options);
-        self
-    }
 }
 
 impl<
@@ -504,9 +442,14 @@ impl<
                 .chain(),
         );
 
-        #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-        if let Some(auth_options) = self.auth_options.clone() {
-            app.add_plugins(StdbAuthPlugin::new(auth_options));
+        #[cfg(feature = "auth-oidc")]
+        if let Some(oidc_options) = self.oidc_options.clone() {
+            app.add_plugins(StdbOidcAuthPlugin::new(oidc_options));
+        }
+
+        #[cfg(feature = "auth-steam")]
+        if let Some(steam_options) = self.steam_options.clone() {
+            app.add_plugins(StdbSteamAuthPlugin::new(steam_options));
         }
 
         if let Some(reconnect_options) = self.reconnect_options.clone() {
@@ -523,14 +466,12 @@ impl<
                 .clone()
                 .expect("No module name set. Use with_module_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
-            token: self.token.clone(),
             driver: self.driver.clone().or_else(|| {
                 panic!(
                     "No connection driver set. Use with_background_driver() or with_frame_driver()"
                 )
             }),
             compression: self.compression.unwrap_or_default(),
-            delayed_connection: self.delayed_connection,
         });
 
         app.add_plugins(StdbTablePlugin::<C, M>::new(
