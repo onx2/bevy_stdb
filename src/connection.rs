@@ -11,14 +11,13 @@ use crate::{
         StdbConnectionErrorMessage, StdbDisconnectedMessage,
     },
     set::StdbSet,
-    table::TableBindCallback,
 };
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
     Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, not,
 };
-use bevy_state::prelude::{AppExtStates, NextState, OnEnter, States, in_state};
+use bevy_state::prelude::{AppExtStates, NextState, States, in_state};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
@@ -89,10 +88,6 @@ pub(crate) struct StdbConnectionConfig<
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     compression: Compression,
-    /// Whether startup should wait for an explicit connection request.
-    delayed_connection: bool,
-    /// Stored bind callbacks invoked for each active connection.
-    table_bindings: Vec<Arc<TableBindCallback<C>>>,
     /// Sender used by the SpacetimeDB on-connect callback.
     connected_tx: Sender<StdbConnectedMessage>,
     /// Sender used by the SpacetimeDB on-disconnect callback.
@@ -113,8 +108,6 @@ where
             token: self.token.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
-            delayed_connection: self.delayed_connection,
-            table_bindings: self.table_bindings.clone(),
             connected_tx: self.connected_tx.clone(),
             disconnected_tx: self.disconnected_tx.clone(),
             error_tx: self.error_tx.clone(),
@@ -132,7 +125,6 @@ where
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
         let error_tx = self.error_tx.clone();
-
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
             .with_uri(self.uri.clone())
@@ -258,8 +250,6 @@ pub(crate) struct StdbConnectionPlugin<
     pub compression: Compression,
     /// Whether startup should wait for an explicit connection request.
     pub delayed_connection: bool,
-    /// Stored bind callbacks invoked for each active connection.
-    pub table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
 
 impl<
@@ -283,20 +273,16 @@ impl<
         app.add_message::<ConnectionBuildFinishedMessage<C>>();
 
         let world = app.world();
-        let config = StdbConnectionConfig::<C, M> {
+        app.insert_resource(StdbConnectionConfig::<C, M> {
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
-            delayed_connection: self.delayed_connection,
-            table_bindings: self.table_bindings.clone(),
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
             disconnected_tx: channel_sender::<StdbDisconnectedMessage>(world),
             error_tx: channel_sender::<StdbConnectionErrorMessage>(world),
-        };
-
-        app.insert_resource(config);
+        });
 
         // Sync connection state from SDK lifecycle messages.
         app.add_systems(
@@ -317,12 +303,6 @@ impl<
             finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
         );
 
-        // Bind table callbacks when a new connection is established.
-        app.add_systems(
-            OnEnter(StdbConnectionState::Connected),
-            on_connected_bind::<C, M>,
-        );
-
         // Only added when frame-tick driving is configured.
         if matches!(self.driver, Some(ConnectionDriver::FrameTick(_))) {
             app.add_systems(
@@ -339,6 +319,7 @@ impl<
             );
         }
 
+        // Must come last so that `token`, `uri`, and `module_name` are already written to the config resource
         if !self.delayed_connection {
             app.world_mut()
                 .write_message_default::<RequestStdbConnectionMessage>();
@@ -362,7 +343,7 @@ fn handle_connection_request<
             .clear();
     }
 
-    let Some(latest_request) = world
+    let Some(request) = world
         .resource_mut::<Messages<RequestStdbConnectionMessage>>()
         .drain()
         .last()
@@ -373,15 +354,9 @@ fn handle_connection_request<
     // Get the current configuration and override if requested
     let connect_config = {
         let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-        if let Some(token) = latest_request.token {
-            config.token = Some(token);
-        }
-        if let Some(uri) = latest_request.uri {
-            config.uri = uri;
-        }
-        if let Some(module_name) = latest_request.module_name {
-            config.module_name = module_name;
-        }
+        config.token = request.token.or(config.token.take());
+        config.uri = request.uri.unwrap_or(config.uri.clone());
+        config.module_name = request.module_name.unwrap_or(config.module_name.clone());
         config.clone()
     };
 
@@ -462,25 +437,5 @@ fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
     if connection_error_msgs.read().count() > 0 {
         commands.remove_resource::<StdbConnection<C>>();
         next_state.set(StdbConnectionState::Disconnected);
-    }
-}
-
-/// Binds deferred table callbacks after a connection becomes active.
-fn on_connected_bind<
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
->(
-    world: &mut World,
-) {
-    let config = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .expect("StdbConnectionConfig should exist before Connected bind phase");
-    let conn = world
-        .get_resource::<StdbConnection<C>>()
-        .expect("StdbConnection should exist before Connected bind phase");
-
-    let db = conn.db();
-    for bind in &config.table_bindings {
-        bind(&*world, db);
     }
 }

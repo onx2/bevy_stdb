@@ -1,28 +1,13 @@
-//! Table registration and message forwarding for SpacetimeDB.
-//!
-//! Registers Bevy message channels and binds SDK table callbacks to
-//! forward events as [`InsertMessage`](crate::message::InsertMessage),
-//! [`UpdateMessage`](crate::message::UpdateMessage),
-//! [`DeleteMessage`](crate::message::DeleteMessage), and
-//! [`InsertUpdateMessage`](crate::message::InsertUpdateMessage).
 use crate::{
-    channel_bridge::{channel_sender, register_channel},
+    channel_bridge::channel_sender,
     message::{DeleteMessage, InsertMessage, InsertUpdateMessage, RowEvent, UpdateMessage},
 };
-use bevy_app::App;
 use bevy_ecs::prelude::World;
 use spacetimedb_sdk::{
-    __codegen::{AbstractEventContext, DbContext, InModule, SpacetimeModule},
+    __codegen::{AbstractEventContext, InModule, SpacetimeModule},
     EventTable, Table, TableWithPrimaryKey,
 };
 use std::marker::PhantomData;
-
-/// Stored callback that performs one-time Bevy app registration for a table/view.
-pub(crate) type TableRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
-
-/// Stored callback that binds SpacetimeDB table listeners for a concrete database view.
-pub(crate) type TableBindCallback<C> =
-    dyn for<'db> Fn(&World, &'db <C as DbContext>::DbView) + Send + Sync;
 
 /// Binds callbacks for a table with a primary key.
 ///
@@ -33,7 +18,6 @@ pub struct TableBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,
 }
-
 impl<'w, TRow> TableBinder<'w, TRow> {
     pub(crate) fn new(world: &'w World) -> Self {
         Self {
@@ -68,7 +52,6 @@ pub struct TableWithoutPkBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,
 }
-
 impl<'w, TRow> TableWithoutPkBinder<'w, TRow> {
     pub(crate) fn new(world: &'w World) -> Self {
         Self {
@@ -101,7 +84,6 @@ pub struct ViewBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,
 }
-
 impl<'w, TRow> ViewBinder<'w, TRow> {
     pub(crate) fn new(world: &'w World) -> Self {
         Self {
@@ -134,7 +116,6 @@ pub struct EventTableBinder<'w, TRow> {
     world: &'w World,
     _marker: PhantomData<fn() -> TRow>,
 }
-
 impl<'w, TRow> EventTableBinder<'w, TRow> {
     pub(crate) fn new(world: &'w World) -> Self {
         Self {
@@ -156,46 +137,6 @@ impl<'w, TRow> EventTableBinder<'w, TRow> {
     {
         bind_insert::<TRow, TTable>(self.world, &table);
     }
-}
-
-/// Registers Bevy message channels for a table with a primary key.
-pub(crate) fn register_table<TRow>(app: &mut App)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-{
-    register_channel::<InsertMessage<TRow>>(app);
-    register_channel::<DeleteMessage<TRow>>(app);
-    register_channel::<UpdateMessage<TRow>>(app);
-    register_channel::<InsertUpdateMessage<TRow>>(app);
-}
-
-/// Registers Bevy message channels for a table without a primary key.
-pub(crate) fn register_table_without_pk<TRow>(app: &mut App)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-{
-    register_channel::<InsertMessage<TRow>>(app);
-    register_channel::<DeleteMessage<TRow>>(app);
-}
-
-/// Registers Bevy message channels for a view.
-pub(crate) fn register_view<TRow>(app: &mut App)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-{
-    register_table_without_pk::<TRow>(app);
-}
-
-/// Registers Bevy message channels for an event table.
-pub(crate) fn register_event_table<TRow>(app: &mut App)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-{
-    register_channel::<InsertMessage<TRow>>(app);
 }
 
 fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
