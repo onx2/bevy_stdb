@@ -354,7 +354,8 @@ fn handle_connection_request<
     // Get the current configuration and override if requested
     let connect_config = {
         let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-        config.token = request.token.or(config.token.take());
+        // TODO - this is now auth_target
+        // config.token = request.token.or(config.token.take());
         config.uri = request.uri.unwrap_or(config.uri.clone());
         config.module_name = request.module_name.unwrap_or(config.module_name.clone());
         config.clone()

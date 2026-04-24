@@ -1,4 +1,5 @@
 //! Bevy message types for SpacetimeDB connection, subscription, and table events.
+use crate::auth::StdbAuthTarget;
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
@@ -39,7 +40,6 @@ pub struct StdbSubscriptionAppliedMessage<K> {
     /// The subscription key associated with the applied subscription.
     pub key: K,
 }
-
 impl<K: PartialEq> StdbSubscriptionAppliedMessage<K> {
     /// Returns `true` when this message belongs to `key`.
     pub fn is(&self, key: &K) -> bool {
@@ -55,7 +55,6 @@ pub struct StdbSubscriptionErrorMessage<K> {
     /// The subscription error.
     pub err: Error,
 }
-
 impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
     /// Returns `true` when this message belongs to `key`.
     pub fn is(&self, key: &K) -> bool {
@@ -125,8 +124,8 @@ where
 /// value used for this attempt and future reconnect attempts.
 #[derive(Message, Clone, Debug, Default)]
 pub struct RequestStdbConnectionMessage {
-    /// Optional token to use for this connection attempt.
-    pub token: Option<String>,
+    /// Optional authentication options for the connection
+    pub auth_target: Option<StdbAuthTarget>,
     /// Optional URI to use for this connection attempt.
     pub uri: Option<String>,
     /// Optional module name to use for this connection attempt.
@@ -138,3 +137,17 @@ pub struct RequestStdbConnectionMessage {
 pub(crate) struct ConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
     pub result: Result<Arc<C>>,
 }
+
+/// An internal message requesting the "/token" endpoint to respond with a token given.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+#[derive(Message, Clone, Debug)]
+pub(crate) enum RequestStdbTokenMessage {
+    Oidc((String /* code */, bool /* is_refresh? */)),
+    Steam(String /* steam_ticket */),
+}
+
+// IDK if this should be separate... seems weird to request auth but not connect
+// /// A message requesting the SpacetimeAuth flow to start
+// #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+// #[derive(Message, Clone, Debug)]
+// pub struct RequestStdbAuthMessage(pub StdbAuthTarget);

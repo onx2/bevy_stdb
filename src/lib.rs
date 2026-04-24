@@ -78,7 +78,6 @@ compile_error!(
 );
 
 mod alias;
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 mod auth;
 mod channel_bridge;
 mod connection;
@@ -99,6 +98,7 @@ pub mod prelude {
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage, WriteRequestStdbConnectionMessage,
         },
+        auth::StdbAuthTarget,
         connection::{StdbConnection, StdbConnectionState},
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, RequestStdbConnectionMessage,

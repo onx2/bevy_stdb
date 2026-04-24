@@ -1,34 +1,42 @@
-use bevy_app::{App, Plugin};
-use bevy_ecs::prelude::Resource;
+// curl -X POST https://auth.spacetimedb.com/oidc/token \
+//   -H "content-type: application/x-www-form-urlencoded" \
+//   -d "grant_type=refresh_token" \
+//   -d "refresh_token=<REFRESH_TOKEN>" \
+//   -d "client_id=<CLIENT_ID>"
 
+// /// The authorization endpoint.
+// pub auth_endpoint: String,
+// /// The token endpoint.
+// pub token_endpoint: String,
+// /// The token endpoint.
+// pub token_endpoint: String,
+// /// The identity of the web service that accepts Steam tickets
+// /// For example, "spacetimeauth" when using SpacetimeAuth
+// pub ticket_identity: String,
+
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[cfg(target_arch = "wasm32")]
 #[path = "web.rs"]
 mod auth_imp;
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "native.rs"]
 mod auth_imp;
 
-/// Stores the token payload returned by the token endpoint.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
-pub(crate) struct TokenResponse {
-    /// The access token used for SpacetimeDB connections.
-    pub access_token: String,
-    /// The token type - "Bearer" for example
-    pub token_type: String,
-    /// The ID token for OIDC
-    pub id_token: String,
-    /// The number of seconds before the access token expires
-    pub expires_in: Option<u64>,
-    /// The optional refresh token - opaque string for requesting a new access token
-    pub refresh_token: Option<String>,
-    /// The granted scopes - "openid email profile" for example
-    pub scope: Option<String>,
-}
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+mod plugin;
 
-/// Configures authentication for a SpacetimeDB connection.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub use plugin::StdbAuthOptions;
+
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub(crate) use plugin::StdbAuthPlugin;
+
+/// The specific auth target for a given attempt
 #[derive(Clone, Debug)]
-pub enum StdbAuthOptions {
+pub enum StdbAuthTarget {
+    Token(String),
     #[cfg(feature = "auth-oidc")]
     Oidc(OidcOptions),
     #[cfg(feature = "auth-steam")]
@@ -40,10 +48,6 @@ pub enum StdbAuthOptions {
 pub struct OidcOptions {
     /// The OAuth client identifier.
     pub client_id: String,
-    /// The authorization endpoint.
-    pub auth_endpoint: String,
-    /// The token endpoint.
-    pub token_endpoint: String,
     /// The redirect URI used by the client.
     pub redirect_uri: String,
     /// The requested scopes.
@@ -55,33 +59,6 @@ pub struct OidcOptions {
 pub struct SteamOptions {
     /// The OAuth client identifier.
     pub client_id: String,
-    /// The token endpoint.
-    pub token_endpoint: String,
-    /// The identity of the web service that accepts Steam tickets
-    /// For example, "spacetimeauth" when using SpacetimeAuth
-    pub ticket_identity: String,
-}
-
-/// Stores the configured auth options.
-#[derive(Resource, Clone, Debug)]
-pub(crate) struct StdbAuthConfig(pub StdbAuthOptions);
-impl From<StdbAuthOptions> for StdbAuthConfig {
-    fn from(value: StdbAuthOptions) -> Self {
-        Self(value)
-    }
-}
-
-pub(crate) struct StdbAuthPlugin {
-    pub options: StdbAuthOptions,
-}
-impl StdbAuthPlugin {
-    pub fn new(options: StdbAuthOptions) -> Self {
-        Self { options }
-    }
-}
-impl Plugin for StdbAuthPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(StdbAuthConfig::from(self.options.clone()));
-        // TODO
-    }
+    /// The unique identifier for your Steam game.
+    pub app_id: usize,
 }
