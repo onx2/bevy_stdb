@@ -280,7 +280,7 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            sync_connection_state::<C>.in_set(StdbSet::StateSync),
+            sync_connection_resource::<C>.in_set(StdbSet::StateSync),
         );
 
         app.add_systems(
@@ -431,26 +431,20 @@ fn poll_pending_connection<
     }
 }
 
-fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
+// Ensures the StdbConnection resource is valid when it exists, otherwise it should be removed
+fn sync_connection_resource<C: DbContext + Send + Sync + 'static>(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
     mut connection_error_msgs: ReadStdbConnectionErrorMessage,
     conn: Option<Res<StdbConnection<C>>>,
     mut commands: Commands,
 ) {
-    let saw_connect = connected_msgs.read().next().is_some();
-    let saw_connection_error = connection_error_msgs.read().next().is_some();
-    let saw_disconnect = disconnected_msgs.read().next().is_some();
-    let active_conn = match conn {
-        Some(c) => c.is_active(),
-        None => false,
-    };
-
-    if saw_connect && saw_disconnect {
-        return;
-    }
-
-    if (saw_disconnect || saw_connection_error) && !active_conn {
-        commands.remove_resource::<StdbConnection<C>>();
+    if connected_msgs.read().next().is_some()
+        || disconnected_msgs.read().next().is_some()
+        || connection_error_msgs.read().next().is_some()
+    {
+        if conn.as_ref().is_some_and(|conn| !conn.is_active()) {
+            commands.remove_resource::<StdbConnection<C>>();
+        }
     }
 }
