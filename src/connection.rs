@@ -15,11 +15,7 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, resource_exists,
-};
-use bevy_state::{
-    prelude::{AppExtStates, NextState, States, in_state},
-    state::State,
+    Commands, IntoScheduleConfigs, Messages, Res, Resource, World, resource_exists,
 };
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use crossbeam_channel::Sender;

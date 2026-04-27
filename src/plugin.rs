@@ -15,7 +15,6 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::IntoScheduleConfigs;
-use bevy_state::app::StatesPlugin;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
     Compression, DbContext, SubscriptionHandle,
@@ -399,9 +398,6 @@ impl<
     /// - URI
     /// - connection driver
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<StatesPlugin>() {
-            app.add_plugins(StatesPlugin);
-        }
         app.add_plugins(ChannelBridgePlugin);
 
         app.configure_sets(PreStartup, StdbSet::Connection);
