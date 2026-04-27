@@ -9,7 +9,7 @@ pub(crate) mod error;
 #[cfg(feature = "auth-oidc")]
 pub(crate) mod oidc;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-mod plugin;
+pub(crate) mod plugin;
 #[cfg(feature = "auth-steam")]
 pub(crate) mod steam;
 
@@ -18,7 +18,7 @@ pub(crate) use error::StdbAuthError;
 #[cfg(feature = "auth-oidc")]
 pub use oidc::StdbOidcAuthOptions;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub use plugin::StdbAuthPlugin;
+pub use plugin::{StdbAuthPlugin, StdbAuthRefresh};
 #[cfg(feature = "auth-steam")]
 pub use steam::StdbSteamAuthOptions;
 
@@ -34,6 +34,16 @@ pub enum StdbAuthSource {
     Steam(StdbSteamAuthOptions),
 }
 impl StdbAuthSource {
+    pub fn client_id(&self) -> Option<String> {
+        match self {
+            #[cfg(feature = "auth-oidc")]
+            StdbAuthSource::Oidc(opts) => Some(opts.client_id.clone()),
+            #[cfg(feature = "auth-steam")]
+            StdbAuthSource::Steam(opts) => Some(opts.client_id.clone()),
+            _ => None,
+        }
+    }
+
     pub(crate) async fn acquire_token_response(&self) -> Option<StdbTokenResponse> {
         match self {
             #[cfg(feature = "auth-oidc")]

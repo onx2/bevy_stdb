@@ -1,6 +1,8 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+use crate::auth::StdbAuthRefresh;
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
@@ -33,6 +35,8 @@ struct PreparedConnection {
     module_name: Option<String>,
     /// The token response for this attempt, if one was acquired.
     token_response: Option<StdbTokenResponse>,
+    /// The client ID for this attempt, if needed.
+    client_id: Option<String>,
 }
 
 /// Represents a failure while preparing a connection attempt.
@@ -94,6 +98,8 @@ pub(crate) struct StdbConnectionConfig<
     uri: String,
     /// Optional authentication token.
     token: Option<String>,
+    /// Optional client ID for authentication.
+    client_id: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -116,6 +122,7 @@ where
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
+            client_id: self.client_id.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
@@ -153,6 +160,18 @@ where
             .on_connect_error(move |_ctx, err| {
                 let _ = error_tx.send(StdbConnectionErrorMessage { err });
             })
+    }
+
+    /// Updates the access token used for future connection attempts.
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    pub(crate) fn update_token(&mut self, token: String) {
+        self.token = Some(token);
+    }
+
+    /// Returns the client ID used for auth refresh, if available.
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    pub(crate) fn client_id(&self) -> Option<&str> {
+        self.client_id.as_deref()
     }
 
     /// Builds a SpacetimeDB connection from this config.
@@ -271,6 +290,7 @@ impl<
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: None,
+            client_id: None,
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
@@ -335,20 +355,21 @@ fn handle_connection_request<
 
     world.insert_resource(PendingConnection::<C>::new(
         PendingConnectionPhase::Prepare(IoTaskPool::get().spawn(async move {
-            let token_response = match request.auth_source {
+            let (token_response, client_id) = match request.auth_source {
                 Some(auth_source) => {
                     let Some(token_response) = auth_source.acquire_token_response().await else {
                         return Err(PrepareConnectionError::TokenResponseUnavailable);
                     };
-                    Some(token_response)
+                    (Some(token_response), auth_source.client_id())
                 }
-                None => None,
+                None => (None, None),
             };
 
             Ok(PreparedConnection {
                 uri: request.uri,
                 module_name: request.module_name,
                 token_response,
+                client_id,
             })
         })),
     ));
@@ -389,11 +410,24 @@ fn poll_pending_connection<
                 if let Some(token_response) = prepared_conn.token_response.as_ref() {
                     config.token = Some(token_response.access_token.clone());
                 }
+                if let Some(client_id) = prepared_conn.client_id {
+                    config.client_id = Some(client_id);
+                }
                 config.clone()
             };
 
-            if let Some(token_response) = prepared_conn.token_response {
-                world.insert_resource(token_response);
+            // Auto-refresh behavior only available when using OIDC or Steam auth
+            #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+            {
+                if let Some(auth_refresh) = prepared_conn
+                    .token_response
+                    .as_ref()
+                    .and_then(StdbAuthRefresh::from_token_response)
+                {
+                    world.insert_resource(auth_refresh);
+                } else {
+                    world.remove_resource::<StdbAuthRefresh>();
+                }
             }
 
             world.insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
