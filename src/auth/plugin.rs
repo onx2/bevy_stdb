@@ -204,19 +204,39 @@ async fn refresh_token_response(
     client_id: String,
     refresh_token: String,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(TOKEN_ENDPOINT)
-        .form(&[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token.as_str()),
-            ("client_id", client_id.as_str()),
-        ])
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<StdbTokenResponse>()
-        .await?;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let client = reqwest::blocking::Client::new();
+        let response = client
+            .post(TOKEN_ENDPOINT)
+            .form(&[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token.as_str()),
+                ("client_id", client_id.as_str()),
+            ])
+            .send()?
+            .error_for_status()?
+            .json::<StdbTokenResponse>()?;
 
-    Ok(response)
+        return Ok(response);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let client = reqwest::Client::new();
+        let response = client
+            .post(TOKEN_ENDPOINT)
+            .form(&[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token.as_str()),
+                ("client_id", client_id.as_str()),
+            ])
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<StdbTokenResponse>()
+            .await?;
+
+        return Ok(response);
+    }
 }
