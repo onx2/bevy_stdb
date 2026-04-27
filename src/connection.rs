@@ -66,38 +66,6 @@ impl<C: DbContext + Send + Sync + 'static> PendingConnection<C> {
     }
 }
 
-/// Lifecycle [`States`] for the active SpacetimeDB connection.
-///
-/// `Connected` and `Disconnected` are driven by SDK lifecycle messages, while
-/// `Exhausted` is a policy-oriented state managed by the reconnect subsystem.
-#[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
-pub enum StdbConnectionState {
-    /// No connection attempt has been started yet.
-    #[default]
-    Uninitialized,
-
-    /// An initial or manually requested connection attempt is in progress.
-    Connecting,
-
-    /// The SDK has reported that the connection is active.
-    Connected,
-
-    /// No active connection is available.
-    ///
-    /// This state is entered after a disconnect.
-    Disconnected,
-
-    /// No active connection is available.
-    ///
-    /// This state is entered after a failed connection attempt
-    ConnectionError,
-
-    /// Reconnect attempts have been exhausted.
-    ///
-    /// No further connection attempts will be made.
-    Exhausted,
-}
-
 /// Internal connection driver configuration.
 pub(crate) enum ConnectionDriver<C: DbContext + Send + Sync + 'static> {
     /// Drives the connection from the Bevy schedule each frame.
@@ -296,7 +264,6 @@ impl<
 {
     /// Initializes connection state, resources, and lifecycle systems.
     fn build(&self, app: &mut App) {
-        app.init_state::<StdbConnectionState>();
         app.add_message::<RequestStdbConnectionMessage>();
 
         register_channel::<StdbConnectedMessage>(app);
@@ -370,14 +337,6 @@ fn handle_connection_request<
         return;
     };
 
-    // We can enter the connecting state when we aren't already connected. When connected,
-    // this is a replacement attempt not a initial or attempt from disconnected state
-    if world.get_resource::<StdbConnection<C>>().is_none() {
-        world
-            .resource_mut::<NextState<StdbConnectionState>>()
-            .set(StdbConnectionState::Connecting);
-    }
-
     world.insert_resource(PendingConnection::<C>::new(
         PendingConnectionPhase::Prepare(IoTaskPool::get().spawn(async move {
             let token_response = match request.auth_source {
@@ -410,11 +369,6 @@ fn poll_pending_connection<
         return;
     };
 
-    let is_connecting = matches!(
-        world.resource::<State<StdbConnectionState>>().get(),
-        StdbConnectionState::Connecting
-    );
-
     match pending_connection.phase {
         PendingConnectionPhase::Prepare(mut task) => {
             let Some(result) = block_on(poll_once(&mut task)) else {
@@ -425,12 +379,6 @@ fn poll_pending_connection<
             };
 
             let Ok(prepared_conn) = result else {
-                if is_connecting {
-                    world
-                        .resource_mut::<NextState<StdbConnectionState>>()
-                        .set(StdbConnectionState::Disconnected);
-                }
-
                 return;
             };
 
@@ -481,58 +429,32 @@ fn poll_pending_connection<
                     }
                     world.insert_resource(StdbConnection::new(conn));
                 }
-                Err(_) => {
-                    if is_connecting {
-                        world
-                            .resource_mut::<NextState<StdbConnectionState>>()
-                            .set(StdbConnectionState::Disconnected);
-                    }
-                }
+                Err(_) => { /* TBD */ }
             }
         }
     }
 }
 
-/// Synchronizes [`StdbConnectionState`] from SDK lifecycle messages.
-///
-/// [`StdbConnectionState::Disconnected`] takes precedence when multiple
-/// lifecycle messages arrive in the same frame.
 fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
     mut connection_error_msgs: ReadStdbConnectionErrorMessage,
     conn: Option<Res<StdbConnection<C>>>,
-    mut next_state: ResMut<NextState<StdbConnectionState>>,
     mut commands: Commands,
 ) {
-    let saw_connected_error = connection_error_msgs.read().count() > 0;
-    let mut saw_disconnect = false;
-    let mut saw_disconnect_error = false;
-    for msg in disconnected_msgs.read() {
-        saw_disconnect = true;
-        if msg.err.is_some() {
-            saw_disconnect_error = true;
-        }
-    }
+    let saw_connect = connected_msgs.read().next().is_some();
+    let saw_connection_error = connection_error_msgs.read().next().is_some();
+    let saw_disconnect = disconnected_msgs.read().next().is_some();
     let active_conn = match conn {
         Some(c) => c.is_active(),
         None => false,
     };
 
-    // This is a bit weird right now because the SDK doesn't distinguish these things very well...
-    // connection error messages never actually get sent but we handle anyway, they actually just send
-    // a discconected message with an error. This is fine because we can just check for the error message
-    // in the disconnect and have it update the state accordingly.
-    //
-    // I have a discord post in feedback channel on this topic here:
-    // https://discord.com/channels/1037340874172014652/1496517953896583299
-    if (saw_connected_error || saw_disconnect_error) && !active_conn {
+    if saw_connect && saw_disconnect {
+        return;
+    }
+
+    if (saw_disconnect || saw_connection_error) && !active_conn {
         commands.remove_resource::<StdbConnection<C>>();
-        next_state.set(StdbConnectionState::ConnectionError);
-    } else if saw_disconnect && !active_conn {
-        commands.remove_resource::<StdbConnection<C>>();
-        next_state.set(StdbConnectionState::Disconnected);
-    } else if connected_msgs.read().count() > 0 {
-        next_state.set(StdbConnectionState::Connected);
     }
 }

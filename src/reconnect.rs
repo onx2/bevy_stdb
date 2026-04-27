@@ -1,15 +1,20 @@
 //! Reconnect policy and runtime state for SpacetimeDB connections.
 //!
-//! Manages reconnect timing and backoff. When the backoff timer fires,
-//! a [`RequestStdbConnectionMessage`] is sent and the connection module handles
-//! the actual connection building.
+//! Manages reconnect timing and backoff. When a disconnect with an error or a
+//! connection error message is received, a reconnect timer is scheduled. When
+//! the timer fires, a [`RequestStdbConnectionMessage`] is sent and the
+//! connection module handles the actual connection building.
 
 use crate::{
-    alias::WriteRequestStdbConnectionMessage, connection::StdbConnectionState, set::StdbSet,
+    alias::{
+        ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
+        WriteRequestStdbConnectionMessage,
+    },
+    connection::StdbConnection,
+    set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
-use bevy_state::prelude::{NextState, OnEnter, in_state};
 use bevy_time::{Time, Timer, TimerMode};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
@@ -49,6 +54,7 @@ impl Default for StdbReconnectOptions {
 /// Runtime reconnect configuration.
 #[derive(Resource, Clone)]
 struct ReconnectConfig(pub StdbReconnectOptions);
+
 impl Deref for ReconnectConfig {
     type Target = StdbReconnectOptions;
 
@@ -104,33 +110,43 @@ impl<
         app.init_resource::<ReconnectBackoff>();
 
         app.add_systems(
-            OnEnter(StdbConnectionState::ConnectionError),
-            on_enter_connection_error,
-        );
-
-        app.add_systems(
-            OnEnter(StdbConnectionState::Connected),
-            reset_reconnect_state,
-        );
-
-        app.add_systems(
             PreUpdate,
-            tick_reconnect_timer
-                .in_set(StdbSet::Connection)
-                .run_if(in_state(StdbConnectionState::ConnectionError)),
+            (
+                reset_reconnect_state,
+                update_reconnect_backoff::<C>,
+                tick_reconnect_timer,
+            )
+                .chain()
+                .in_set(StdbSet::Connection),
         );
     }
 }
 
-/// Begins or advances a reconnect cycle on entering [`StdbConnectionState::Disconnected`].
-///
-/// Transitions to [`StdbConnectionState::Exhausted`] when the maximum number
-/// of attempts has been reached.
-fn on_enter_connection_error(
+/// Starts or advances the reconnect cycle based on connection lifecycle messages.
+fn update_reconnect_backoff<C: DbContext + Send + Sync + 'static>(
     reconnect_config: Res<ReconnectConfig>,
     mut reconnect: ResMut<ReconnectBackoff>,
-    mut next_state: ResMut<NextState<StdbConnectionState>>,
+    mut connected_msgs: ReadStdbConnectedMessage,
+    mut disconnected_msgs: ReadStdbDisconnectedMessage,
+    mut connection_error_msgs: ReadStdbConnectionErrorMessage,
+    conn: Option<Res<StdbConnection<C>>>,
 ) {
+    if connected_msgs.read().next().is_some() {
+        return;
+    }
+
+    let saw_connection_error = connection_error_msgs.read().next().is_some();
+    let saw_disconnect_error = disconnected_msgs.read().any(|msg| msg.err.is_some());
+
+    if !saw_connection_error && !saw_disconnect_error {
+        return;
+    }
+
+    let active_conn = conn.as_ref().map(|conn| conn.is_active()).unwrap_or(false);
+    if active_conn {
+        return;
+    }
+
     if reconnect.active {
         reconnect.attempts += 1;
 
@@ -138,7 +154,6 @@ fn on_enter_connection_error(
         {
             reconnect.active = false;
             reconnect.timer = None;
-            next_state.set(StdbConnectionState::Exhausted);
             return;
         }
 
@@ -156,7 +171,14 @@ fn on_enter_connection_error(
 }
 
 /// Resets reconnect state when a connection is successfully established.
-fn reset_reconnect_state(mut reconnect: ResMut<ReconnectBackoff>) {
+fn reset_reconnect_state(
+    mut reconnect: ResMut<ReconnectBackoff>,
+    mut connected_msgs: ReadStdbConnectedMessage,
+) {
+    if connected_msgs.read().next().is_none() {
+        return;
+    }
+
     reconnect.active = false;
     reconnect.attempts = 0;
     reconnect.current_delay = Duration::ZERO;

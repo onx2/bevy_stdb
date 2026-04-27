@@ -3,13 +3,12 @@
 //! Manages subscription intent and active handles via Bevy systems and resources.
 use crate::{
     channel_bridge::{channel_sender, register_channel},
-    connection::{StdbConnection, StdbConnectionState},
+    connection::StdbConnection,
     message::{StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
-use bevy_state::prelude::{OnEnter, State};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, not, resource_exists};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
@@ -248,29 +247,30 @@ where
         });
 
         app.add_systems(
-            OnEnter(StdbConnectionState::Disconnected),
-            queue_subscriptions_on_disconnect::<K, M>,
+            // on disconnect
+            PreUpdate,
+            (queue_subscriptions_on_disconnect::<K, M>)
+                .in_set(StdbSet::Subscriptions)
+                .run_if(not(resource_exists::<StdbConnection<C>>)),
         );
 
         app.add_systems(
             PreUpdate,
             apply_queued_subscriptions::<K, C, M>
                 .in_set(StdbSet::Subscriptions)
-                .run_if(should_apply_subscriptions::<K, M>),
+                .run_if(resource_exists::<StdbConnection<C>>)
+                .run_if(has_queued_subscriptions::<K, M>),
         );
     }
 }
 
-fn should_apply_subscriptions<K, M>(
-    subs: Res<StdbSubscriptions<K, M>>,
-    state: Res<State<StdbConnectionState>>,
-) -> bool
+fn has_queued_subscriptions<K, M>(subs: Res<StdbSubscriptions<K, M>>) -> bool
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
     M: SpacetimeModule,
     M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
 {
-    *state.get() == StdbConnectionState::Connected && subs.has_queued()
+    subs.has_queued()
 }
 
 /// Re-queues all active subscriptions for re-application after a disconnect.

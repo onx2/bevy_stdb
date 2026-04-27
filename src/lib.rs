@@ -9,8 +9,7 @@
 //! The crate is organized around four lifecycle concerns:
 //!
 //! - **Connection** — Establish the initial connection eagerly or on demand,
-//!   expose the active connection as [`StdbConnection`](crate::prelude::StdbConnection),
-//!   and track state via [`StdbConnectionState`](crate::prelude::StdbConnectionState).
+//!   expose the active connection as [`StdbConnection`](crate::prelude::StdbConnection).
 //! - **Tables** — Register message channels once at startup and re-bind SDK
 //!   table callbacks whenever a connection becomes active. Row changes are
 //!   forwarded as Bevy [`Message`](bevy_ecs::prelude::Message)s
@@ -99,7 +98,7 @@ pub mod prelude {
             ReadUpdateMessage, WriteRequestStdbConnectionMessage,
         },
         auth::StdbAuthSource,
-        connection::{StdbConnection, StdbConnectionState},
+        connection::StdbConnection,
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, RequestStdbConnectionMessage,
             StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage,
