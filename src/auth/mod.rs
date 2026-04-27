@@ -34,29 +34,16 @@ pub enum StdbAuthSource {
     Steam(StdbSteamAuthOptions),
 }
 impl StdbAuthSource {
-    pub(crate) fn acquire_token_response(&self) -> Option<StdbTokenResponse> {
-        match self {
-            #[cfg(feature = "auth-oidc")]
-            StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).ok(), // TODO handle error
-            #[cfg(feature = "auth-steam")]
-            StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts).ok(), // TODO handle error
-            StdbAuthSource::Token(token) => Some(StdbTokenResponse {
-                access_token: token.to_owned(),
-                ..StdbTokenResponse::default()
-            }),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
     pub(crate) async fn acquire_token_response(&self) -> Option<StdbTokenResponse> {
         match self {
             #[cfg(feature = "auth-oidc")]
-            StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).await.ok(), // TODO handle error
+            StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).await.ok(),
+            #[cfg(all(feature = "auth-steam", not(target_arch = "wasm32")))]
+            StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts).ok(),
             StdbAuthSource::Token(token) => Some(StdbTokenResponse {
                 access_token: token.to_owned(),
                 ..StdbTokenResponse::default()
             }),
-            _ => unreachable!("Steam cannot be used in wasm32 environment"),
         }
     }
 }

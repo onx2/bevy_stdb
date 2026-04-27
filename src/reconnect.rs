@@ -130,8 +130,8 @@ impl<
         app.init_resource::<ReconnectBackoff>();
 
         app.add_systems(
-            OnEnter(StdbConnectionState::Disconnected),
-            on_enter_disconnected,
+            OnEnter(StdbConnectionState::ConnectionError),
+            on_enter_connection_error,
         );
 
         app.add_systems(
@@ -143,7 +143,7 @@ impl<
             PreUpdate,
             tick_reconnect_timer
                 .in_set(StdbSet::Connection)
-                .run_if(in_state(StdbConnectionState::Disconnected)),
+                .run_if(in_state(StdbConnectionState::ConnectionError)),
         );
     }
 }
@@ -152,7 +152,7 @@ impl<
 ///
 /// Transitions to [`StdbConnectionState::Exhausted`] when the maximum number
 /// of attempts has been reached.
-fn on_enter_disconnected(
+fn on_enter_connection_error(
     reconnect_config: Res<ReconnectConfig>,
     mut reconnect: ResMut<ReconnectBackoff>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,

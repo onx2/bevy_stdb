@@ -1,8 +1,6 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-use crate::auth::StdbAuthError;
 use crate::{
     alias::{
         ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
@@ -17,9 +15,10 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Message, Messages, Res, ResMut, Resource, World, not,
+    Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, resource_exists,
 };
 use bevy_state::prelude::{AppExtStates, NextState, States, in_state};
+use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
@@ -27,17 +26,41 @@ use spacetimedb_sdk::{
 };
 use std::sync::Arc;
 
-/// Internal completion message for a finished connection build.
-#[derive(Message)]
-struct StdbConnectionBuildFinishedMessage<C: DbContext + Send + Sync + 'static> {
-    pub result: Result<Arc<C>>,
+/// Stores the finalized connection inputs for a pending attempt.
+struct PreparedConnection {
+    /// The URI override for this attempt.
+    uri: Option<String>,
+    /// The module name override for this attempt.
+    module_name: Option<String>,
+    /// The token response for this attempt, if one was acquired.
+    token_response: Option<StdbTokenResponse>,
 }
 
-/// Internal completion message for a finished async authentication flow
-#[derive(Debug, Message)]
-#[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
-struct StdbAuthFinishedMessage {
-    pub result: std::result::Result<StdbTokenResponse, StdbAuthError>,
+/// Represents a failure while preparing a connection attempt.
+#[derive(Debug)]
+enum PrepareConnectionError {
+    /// The requested authentication source did not produce a token response.
+    TokenResponseUnavailable,
+}
+
+/// Tracks the current phase of a pending connection attempt.
+enum PendingConnectionPhase<C: DbContext + Send + Sync + 'static> {
+    /// Prepares the finalized connection inputs for this attempt.
+    Prepare(Task<std::result::Result<PreparedConnection, PrepareConnectionError>>),
+    /// Builds the SpacetimeDB connection from a finalized config snapshot.
+    Build(Task<Result<Arc<C>>>),
+}
+
+/// Stores the in-flight task state for a pending connection attempt.
+#[derive(Resource)]
+struct PendingConnection<C: DbContext + Send + Sync + 'static> {
+    /// The current phase for this pending attempt.
+    phase: PendingConnectionPhase<C>,
+}
+impl<C: DbContext + Send + Sync + 'static> PendingConnection<C> {
+    pub fn new(phase: PendingConnectionPhase<C>) -> Self {
+        Self { phase }
+    }
 }
 
 /// Lifecycle [`States`] for the active SpacetimeDB connection.
@@ -58,8 +81,13 @@ pub enum StdbConnectionState {
 
     /// No active connection is available.
     ///
-    /// This state is entered after a disconnect or a failed connection attempt.
+    /// This state is entered after a disconnect.
     Disconnected,
+
+    /// No active connection is available.
+    ///
+    /// This state is entered after a failed connection attempt
+    ConnectionError,
 
     /// Reconnect attempts have been exhausted.
     ///
@@ -140,6 +168,7 @@ where
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
         let error_tx = self.error_tx.clone();
+
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
             .with_uri(self.uri.clone())
@@ -159,20 +188,14 @@ where
             })
     }
 
-    /// Synchronously builds a SpacetimeDB connection from this config.
+    /// Builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn build_connection(&self) -> Result<Arc<C>> {
-        self.connection_builder().build().map(Arc::new)
-    }
-
-    /// Asynchronously builds a SpacetimeDB connection from this config.
-    ///
-    /// The returned connection is not started automatically.
-    #[cfg(target_arch = "wasm32")]
     pub(crate) async fn build_connection(&self) -> Result<Arc<C>> {
-        self.connection_builder().build().await.map(Arc::new)
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.connection_builder().build().map(Arc::new);
+        #[cfg(target_arch = "wasm32")]
+        return self.connection_builder().build().await.map(Arc::new);
     }
 }
 
@@ -277,15 +300,6 @@ impl<
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectionErrorMessage>(app);
 
-        #[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
-        register_channel::<StdbAuthFinishedMessage>(app);
-
-        #[cfg(target_arch = "wasm32")]
-        register_channel::<StdbConnectionBuildFinishedMessage<C>>(app);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        app.add_message::<StdbConnectionBuildFinishedMessage<C>>();
-
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
             module_name: self.module_name.clone(),
@@ -298,7 +312,6 @@ impl<
             error_tx: channel_sender::<StdbConnectionErrorMessage>(world),
         });
 
-        // Sync connection state from SDK lifecycle messages.
         app.add_systems(
             PreUpdate,
             sync_connection_state::<C>.in_set(StdbSet::StateSync),
@@ -306,35 +319,21 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            handle_connection_request::<C, M>
-                .in_set(StdbSet::Connection)
-                .run_if(not(in_state(StdbConnectionState::Connected)))
-                .run_if(not(in_state(StdbConnectionState::Connecting))),
+            (
+                handle_connection_request::<C, M>,
+                poll_pending_connection::<C, M>.run_if(resource_exists::<PendingConnection<C>>),
+            )
+                .chain()
+                .in_set(StdbSet::Connection),
         );
 
-        #[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
-        app.add_systems(
-            PreUpdate,
-            handle_auth_finished
-                .in_set(StdbSet::Connection)
-                .run_if(in_state(StdbConnectionState::Connecting)),
-        );
-
-        app.add_systems(
-            PreUpdate,
-            finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
-        );
-
-        // Only added when frame-tick driving is configured.
         if matches!(self.driver, Some(ConnectionDriver::FrameTick(_))) {
             app.add_systems(
                 PreUpdate,
                 (|conn: Res<StdbConnection<C>>, config: Res<StdbConnectionConfig<C, M>>| {
-                    let Some(ConnectionDriver::FrameTick(frame_tick)) = config.driver.as_ref() else {
-                        panic!("frame tick system should only be added when the frame tick driver is configured");
-                    };
-
-                    let _ = frame_tick(conn.conn.as_ref());
+                    if let Some(ConnectionDriver::FrameTick(frame_tick)) = config.driver {
+                        let _ = frame_tick(conn.conn.as_ref());
+                    }
                 })
                 .in_set(StdbSet::Connection)
                 .run_if(in_state(StdbConnectionState::Connected)),
@@ -343,24 +342,23 @@ impl<
     }
 }
 
-/// Initiates a connection build from a connection request message.
+/// Initiates a pending connection attempt from a connection request.
 ///
-/// Requests can override the current connection configuration and
-/// while an active connection exists, this will clear any pending requests.
+/// Requests can override the current connection configuration and while an
+/// active connection exists, this will clear any pending requests.
 fn handle_connection_request<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
     world: &mut World,
 ) {
-    // Ignore requests while currently connected
-    if world.get_resource::<StdbConnection<C>>().is_some() {
-        return world
+    if world.get_resource::<PendingConnection<C>>().is_some() {
+        world
             .resource_mut::<Messages<RequestStdbConnectionMessage>>()
             .clear();
+        return;
     }
 
-    // Use the most recent request for the connection attempt
     let Some(request) = world
         .resource_mut::<Messages<RequestStdbConnectionMessage>>()
         .drain()
@@ -369,132 +367,114 @@ fn handle_connection_request<
         return;
     };
 
-    world
-        .resource_mut::<NextState<StdbConnectionState>>()
-        .set(StdbConnectionState::Connecting);
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let token = {
-            if let Some(new_response) = request.auth_source.and_then(|s| s.acquire_token_response())
-            {
-                world.insert_resource(new_response);
-            }
-
-            world
-                .get_resource::<StdbTokenResponse>()
-                .map(|token_response| token_response.access_token.clone())
-        };
-        // Get the current configuration and override if requested
-        let connect_config = {
-            let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-            config.token = token.or(config.token.take());
-            config.uri = request.uri.unwrap_or(config.uri.clone());
-            config.module_name = request.module_name.unwrap_or(config.module_name.clone());
-            config.clone()
-        };
-        world.write_message(StdbConnectionBuildFinishedMessage {
-            result: connect_config.build_connection(),
-        });
+    // We can enter the connecting state when we aren't already connected. When connected,
+    // this is a replacement attempt not a initial or attempt from disconnected state
+    if world.get_resource::<StdbConnection<C>>().is_none() {
+        world
+            .resource_mut::<NextState<StdbConnectionState>>()
+            .set(StdbConnectionState::Connecting);
     }
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(auth_source) = request.auth_source {
-            let sender = channel_sender::<StdbAuthFinishedMessage>(world);
-            js_sys::futures::spawn_local(async move {
-                let _ = sender.send(StdbAuthFinishedMessage {
-                    result: auth_source.acquire_token_response().await,
-                });
-            });
-        } else {
-            let connect_config = {
-                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-                config.uri = request.uri.unwrap_or(config.uri.clone());
-                config.module_name = request.module_name.unwrap_or(config.module_name.clone());
-                config.clone()
-            };
-            let sender = channel_sender::<StdbConnectionBuildFinishedMessage<C>>(world);
-            js_sys::futures::spawn_local(async move {
-                let _ = sender.send(StdbConnectionBuildFinishedMessage {
-                    result: connect_config.build_connection().await,
-                });
-            });
-        }
-    }
-}
-
-#[cfg(all(target_arch = "wasm32", feature = "auth-oidc"))]
-fn handle_auth_finished<C, M>(world: &mut World)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-{
-    let Some(msg) = world
-        .resource_mut::<Messages<StdbAuthFinishedMessage>>()
-        .drain()
-        .last()
-    else {
-        return;
-    };
-
-    match msg.result {
-        Ok(token_response) => {
-            let access_token = token_response.access_token.clone();
-            world.insert_resource(token_response);
-
-            let connect_config = {
-                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-                config.token = Some(access_token);
-                config.clone()
+    world.insert_resource(PendingConnection::<C>::new(
+        PendingConnectionPhase::Prepare(IoTaskPool::get().spawn(async move {
+            let token_response = match request.auth_source {
+                Some(auth_source) => {
+                    let Some(token_response) = auth_source.acquire_token_response().await else {
+                        return Err(PrepareConnectionError::TokenResponseUnavailable);
+                    };
+                    Some(token_response)
+                }
+                None => None,
             };
 
-            let sender = channel_sender::<StdbConnectionBuildFinishedMessage<C>>(world);
-            js_sys::futures::spawn_local(async move {
-                let _ = sender.send(StdbConnectionBuildFinishedMessage {
-                    result: connect_config.build_connection().await,
-                });
-            });
-        }
-        Err(_) => {
-            world
-                .resource_mut::<NextState<StdbConnectionState>>()
-                .set(StdbConnectionState::Disconnected);
-        }
-    }
+            Ok(PreparedConnection {
+                uri: request.uri,
+                module_name: request.module_name,
+                token_response,
+            })
+        })),
+    ));
 }
 
-/// Completes a pending connection build and transitions [`StdbConnectionState`] accordingly.
-fn finalize_pending_connection<
+/// Polls a pending connection resource per tick, advancing the connection phase when needed.
+fn poll_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
     world: &mut World,
 ) {
-    let finished_msgs: Vec<StdbConnectionBuildFinishedMessage<C>> = {
-        let mut messages = world.resource_mut::<Messages<StdbConnectionBuildFinishedMessage<C>>>();
-        messages.drain().collect()
+    let Some(pending_connection) = world.remove_resource::<PendingConnection<C>>() else {
+        return;
     };
 
-    for msg in finished_msgs {
-        match msg.result {
-            Ok(conn) => {
-                let driver = world
-                    .get_resource::<StdbConnectionConfig<C, M>>()
-                    .expect("StdbConnectionConfig should exist when activating a connection")
-                    .driver
-                    .clone();
+    match pending_connection.phase {
+        PendingConnectionPhase::Prepare(mut task) => {
+            let Some(result) = block_on(poll_once(&mut task)) else {
+                world.insert_resource(PendingConnection::<C> {
+                    phase: PendingConnectionPhase::Prepare(task),
+                });
+                return;
+            };
 
-                if let Some(ConnectionDriver::Background(background_driver)) = driver {
-                    background_driver(conn.as_ref());
-                }
-
-                world.insert_resource(StdbConnection::new(conn));
-            }
-            Err(_) => {
+            let Ok(prepared_conn) = result else {
                 world
                     .resource_mut::<NextState<StdbConnectionState>>()
                     .set(StdbConnectionState::Disconnected);
+                return;
+            };
+
+            let connect_config = {
+                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
+                if let Some(uri) = prepared_conn.uri {
+                    config.uri = uri;
+                }
+                if let Some(module_name) = prepared_conn.module_name {
+                    config.module_name = module_name;
+                }
+                if let Some(token_response) = prepared_conn.token_response.as_ref() {
+                    config.token = Some(token_response.access_token.clone());
+                }
+                config.clone()
+            };
+
+            if let Some(token_response) = prepared_conn.token_response {
+                world.insert_resource(token_response);
+            }
+
+            world.insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
+                IoTaskPool::get().spawn(async move { connect_config.build_connection().await }),
+            )));
+        }
+        PendingConnectionPhase::Build(mut task) => {
+            let Some(result) = block_on(poll_once(&mut task)) else {
+                world.insert_resource(PendingConnection::<C> {
+                    phase: PendingConnectionPhase::Build(task),
+                });
+                return;
+            };
+
+            match result {
+                Ok(conn) => {
+                    let driver = world
+                        .get_resource::<StdbConnectionConfig<C, M>>()
+                        .expect("StdbConnectionConfig should exist when activating a connection")
+                        .driver
+                        .clone();
+
+                    if let Some(ConnectionDriver::Background(background_driver)) = driver {
+                        background_driver(conn.as_ref());
+                    }
+
+                    if let Some(prev_conn) = world.get_resource::<StdbConnection<C>>() {
+                        let _ = prev_conn.disconnect();
+                    }
+                    world.insert_resource(StdbConnection::new(conn));
+                }
+                Err(_) => {
+                    world
+                        .resource_mut::<NextState<StdbConnectionState>>()
+                        .set(StdbConnectionState::Disconnected);
+                }
             }
         }
     }
@@ -511,15 +491,29 @@ fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     mut commands: Commands,
 ) {
-    if connected_msgs.read().count() > 0 {
+    let mut saw_disconnect = false;
+    let mut saw_disconnect_error = false;
+    for msg in disconnected_msgs.read() {
+        saw_disconnect = true;
+        if msg.err.is_some() {
+            saw_disconnect_error = true;
+        }
+    }
+
+    // This is a bit weird right now because the SDK doesn't distinguish these things very well...
+    // connection error messages never actually get sent but we handle anyway, they actually just send
+    // a discconected message with an error. This is fine because we can just check for the erorr message
+    // in the disconnect and have it update the state accordingly.
+    //
+    // I have an option feedback on this topic here:
+    // https://discord.com/channels/1037340874172014652/1496517953896583299
+    if connection_error_msgs.read().count() > 0 || saw_disconnect_error {
+        commands.remove_resource::<StdbConnection<C>>();
+        next_state.set(StdbConnectionState::ConnectionError);
+    } else if saw_disconnect {
+        commands.remove_resource::<StdbConnection<C>>();
+        next_state.set(StdbConnectionState::Disconnected);
+    } else if connected_msgs.read().count() > 0 {
         next_state.set(StdbConnectionState::Connected);
-    }
-    if disconnected_msgs.read().count() > 0 {
-        commands.remove_resource::<StdbConnection<C>>();
-        next_state.set(StdbConnectionState::Disconnected);
-    }
-    if connection_error_msgs.read().count() > 0 {
-        commands.remove_resource::<StdbConnection<C>>();
-        next_state.set(StdbConnectionState::Disconnected);
     }
 }

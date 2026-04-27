@@ -22,9 +22,3 @@
  *       - Connect to Spacetime using access token
  */
 use super::{StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse};
-
-pub fn acquire_token_response(
-    options: &StdbOidcAuthOptions,
-) -> Result<StdbTokenResponse, StdbAuthError> {
-    todo!()
-}

@@ -7,7 +7,6 @@ mod auth_imp;
 mod auth_imp;
 
 use super::{StdbAuthError, StdbTokenResponse};
-pub use auth_imp::acquire_token_response;
 
 #[derive(Clone, Debug)]
 pub struct StdbOidcAuthOptions {
@@ -17,4 +16,10 @@ pub struct StdbOidcAuthOptions {
     pub redirect_uri: String,
     /// The requested scopes.
     pub scopes: Vec<String>,
+}
+
+pub async fn acquire_token_response(
+    options: &StdbOidcAuthOptions,
+) -> Result<StdbTokenResponse, StdbAuthError> {
+    todo!()
 }

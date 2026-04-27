@@ -25,21 +25,22 @@ pub fn acquire_token_response(
 
     Ok(token)
 }
+
 /// Exchanges a Steam Web API ticket for a token response.
 fn exchange_steam_ticket_request(
     client_id: &str,
     steam_ticket: &[u8],
 ) -> Result<StdbTokenResponse, StdbAuthError> {
-    let response = ureq::post("https://auth.spacetimedb.com/oidc/token")
-        .content_type("application/x-www-form-urlencoded")
-        .send_form([
+    let client = reqwest::blocking::Client::new();
+    let token_data = client
+        .post("https://auth.spacetimedb.com/oidc/token")
+        .form(&[
             ("grant_type", "urn:spacetimeauth:steam-ticket"),
             ("steam_ticket", hex::encode(steam_ticket).as_str()),
             ("client_id", client_id),
-        ])?;
-
-    let body = response.into_body().read_to_string()?;
-    let token_data: StdbTokenResponse = serde_json::from_str(&body)?;
+        ])
+        .send()?
+        .json::<StdbTokenResponse>()?;
 
     Ok(token_data)
 }
