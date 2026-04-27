@@ -17,7 +17,10 @@ use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
     Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, resource_exists,
 };
-use bevy_state::prelude::{AppExtStates, NextState, States, in_state};
+use bevy_state::{
+    prelude::{AppExtStates, NextState, States, in_state},
+    state::State,
+};
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
@@ -336,7 +339,7 @@ impl<
                     }
                 })
                 .in_set(StdbSet::Connection)
-                .run_if(in_state(StdbConnectionState::Connected)),
+                .run_if(resource_exists::<StdbConnection<C>>),
             );
         }
     }
@@ -407,6 +410,11 @@ fn poll_pending_connection<
         return;
     };
 
+    let is_connecting = matches!(
+        world.resource::<State<StdbConnectionState>>().get(),
+        StdbConnectionState::Connecting
+    );
+
     match pending_connection.phase {
         PendingConnectionPhase::Prepare(mut task) => {
             let Some(result) = block_on(poll_once(&mut task)) else {
@@ -417,9 +425,12 @@ fn poll_pending_connection<
             };
 
             let Ok(prepared_conn) = result else {
-                world
-                    .resource_mut::<NextState<StdbConnectionState>>()
-                    .set(StdbConnectionState::Disconnected);
+                if is_connecting {
+                    world
+                        .resource_mut::<NextState<StdbConnectionState>>()
+                        .set(StdbConnectionState::Disconnected);
+                }
+
                 return;
             };
 
@@ -471,9 +482,11 @@ fn poll_pending_connection<
                     world.insert_resource(StdbConnection::new(conn));
                 }
                 Err(_) => {
-                    world
-                        .resource_mut::<NextState<StdbConnectionState>>()
-                        .set(StdbConnectionState::Disconnected);
+                    if is_connecting {
+                        world
+                            .resource_mut::<NextState<StdbConnectionState>>()
+                            .set(StdbConnectionState::Disconnected);
+                    }
                 }
             }
         }
@@ -488,9 +501,11 @@ fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
     mut connection_error_msgs: ReadStdbConnectionErrorMessage,
+    conn: Option<Res<StdbConnection<C>>>,
     mut next_state: ResMut<NextState<StdbConnectionState>>,
     mut commands: Commands,
 ) {
+    let saw_connected_error = connection_error_msgs.read().count() > 0;
     let mut saw_disconnect = false;
     let mut saw_disconnect_error = false;
     for msg in disconnected_msgs.read() {
@@ -499,18 +514,22 @@ fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
             saw_disconnect_error = true;
         }
     }
+    let active_conn = match conn {
+        Some(c) => c.is_active(),
+        None => false,
+    };
 
     // This is a bit weird right now because the SDK doesn't distinguish these things very well...
     // connection error messages never actually get sent but we handle anyway, they actually just send
-    // a discconected message with an error. This is fine because we can just check for the erorr message
+    // a discconected message with an error. This is fine because we can just check for the error message
     // in the disconnect and have it update the state accordingly.
     //
-    // I have an option feedback on this topic here:
+    // I have a discord post in feedback channel on this topic here:
     // https://discord.com/channels/1037340874172014652/1496517953896583299
-    if connection_error_msgs.read().count() > 0 || saw_disconnect_error {
+    if (saw_connected_error || saw_disconnect_error) && !active_conn {
         commands.remove_resource::<StdbConnection<C>>();
         next_state.set(StdbConnectionState::ConnectionError);
-    } else if saw_disconnect {
+    } else if saw_disconnect && !active_conn {
         commands.remove_resource::<StdbConnection<C>>();
         next_state.set(StdbConnectionState::Disconnected);
     } else if connected_msgs.read().count() > 0 {

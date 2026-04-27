@@ -15,7 +15,7 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
-use std::{marker::PhantomData, time::Duration};
+use std::{marker::PhantomData, ops::Deref, time::Duration};
 
 /// Reconnect options for a SpacetimeDB connection.
 #[derive(Clone, Debug)]
@@ -48,32 +48,17 @@ impl Default for StdbReconnectOptions {
 
 /// Runtime reconnect configuration.
 #[derive(Resource, Clone)]
-struct ReconnectConfig {
-    /// Delay before the first reconnect attempt after a disconnect.
-    initial_delay: Duration,
-    /// Maximum number of reconnect attempts before giving up.
-    ///
-    /// `0` retries indefinitely.
-    max_attempts: u32,
-    /// Multiplier applied after each failed reconnect attempt.
-    backoff_factor: f32,
-    /// Maximum delay between reconnect attempts.
-    max_delay: Duration,
-}
+struct ReconnectConfig(pub StdbReconnectOptions);
+impl Deref for ReconnectConfig {
+    type Target = StdbReconnectOptions;
 
-impl From<StdbReconnectOptions> for ReconnectConfig {
-    fn from(options: StdbReconnectOptions) -> Self {
-        Self {
-            initial_delay: options.initial_delay,
-            max_attempts: options.max_attempts,
-            backoff_factor: options.backoff_factor.max(1.0),
-            max_delay: options.max_delay,
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 /// Runtime state for reconnect attempts.
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct ReconnectBackoff {
     /// Whether a reconnect cycle is currently active.
     active: bool,
@@ -83,17 +68,6 @@ struct ReconnectBackoff {
     current_delay: Duration,
     /// Timer for the next reconnect attempt.
     timer: Option<Timer>,
-}
-
-impl Default for ReconnectBackoff {
-    fn default() -> Self {
-        Self {
-            active: false,
-            attempts: 0,
-            current_delay: Duration::ZERO,
-            timer: None,
-        }
-    }
 }
 
 /// Internal plugin for reconnect timing and backoff.
@@ -126,7 +100,7 @@ impl<
 > Plugin for ReconnectPlugin<C, M>
 {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ReconnectConfig::from(self.reconnect_options.clone()));
+        app.insert_resource(ReconnectConfig(self.reconnect_options.clone()));
         app.init_resource::<ReconnectBackoff>();
 
         app.add_systems(
@@ -170,7 +144,7 @@ fn on_enter_connection_error(
 
         let next_delay = reconnect
             .current_delay
-            .mul_f32(reconnect_config.backoff_factor);
+            .mul_f32(reconnect_config.backoff_factor.max(1.0));
         reconnect.current_delay = next_delay.min(reconnect_config.max_delay);
     } else {
         reconnect.active = true;
