@@ -55,6 +55,12 @@ fn main() {
         )
         .add_systems(Update, (subscribe_on_connect, on_player_info_insert))
         .run();
+    
+    // Sending connection request immediately.
+    // Alternatively, you can use `Commands` in a normal parallelized system, `World` in
+    //  an exclusive system, in an observer, or some other bevy mechanism.
+    app.world_mut()
+        .write_message(RequestStdbConnectionMessage::default());
 }
 
 fn subscribe_on_connect(
@@ -82,7 +88,7 @@ fn on_player_info_insert(mut msgs: ReadInsertMessage<PlayerInfo>) {
 
 Exactly one driver must be configured. These modes are mutually exclusive, and in most applications you'll want `with_background_driver(...)`.
 
-If WASM support is needed, you can enable the `browser` feature flag in your `spacetimedb-sdk` crate using a target cfg:
+If WASM support is needed, you can enable the `browser` feature flag in your `spacetimedb-sdk` crate using a target cfg. This crate discovers wasm support automatically using `cfg(all(target_arch = "wasm32", target_os = "unknown"))`. 
 
 ```toml
 # Enable browser support for wasm builds.
@@ -123,16 +129,15 @@ If you target both native and browser, I recommend selecting the background driv
 
 ```rust
 fn main() {
-    let mut stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
-        .with_uri("http://localhost:3000");
-
     #[cfg(target_arch = "wasm32")]
     let driver = DbConnection::run_background_task;
     #[cfg(not(target_arch = "wasm32"))]
     let driver = DbConnection::run_threaded;
     
-    stdb_plugin = stdb_plugin.with_background_driver(driver);
+    let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_module_name("my_module")
+        .with_uri("http://localhost:3000")
+        .with_background_driver(driver);
 }
 ```
 
