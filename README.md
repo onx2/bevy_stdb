@@ -23,8 +23,8 @@ _Please enjoy this useless AI generated image based on the README contents of th
 - **Connection resource** access through `StdbConnection`
 - **Table event bridging** into normal Bevy `Message`s
 - **Managed subscription intent** through `StdbSubscriptions`
+- **SpacetimeAuth support** through feature flags (`auth-oidc`, `auth-steam`, `auth` for both)
 - **Optional reconnect support** through `StdbReconnectOptions`
-- **Optional delayed connection** through `with_delayed_connection`
 
 ## Example
 
@@ -168,6 +168,31 @@ Each method eagerly registers the Bevy message channels for the row type you spe
 
 This keeps table message registration eager while table callback binding stays lazy and connection-scoped.
 
+## Subscriptions
+
+Subscriptions are required to tell Spacetime which table data you want to sync to the client. You can directly subscribe using the SDK's standard `subscription_builder` exposed on the connection; however this crate offers a lightweight wrapper to manage them, `StdbSubscriptions`. It stores your desired subscription intent separately from the live connection so they can be reapplied when connections change.
+
+That means you can:
+
+- enable subscription management during plugin setup using `with_subscriptions`
+- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
+- automatically re-apply queued subscription intent after reconnect
+
+Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
+
+There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
+
+```rust
+// Check the client cache once a particular subscription has been applied.
+fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
+  for message in applied_messages.read() {
+    if message.is(&SubKey::MyCharacters) {
+      println!("You have {} characters.", conn.db().my_characters().count());
+    }
+  }
+}
+```
+
 ## Messages
 
 Depending on the table shape, `bevy_stdb` forwards updates into Bevy messages such as:
@@ -197,30 +222,50 @@ fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
 }
 ```
 
-## Subscriptions
+## Requesting a connection
 
-`StdbSubscriptions` stores desired subscription intent separately from the live connection and serves as a lightweight wrapper to manage them.
-
-That means you can:
-
-- enable subscription management during plugin setup using `with_subscriptions`
-- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
-- automatically re-apply queued subscription intent after reconnect
-
-Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
-
-There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
+Connections must be made through Bevy messages, `RequestStdbConnectionMessage`. This allows you to connect whenever it makes sense for your game, for example after authenticating, or in response to a button click.
 
 ```rust
-// Check the client cache once a particular subscription has been applied.
-fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
-  for message in applied_messages.read() {
-    if message.is(&SubKey::MyCharacters) {
-      println!("You have {} characters.", conn.db().my_characters().count());
+use bevy::prelude::*;
+use bevy_stdb::prelude::*;
+use crate::module_bindings::{DbConnection, RemoteModule};
+
+#[derive(Resource)]
+struct ConnectTimer(Timer);
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .insert_resource(ConnectTimer(Timer::from_seconds(10.0, TimerMode::Once)))
+        .add_plugins(
+            StdbPlugin::<DbConnection, RemoteModule>::default()
+                .with_module_name("my_module")
+                .with_uri("http://localhost:3000")
+                .with_background_driver(DbConnection::run_threaded),
+        )
+        .add_systems(Update, connect_after_delay)
+        .run();
+}
+
+fn connect_after_delay(
+    time: Res<Time>,
+    mut timer: ResMut<ConnectTimer>,
+    mut request: WriteRequestStdbConnectionMessage,
+) {
+    if timer.0.tick(time.delta()).just_finished() {
+        request.write_default();
+        // Alternatively, provide configuration overrides
+        // request.write(RequestStdbConnectionMessage { uri, module_name, auth_source })
     }
-  }
 }
 ```
+
+## Authentication
+
+This crate directly integrates with [SpacetimeAuth](https://spacetimedb.com/docs/core-concepts/authentication/spacetimeauth/) through the auth-related feature flags: `auth-oidc` for OIDC providers, `auth-steam` for Steam integration, or `auth` for both.
+
+**TODO** Docs for auth
 
 ## Reconnects
 
@@ -253,50 +298,6 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
     let my_table = conn.db().player_info().id().find(&1);
     subs.subscribe_query(SubKeys::TimeOfDay, |q| q.from.world_clock());
 }
-```
-
-## Delayed Connection
-
-Use `with_delayed_connection` when the initial connection should be requested later at runtime instead of during startup.
-
-```rust
-use bevy::prelude::*;
-use bevy_stdb::prelude::*;
-use crate::module_bindings::{DbConnection, RemoteModule};
-
-#[derive(Resource)]
-struct ConnectTimer(Timer);
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .insert_resource(ConnectTimer(Timer::from_seconds(10.0, TimerMode::Once)))
-        .add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_delayed_connection()
-                .with_background_driver(DbConnection::run_threaded),
-        )
-        .add_systems(Update, connect_after_delay)
-        .run();
-}
-
-fn connect_after_delay(
-    time: Res<Time>,
-    mut timer: ResMut<ConnectTimer>,
-    mut request: WriteRequestStdbConnectionMessage,
-) {
-    if timer.0.tick(time.delta()).just_finished() {
-        request.write_default();
-    }
-}
-```
-
-You can also override configuration values for `token`, `uri`, and `module_name` using:
-
-```rust
-`request.write(RequestStdbConnectionMessage { token, uri, module_name })`
 ```
 
 ### Connection-dependent resources
