@@ -47,6 +47,8 @@ auth-oidc = [
     "dep:serde_json",
     "dep:reqwest",
     "dep:oauth2",
+    "oauth2/reqwest-blocking",
+    "oauth2/rustls-tls",
     "dep:keyring",
     "dep:webbrowser",
 ]

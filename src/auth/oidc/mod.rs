@@ -21,5 +21,5 @@ pub struct StdbOidcAuthOptions {
 pub async fn acquire_token_response(
     options: &StdbOidcAuthOptions,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
-    todo!()
+    auth_imp::acquire_token_response(options).await
 }

@@ -1,24 +1,264 @@
-/*
- * Native OIDC Flow
- * 1. StdbConnectRequest
- *    - auth_source: StdbAuthTarget::Oidc(OidcOptions { ... }) -> Pulled from config
- * 2. handle_connection_request (when `auth_source` exists)
- *     - Build OIDC client (PKDE, auth_url, etc...)
- *     - Check for a refresh token in peristed store
- *       - YES:
- *         - client.exchange_refresh_token(refresh_token).request(...) -> /token endpoint called
- *       - NO:
- *         - Start listening on the redirect_uri
- *         - Open the auth_url using webbrowser crate, user authenticates then:
- *         - On redirected to `redirect_uri`, listener can respond by:
- *           - parse response to get `code` and `state`
- *           - verify `state`
- *           - client.exchange_code(code).request(...) -> /token endpoint called
- *     - When the request finishes (Maybe a message to consolidate finalization logic between OIDC + Steam)
- *       - Parse response to get token
- *       - Verify token using `jsonwebtoken`
- *       - Store token details in a Resource (new one maybe, `StdbAuth`?)
- *       - Persist the refresh token in platform secure store
- *       - Connect to Spacetime using access token
- */
 use super::{StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse};
+use crate::log::{error, info};
+use oauth2::{
+    AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
+    TokenResponse, TokenUrl, basic::BasicClient,
+};
+use std::{
+    io::{BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+    time::Duration,
+};
+use url::Url;
+
+const AUTH_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/auth";
+const TOKEN_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/token";
+
+/// Acquires a token response using the native OIDC authorization code flow.
+pub async fn acquire_token_response(
+    options: &StdbOidcAuthOptions,
+) -> Result<StdbTokenResponse, StdbAuthError> {
+    acquire_token_response_blocking(options)
+}
+
+fn acquire_token_response_blocking(
+    options: &StdbOidcAuthOptions,
+) -> Result<StdbTokenResponse, StdbAuthError> {
+    info!(
+        "starting native OIDC authentication with client_id={} and redirect_uri={}",
+        options.client_id, options.redirect_uri
+    );
+
+    let redirect_uri = Url::parse(&options.redirect_uri).map_err(|error| {
+        error!("invalid OIDC redirect URI: {error}");
+        StdbAuthError::Internal(format!("invalid OIDC redirect URI: {error}"))
+    })?;
+
+    let listener = bind_redirect_listener(&redirect_uri)?;
+
+    let client = BasicClient::new(ClientId::new(options.client_id.clone()))
+        .set_auth_uri(AuthUrl::new(AUTH_ENDPOINT.to_string()).map_err(|error| {
+            error!("invalid OIDC authorization endpoint: {error}");
+            StdbAuthError::Internal(format!("invalid OIDC authorization endpoint: {error}"))
+        })?)
+        .set_token_uri(TokenUrl::new(TOKEN_ENDPOINT.to_string()).map_err(|error| {
+            error!("invalid OIDC token endpoint: {error}");
+            StdbAuthError::Internal(format!("invalid OIDC token endpoint: {error}"))
+        })?)
+        .set_redirect_uri(
+            RedirectUrl::new(options.redirect_uri.clone()).map_err(|error| {
+                error!("invalid OIDC redirect URL: {error}");
+                StdbAuthError::Internal(format!("invalid OIDC redirect URL: {error}"))
+            })?,
+        );
+
+    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+
+    let mut authorize_request = client
+        .authorize_url(CsrfToken::new_random)
+        .set_pkce_challenge(pkce_challenge);
+
+    for scope in &options.scopes {
+        authorize_request = authorize_request.add_scope(Scope::new(scope.clone()));
+    }
+
+    let (auth_url, csrf_token) = authorize_request.url();
+
+    info!("opening OIDC authorization URL in browser");
+
+    webbrowser::open(auth_url.as_str()).map_err(|error| {
+        error!("failed to open OIDC authorization URL: {error}");
+        StdbAuthError::Internal(format!("failed to open OIDC authorization URL: {error}"))
+    })?;
+
+    let redirect_url = wait_for_redirect(listener, &redirect_uri)?;
+
+    let code = query_param(&redirect_url, "code").ok_or_else(|| {
+        error!("OIDC redirect did not include an authorization code");
+        StdbAuthError::Internal("OIDC redirect did not include an authorization code".to_string())
+    })?;
+
+    let state = query_param(&redirect_url, "state").ok_or_else(|| {
+        error!("OIDC redirect did not include a state");
+        StdbAuthError::Internal("OIDC redirect did not include a state".to_string())
+    })?;
+
+    if state != *csrf_token.secret() {
+        error!("OIDC redirect state did not match the original CSRF token");
+        return Err(StdbAuthError::Internal(
+            "OIDC redirect state did not match the original CSRF token".to_string(),
+        ));
+    }
+
+    info!("OIDC redirect received; exchanging authorization code for token");
+
+    let http_client = oauth2::reqwest::blocking::ClientBuilder::new()
+        .redirect(oauth2::reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| {
+            error!("failed to create OIDC token exchange HTTP client: {error}");
+            StdbAuthError::Internal(format!(
+                "failed to create OIDC token exchange HTTP client: {error}"
+            ))
+        })?;
+
+    let token = client
+        .exchange_code(AuthorizationCode::new(code))
+        .set_pkce_verifier(pkce_verifier)
+        .request(&http_client)
+        .map_err(|error| {
+            error!("OIDC authorization code exchange failed: {error}");
+            StdbAuthError::Internal(format!("OIDC authorization code exchange failed: {error}"))
+        })?;
+
+    info!(
+        "OIDC authentication succeeded; received access token with expires_in={:?}, refresh_token_present={}",
+        token.expires_in(),
+        token.refresh_token().is_some()
+    );
+
+    Ok(StdbTokenResponse {
+        access_token: token.access_token().secret().to_string(),
+        token_type: format!("{:?}", token.token_type()),
+        expires_in: token.expires_in().map(|duration| duration.as_secs()),
+        refresh_token: token
+            .refresh_token()
+            .map(|refresh_token| refresh_token.secret().to_string()),
+        scope: token.scopes().map(|scopes| {
+            scopes
+                .iter()
+                .map(|scope| scope.as_ref())
+                .collect::<Vec<_>>()
+                .join(" ")
+        }),
+    })
+}
+
+fn bind_redirect_listener(redirect_uri: &Url) -> Result<TcpListener, StdbAuthError> {
+    let host = redirect_uri.host_str().ok_or_else(|| {
+        error!("OIDC redirect URI is missing a host");
+        StdbAuthError::Internal("OIDC redirect URI is missing a host".to_string())
+    })?;
+
+    let port = redirect_uri.port_or_known_default().ok_or_else(|| {
+        error!("OIDC redirect URI is missing a port");
+        StdbAuthError::Internal("OIDC redirect URI is missing a port".to_string())
+    })?;
+
+    let bind_addr = format!("{host}:{port}");
+
+    let listener = TcpListener::bind(&bind_addr).map_err(|error| {
+        error!("failed to bind OIDC redirect listener at {bind_addr}: {error}");
+        StdbAuthError::Internal(format!(
+            "failed to bind OIDC redirect listener at {bind_addr}: {error}"
+        ))
+    })?;
+
+    listener.set_nonblocking(false).map_err(|error| {
+        error!("failed to configure OIDC redirect listener: {error}");
+        StdbAuthError::Internal(format!(
+            "failed to configure OIDC redirect listener: {error}"
+        ))
+    })?;
+
+    info!("listening for OIDC redirect at {bind_addr}");
+
+    Ok(listener)
+}
+
+fn wait_for_redirect(listener: TcpListener, redirect_uri: &Url) -> Result<Url, StdbAuthError> {
+    listener.set_ttl(64).map_err(|error| {
+        error!("failed to configure OIDC redirect listener TTL: {error}");
+        StdbAuthError::Internal(format!(
+            "failed to configure OIDC redirect listener TTL: {error}"
+        ))
+    })?;
+
+    let (mut stream, _) = listener.accept().map_err(|error| {
+        error!("failed to accept OIDC redirect request: {error}");
+        StdbAuthError::Internal(format!("failed to accept OIDC redirect request: {error}"))
+    })?;
+
+    stream
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .map_err(|error| {
+            error!("failed to set OIDC redirect read timeout: {error}");
+            StdbAuthError::Internal(format!("failed to set OIDC redirect read timeout: {error}"))
+        })?;
+
+    let request_target = read_request_target(&mut stream)?;
+    let redirect_url = resolve_redirect_target(redirect_uri, &request_target)?;
+
+    write_redirect_response(&mut stream)?;
+
+    Ok(redirect_url)
+}
+
+fn read_request_target(stream: &mut TcpStream) -> Result<String, StdbAuthError> {
+    let mut reader = BufReader::new(stream);
+    let mut request_line = String::new();
+
+    reader.read_line(&mut request_line).map_err(|error| {
+        error!("failed to read OIDC redirect request line: {error}");
+        StdbAuthError::Internal(format!(
+            "failed to read OIDC redirect request line: {error}"
+        ))
+    })?;
+
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().ok_or_else(|| {
+        error!("OIDC redirect request line was empty");
+        StdbAuthError::Internal("OIDC redirect request line was empty".to_string())
+    })?;
+    let target = parts.next().ok_or_else(|| {
+        error!("OIDC redirect request line did not include a target");
+        StdbAuthError::Internal("OIDC redirect request line did not include a target".to_string())
+    })?;
+
+    if method != "GET" {
+        error!("OIDC redirect request used unsupported method: {method}");
+        return Err(StdbAuthError::Internal(format!(
+            "OIDC redirect request used unsupported method: {method}"
+        )));
+    }
+
+    Ok(target.to_string())
+}
+
+fn resolve_redirect_target(redirect_uri: &Url, request_target: &str) -> Result<Url, StdbAuthError> {
+    if let Ok(url) = Url::parse(request_target) {
+        return Ok(url);
+    }
+
+    redirect_uri.join(request_target).map_err(|error| {
+        error!("invalid OIDC redirect request target `{request_target}`: {error}");
+        StdbAuthError::Internal(format!(
+            "invalid OIDC redirect request target `{request_target}`: {error}"
+        ))
+    })
+}
+
+fn write_redirect_response(stream: &mut TcpStream) -> Result<(), StdbAuthError> {
+    let body = "Authentication complete. You can return to the application.";
+
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+    .map_err(|error| {
+        error!("failed to write OIDC redirect response: {error}");
+        StdbAuthError::Internal(format!("failed to write OIDC redirect response: {error}"))
+    })?;
+
+    stream.flush().map_err(|error| {
+        error!("failed to flush OIDC redirect response: {error}");
+        StdbAuthError::Internal(format!("failed to flush OIDC redirect response: {error}"))
+    })
+}
+
+fn query_param(url: &Url, key: &str) -> Option<String> {
+    url.query_pairs()
+        .find_map(|(name, value)| (name == key).then(|| value.into_owned()))
+}
