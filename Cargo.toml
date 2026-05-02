@@ -30,34 +30,34 @@ oauth2 = { version = "5.0", optional = true, default-features = false }
 [features]
 default = []
 
+browser = [
+    "spacetimedb-sdk/browser",
+    "dep:js-sys",
+    "dep:web-sys",
+]
+
 auth-oidc = [
-    # shared
     "dep:url",
     "dep:serde",
     "dep:reqwest",
-    # oidc
     "dep:web-sys",
     "dep:oauth2",
     "dep:keyring",
     "dep:webbrowser",
 ]
 auth-steam = [
-    # shared
     "dep:url",
     "dep:serde",
     "dep:serde_json",
     "dep:reqwest",
-    # steam
     "dep:hex",
     "dep:steamworks"
 ]
-auth = ["auth-oidc", "auth-steam"]
 
 # -----------------------------------------------------------------------------
 # Native-specific target crates
 # -----------------------------------------------------------------------------
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-spacetimedb-sdk = { version = "2.1" }
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 reqwest = { version = "0.13", optional = true, features = ["blocking", "json", "form"] }
 keyring = { version = "3.6", optional = true }
 webbrowser = { version = "1", optional = true }
@@ -68,14 +68,13 @@ hex = { version = "0.4", optional = true }
 # Wasm32-specific (Browser) target crates
 # -----------------------------------------------------------------------------
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-spacetimedb-sdk = { version = "2.1", features = ["browser"] }
 reqwest = { version = "0.13", optional = true, features = ["json", "form"] }
-js-sys = { version = "0.3", default-features = false, features = ["futures"] }
-web-sys = { version = "0.3", default-features = false, optional = true, features = [
+js-sys = { version = "0.3", optional = true, default-features = false }
+web-sys = { version = "0.3", optional = true, default-features = false, features = [
     "Window",
     "Location",
     "History",
-    "Storage"
+    "Storage",
 ] }
 
 

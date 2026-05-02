@@ -1,8 +1,8 @@
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "browser")]
 #[path = "web.rs"]
 mod auth_imp;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "browser"))]
 #[path = "native.rs"]
 mod auth_imp;
 

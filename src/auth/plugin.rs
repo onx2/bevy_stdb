@@ -204,7 +204,7 @@ async fn refresh_token_response(
     client_id: String,
     refresh_token: String,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "browser"))]
     {
         let client = reqwest::blocking::Client::new();
         let response = client
@@ -221,7 +221,7 @@ async fn refresh_token_response(
         return Ok(response);
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "browser")]
     {
         let client = reqwest::Client::new();
         let response = client

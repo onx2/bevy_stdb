@@ -71,10 +71,16 @@
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
 
-#[cfg(all(feature = "auth-steam", target_arch = "wasm32", target_os = "unknown"))]
-compile_error!(
-    "`auth-steam` is not supported on `wasm32-unknown-unknown` because `steamworks` depends on the native Steamworks SDK."
-);
+#[cfg(all(feature = "browser", feature = "auth-steam"))]
+compile_error!("`auth-steam` is not supported with the `browser` feature.");
+
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    not(feature = "browser"),
+    not(docsrs),
+))]
+compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-unknown`.");
 
 mod alias;
 mod auth;
