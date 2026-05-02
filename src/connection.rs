@@ -4,14 +4,11 @@
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 use crate::auth::StdbAuthRefresh;
 use crate::{
-    alias::{
-        ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
-    },
+    alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     auth::StdbTokenResponse,
     channel_bridge::{channel_sender, register_channel},
     message::{
-        RequestStdbConnectionMessage, StdbConnectedMessage, StdbConnectionErrorMessage,
-        StdbDisconnectedMessage,
+        StdbConnectRequest, StdbConnectedMessage, StdbDisconnectRequest, StdbDisconnectedMessage,
     },
     set::StdbSet,
 };
@@ -108,8 +105,6 @@ pub(crate) struct StdbConnectionConfig<
     connected_tx: Sender<StdbConnectedMessage>,
     /// Sender used by the SpacetimeDB on-disconnect callback.
     disconnected_tx: Sender<StdbDisconnectedMessage>,
-    /// Sender used by the SpacetimeDB on-connect-error callback.
-    error_tx: Sender<StdbConnectionErrorMessage>,
 }
 
 impl<C, M> Clone for StdbConnectionConfig<C, M>
@@ -127,7 +122,6 @@ where
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
             disconnected_tx: self.disconnected_tx.clone(),
-            error_tx: self.error_tx.clone(),
         }
     }
 }
@@ -141,7 +135,7 @@ where
     fn connection_builder(&self) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
-        let error_tx = self.error_tx.clone();
+        let connect_error_tx = self.disconnected_tx.clone();
 
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
@@ -158,7 +152,7 @@ where
                 let _ = disconnected_tx.send(StdbDisconnectedMessage { err });
             })
             .on_connect_error(move |_ctx, err| {
-                let _ = error_tx.send(StdbConnectionErrorMessage { err });
+                let _ = connect_error_tx.send(StdbDisconnectedMessage { err: Some(err) });
             })
     }
 
@@ -178,9 +172,9 @@ where
     ///
     /// The returned connection is not started automatically.
     pub(crate) async fn build_connection(&self) -> Result<Arc<C>> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(feature = "browser"))]
         return self.connection_builder().build().map(Arc::new);
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(feature = "browser")]
         return self.connection_builder().build().await.map(Arc::new);
     }
 }
@@ -279,11 +273,11 @@ impl<
 {
     /// Initializes connection state, resources, and lifecycle systems.
     fn build(&self, app: &mut App) {
-        app.add_message::<RequestStdbConnectionMessage>();
+        app.add_message::<StdbConnectRequest>();
+        app.add_message::<StdbDisconnectRequest>();
 
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
-        register_channel::<StdbConnectionErrorMessage>(app);
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
@@ -295,7 +289,6 @@ impl<
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
             disconnected_tx: channel_sender::<StdbDisconnectedMessage>(world),
-            error_tx: channel_sender::<StdbConnectionErrorMessage>(world),
         });
 
         app.add_systems(
@@ -306,6 +299,7 @@ impl<
         app.add_systems(
             PreUpdate,
             (
+                handle_disconnect_request::<C, M>,
                 handle_connection_request::<C, M>,
                 poll_pending_connection::<C, M>.run_if(resource_exists::<PendingConnection<C>>),
             )
@@ -328,6 +322,42 @@ impl<
     }
 }
 
+/// Handles pending disconnection requests.
+fn handle_disconnect_request<
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+>(
+    world: &mut World,
+) {
+    let Some(request) = world
+        .resource_mut::<Messages<StdbDisconnectRequest>>()
+        .drain()
+        .last()
+    else {
+        return;
+    };
+
+    #[cfg(not(any(feature = "auth-oidc", feature = "auth-steam")))]
+    let _ = request;
+
+    if let Some(conn) = world.get_resource::<StdbConnection<C>>() {
+        let _ = conn.disconnect();
+    }
+
+    world.remove_resource::<StdbConnection<C>>();
+    world.remove_resource::<PendingConnection<C>>();
+
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    if request.forget_auth {
+        if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
+            config.token = None;
+            config.client_id = None;
+        }
+
+        world.remove_resource::<StdbAuthRefresh>();
+    }
+}
+
 /// Initiates a pending connection attempt from a connection request.
 ///
 /// Requests can override the current connection configuration and while an
@@ -339,14 +369,12 @@ fn handle_connection_request<
     world: &mut World,
 ) {
     if world.get_resource::<PendingConnection<C>>().is_some() {
-        world
-            .resource_mut::<Messages<RequestStdbConnectionMessage>>()
-            .clear();
+        world.resource_mut::<Messages<StdbConnectRequest>>().clear();
         return;
     }
 
     let Some(request) = world
-        .resource_mut::<Messages<RequestStdbConnectionMessage>>()
+        .resource_mut::<Messages<StdbConnectRequest>>()
         .drain()
         .last()
     else {
@@ -469,14 +497,10 @@ fn poll_pending_connection<
 fn sync_connection_resource<C: DbContext + Send + Sync + 'static>(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
-    mut connection_error_msgs: ReadStdbConnectionErrorMessage,
     conn: Option<Res<StdbConnection<C>>>,
     mut commands: Commands,
 ) {
-    if connected_msgs.read().next().is_some()
-        || disconnected_msgs.read().next().is_some()
-        || connection_error_msgs.read().next().is_some()
-    {
+    if connected_msgs.read().next().is_some() || disconnected_msgs.read().next().is_some() {
         if conn.as_ref().is_some_and(|conn| !conn.is_active()) {
             commands.remove_resource::<StdbConnection<C>>();
         }

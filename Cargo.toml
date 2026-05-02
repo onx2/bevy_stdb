@@ -40,8 +40,8 @@ browser = [
 auth-oidc = [
     "dep:url",
     "dep:serde",
+    "dep:serde_json",
     "dep:reqwest",
-    "dep:web-sys",
     "dep:oauth2",
     "dep:keyring",
     "dep:webbrowser",
@@ -80,5 +80,5 @@ web-sys = { version = "0.3", optional = true, default-features = false, features
 
 
 [package.metadata.docs.rs]
-all-features = true
+features = true
 rustdoc-args = ["--cfg", "docsrs"]

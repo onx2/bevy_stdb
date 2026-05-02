@@ -71,7 +71,13 @@
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
 
-#[cfg(all(feature = "browser", feature = "auth-steam"))]
+#[cfg(all(
+    feature = "browser",
+    feature = "auth-steam",
+    target_arch = "wasm32",
+    target_os = "unknown",
+    not(docsrs),
+))]
 compile_error!("`auth-steam` is not supported with the `browser` feature.");
 
 #[cfg(all(
@@ -85,6 +91,7 @@ compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-
 mod alias;
 mod auth;
 mod channel_bridge;
+mod commands;
 mod connection;
 mod message;
 mod plugin;
@@ -97,17 +104,17 @@ mod table;
 pub mod prelude {
     pub use crate::{
         alias::{
-            ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage,
-            ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
+            ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage, ReadStdbConnectRequest,
+            ReadStdbConnectedMessage, ReadStdbDisconnectRequest, ReadStdbDisconnectedMessage,
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
-            ReadUpdateMessage, WriteRequestStdbConnectionMessage,
+            ReadUpdateMessage, WriteStdbConnectRequest, WriteStdbDisconnectRequest,
         },
         auth::StdbAuthSource,
+        commands::StdbCommands,
         connection::StdbConnection,
         message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, RequestStdbConnectionMessage,
-            StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage,
+            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectRequest,
+            StdbConnectedMessage, StdbDisconnectRequest, StdbDisconnectedMessage,
             StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
@@ -118,6 +125,6 @@ pub mod prelude {
 
     #[cfg(feature = "auth-oidc")]
     pub use crate::auth::StdbOidcAuthOptions;
-    #[cfg(feature = "auth-steam")]
+    #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
     pub use crate::auth::StdbSteamAuthOptions;
 }

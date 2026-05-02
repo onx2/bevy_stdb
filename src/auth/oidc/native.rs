@@ -1,6 +1,6 @@
 /*
  * Native OIDC Flow
- * 1. RequestStdbConnectionMessage
+ * 1. StdbConnectRequest
  *    - auth_source: StdbAuthTarget::Oidc(OidcOptions { ... }) -> Pulled from config
  * 2. handle_connection_request (when `auth_source` exists)
  *     - Build OIDC client (PKDE, auth_url, etc...)

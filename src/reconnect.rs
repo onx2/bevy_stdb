@@ -1,15 +1,12 @@
 //! Reconnect policy and runtime state for SpacetimeDB connections.
 //!
 //! Manages reconnect timing and backoff. When a disconnect with an error or a
-//! connection error message is received, a reconnect timer is scheduled. When
-//! the timer fires, a [`RequestStdbConnectionMessage`] is sent and the
+//! disconnect error message is received, a reconnect timer is scheduled. When
+//! the timer fires, a [`StdbConnectRequest`] is sent and the
 //! connection module handles the actual connection building.
 
 use crate::{
-    alias::{
-        ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
-        WriteRequestStdbConnectionMessage,
-    },
+    alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage, WriteStdbConnectRequest},
     connection::StdbConnection,
     set::StdbSet,
 };
@@ -128,17 +125,15 @@ fn update_reconnect_backoff<C: DbContext + Send + Sync + 'static>(
     mut reconnect: ResMut<ReconnectBackoff>,
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
-    mut connection_error_msgs: ReadStdbConnectionErrorMessage,
     conn: Option<Res<StdbConnection<C>>>,
 ) {
     if connected_msgs.read().next().is_some() {
         return;
     }
 
-    let saw_connection_error = connection_error_msgs.read().next().is_some();
     let saw_disconnect_error = disconnected_msgs.read().any(|msg| msg.err.is_some());
 
-    if !saw_connection_error && !saw_disconnect_error {
+    if !saw_disconnect_error {
         return;
     }
 
@@ -189,7 +184,7 @@ fn reset_reconnect_state(
 fn tick_reconnect_timer(
     time: Res<Time>,
     mut reconnect: ResMut<ReconnectBackoff>,
-    mut request_connection: WriteRequestStdbConnectionMessage,
+    mut request_connection: WriteStdbConnectRequest,
 ) {
     let Some(timer) = reconnect.timer.as_mut() else {
         return;

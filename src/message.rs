@@ -26,13 +26,6 @@ pub struct StdbDisconnectedMessage {
     pub err: Option<Error>,
 }
 
-/// A [`Message`] sent when a SpacetimeDB connection attempt fails.
-#[derive(Message, Debug)]
-pub struct StdbConnectionErrorMessage {
-    /// The connection error.
-    pub err: Error,
-}
-
 /// A [`Message`] sent when a subscription is applied.
 #[derive(Message, Clone, Debug)]
 pub struct StdbSubscriptionAppliedMessage<K> {
@@ -122,16 +115,17 @@ where
 /// If any field is `Some`, it overrides the currently stored value and becomes the
 /// value used for this attempt and future reconnect attempts.
 #[derive(Message, Clone, Debug, Default)]
-pub struct RequestStdbConnectionMessage {
-    /// Optional authentication options for the connection
+pub struct StdbConnectRequest {
+    /// Optional [`StdbAuthSource`] for the connection.
     pub auth_source: Option<StdbAuthSource>,
-    /// Optional URI to use for this connection attempt.
+    /// Optional URI for this connection attempt.
     pub uri: Option<String>,
-    /// Optional module name to use for this connection attempt.
+    /// Optional module name for this connection attempt.
     pub module_name: Option<String>,
 }
-impl RequestStdbConnectionMessage {
-    /// Build a [`RequestStdbConnectionMessage`] with default values and an `auth_source` override.
+
+impl StdbConnectRequest {
+    /// Creates a [`StdbConnectRequest`] with an authentication source.
     pub fn with_auth(auth_source: StdbAuthSource) -> Self {
         Self {
             auth_source: Some(auth_source),
@@ -139,7 +133,8 @@ impl RequestStdbConnectionMessage {
             module_name: None,
         }
     }
-    /// Build a [`RequestStdbConnectionMessage`] with default values and an `uri` override.
+
+    /// Creates a [`StdbConnectRequest`] with a URI.
     pub fn with_uri(uri: impl Into<String>) -> Self {
         Self {
             auth_source: None,
@@ -147,7 +142,8 @@ impl RequestStdbConnectionMessage {
             module_name: None,
         }
     }
-    /// Build a [`RequestStdbConnectionMessage`] with default values and an `module_name` override.
+
+    /// Creates a [`StdbConnectRequest`] with a module name.
     pub fn with_module_name(module_name: impl Into<String>) -> Self {
         Self {
             auth_source: None,
@@ -155,7 +151,8 @@ impl RequestStdbConnectionMessage {
             module_name: Some(module_name.into()),
         }
     }
-    /// Build a [`RequestStdbConnectionMessage`] with default `auth_source` only.
+
+    /// Creates a [`StdbConnectRequest`] with a URI and module name.
     pub fn with_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
         Self {
             auth_source: None,
@@ -163,4 +160,11 @@ impl RequestStdbConnectionMessage {
             module_name: Some(module_name.into()),
         }
     }
+}
+
+/// Requests a SpacetimeDB disconnection.
+#[derive(Message, Clone, Debug, Default)]
+pub struct StdbDisconnectRequest {
+    /// Clears stored authentication state when `true`.
+    pub forget_auth: bool,
 }

@@ -1,8 +1,8 @@
 //! [`MessageReader`] type aliases for connection lifecycle and table messages.
 use crate::message::{
-    DeleteMessage, InsertMessage, InsertUpdateMessage, RequestStdbConnectionMessage,
-    StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage,
-    StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
+    DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectRequest, StdbConnectedMessage,
+    StdbDisconnectRequest, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+    StdbSubscriptionErrorMessage, UpdateMessage,
 };
 use bevy_ecs::prelude::{MessageReader, MessageWriter};
 
@@ -24,15 +24,17 @@ pub type ReadStdbConnectedMessage<'w, 's> = MessageReader<'w, 's, StdbConnectedM
 /// A [`MessageReader`] for [`StdbDisconnectedMessage`].
 pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconnectedMessage>;
 
-/// A [`MessageReader`] for [`StdbConnectionErrorMessage`].
-pub type ReadStdbConnectionErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectionErrorMessage>;
+/// A [`MessageReader`] for [`StdbConnectRequest`].
+pub type ReadStdbConnectRequest<'w, 's> = MessageReader<'w, 's, StdbConnectRequest>;
 
-/// A [`MessageReader`] for [`RequestStdbConnectionMessage`].
-pub type ReadRequestStdbConnectionMessage<'w, 's> =
-    MessageReader<'w, 's, RequestStdbConnectionMessage>;
+/// A [`MessageWriter`] for [`StdbConnectRequest`].
+pub type WriteStdbConnectRequest<'w> = MessageWriter<'w, StdbConnectRequest>;
 
-/// A [`MessageWriter`] for [`RequestStdbConnectionMessage`].
-pub type WriteRequestStdbConnectionMessage<'w> = MessageWriter<'w, RequestStdbConnectionMessage>;
+/// A [`MessageReader`] for [`StdbDisconnectRequest`].
+pub type ReadStdbDisconnectRequest<'w, 's> = MessageReader<'w, 's, StdbDisconnectRequest>;
+
+/// A [`MessageWriter`] for [`StdbDisconnectRequest`].
+pub type WriteStdbDisconnectRequest<'w> = MessageWriter<'w, StdbDisconnectRequest>;
 
 /// A [`MessageReader`] for [`StdbSubscriptionAppliedMessage<K>`].
 pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
