@@ -89,13 +89,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run cargo check
-        run: cargo check --target wasm32-unknown-unknown --locked
+        run: cargo check --target wasm32-unknown-unknown --features browser --locked
 
       - name: Run clippy
-        run: cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
+        run: cargo clippy --target wasm32-unknown-unknown --features browser --locked -- -D warnings
 
       - name: Build docs
-        run: cargo doc --target wasm32-unknown-unknown --no-deps --locked
+        run: cargo doc --target wasm32-unknown-unknown --no-deps --features browser --locked
 
   msrv:
     name: MSRV check
