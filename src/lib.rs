@@ -93,6 +93,7 @@ mod auth;
 mod channel_bridge;
 mod commands;
 mod connection;
+mod log;
 mod message;
 mod plugin;
 mod reconnect;

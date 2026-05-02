@@ -3,6 +3,7 @@
 //! Manages the active connection, lifecycle states, and related resources.
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 use crate::auth::StdbAuthRefresh;
+use crate::log::{error, info};
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     auth::StdbTokenResponse,
@@ -381,16 +382,24 @@ fn handle_connection_request<
         return;
     };
 
+    info!("preparing SpacetimeDB connection request");
+
     world.insert_resource(PendingConnection::<C>::new(
         PendingConnectionPhase::Prepare(IoTaskPool::get().spawn(async move {
             let (token_response, client_id) = match request.auth_source {
                 Some(auth_source) => {
+                    info!("acquiring authentication token for SpacetimeDB connection");
                     let Some(token_response) = auth_source.acquire_token_response().await else {
+                        error!("authentication token acquisition did not produce a token response");
                         return Err(PrepareConnectionError::TokenResponseUnavailable);
                     };
+                    info!("authentication token acquired for SpacetimeDB connection");
                     (Some(token_response), auth_source.client_id())
                 }
-                None => (None, None),
+                None => {
+                    info!("preparing unauthenticated SpacetimeDB connection");
+                    (None, None)
+                }
             };
 
             Ok(PreparedConnection {
@@ -423,8 +432,12 @@ fn poll_pending_connection<
                 return;
             };
 
-            let Ok(prepared_conn) = result else {
-                return;
+            let prepared_conn = match result {
+                Ok(prepared_conn) => prepared_conn,
+                Err(err) => {
+                    error!("failed to prepare SpacetimeDB connection: {err:?}");
+                    return;
+                }
             };
 
             let connect_config = {
@@ -487,7 +500,9 @@ fn poll_pending_connection<
                     }
                     world.insert_resource(StdbConnection::new(conn));
                 }
-                Err(_) => { /* TBD */ }
+                Err(err) => {
+                    error!("failed to build SpacetimeDB connection: {err}");
+                }
             }
         }
     }
