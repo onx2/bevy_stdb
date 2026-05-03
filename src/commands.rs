@@ -1,9 +1,6 @@
-use crate::{
-    auth::StdbAuthSource,
-    message::{
-        StdbConnectOptions, StdbConnectRequest, StdbDisconnectOptions, StdbDisconnectRequest,
-        StdbLoginOptions, StdbLoginRequest, StdbLogoutOptions, StdbLogoutRequest,
-    },
+use crate::message::{
+    StdbConnectOptions, StdbConnectRequest, StdbDisconnectOptions, StdbDisconnectRequest,
+    StdbLoginOptions, StdbLoginRequest, StdbLogoutOptions, StdbLogoutRequest,
 };
 use bevy_ecs::{prelude::MessageWriter, system::SystemParam};
 
@@ -17,43 +14,23 @@ pub struct StdbCommands<'w> {
 }
 
 impl StdbCommands<'_> {
-    /// Requests authentication with a [`StdbAuthSource`].
-    pub fn login(&mut self, auth_source: StdbAuthSource) {
-        self.login_with(StdbLoginOptions::new(auth_source));
-    }
-
-    /// Requests authentication with [`StdbLoginOptions`].
-    pub fn login_with(&mut self, options: StdbLoginOptions) {
+    /// Requests authentication using [`StdbLoginOptions`].
+    pub fn login(&mut self, options: StdbLoginOptions) {
         self.login_requests.write(StdbLoginRequest { options });
     }
 
-    /// Requests stored authentication to be cleared.
-    pub fn logout(&mut self) {
-        self.logout_with(StdbLogoutOptions::default());
-    }
-
-    /// Requests stored authentication to be cleared with [`StdbLogoutOptions`].
-    pub fn logout_with(&mut self, options: StdbLogoutOptions) {
+    /// Requests stored authentication to be cleared using [`StdbLogoutOptions`].
+    pub fn logout(&mut self, options: StdbLogoutOptions) {
         self.logout_requests.write(StdbLogoutRequest { options });
     }
 
-    /// Requests a SpacetimeDB connection attempt.
-    pub fn connect(&mut self) {
-        self.connect_with(StdbConnectOptions::default());
-    }
-
-    /// Requests a SpacetimeDB connection attempt with [`StdbConnectOptions`].
-    pub fn connect_with(&mut self, options: StdbConnectOptions) {
+    /// Requests a SpacetimeDB connection attempt using [`StdbConnectOptions`].
+    pub fn connect(&mut self, options: StdbConnectOptions) {
         self.connect_requests.write(StdbConnectRequest { options });
     }
 
-    /// Requests disconnection from SpacetimeDB.
-    pub fn disconnect(&mut self) {
-        self.disconnect_with(StdbDisconnectOptions);
-    }
-
-    /// Requests disconnection from SpacetimeDB with [`StdbDisconnectOptions`].
-    pub fn disconnect_with(&mut self, options: StdbDisconnectOptions) {
+    /// Requests disconnection from SpacetimeDB using [`StdbDisconnectOptions`].
+    pub fn disconnect(&mut self, options: StdbDisconnectOptions) {
         self.disconnect_requests
             .write(StdbDisconnectRequest { options });
     }
