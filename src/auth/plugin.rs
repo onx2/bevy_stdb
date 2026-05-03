@@ -13,6 +13,7 @@ use spacetimedb_sdk::{
 use std::{marker::PhantomData, time::Duration};
 
 const TOKEN_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/token";
+
 const TOKEN_REFRESH_BUFFER_SECS: u64 = 60;
 
 pub struct StdbAuthPlugin<C, M>

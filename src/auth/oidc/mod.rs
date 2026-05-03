@@ -1,3 +1,5 @@
+mod common;
+
 #[cfg(feature = "browser")]
 #[path = "web.rs"]
 mod auth_imp;
@@ -21,5 +23,5 @@ pub struct StdbOidcAuthOptions {
 pub async fn acquire_token_response(
     options: &StdbOidcAuthOptions,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
-    auth_imp::acquire_token_response(options).await
+    auth_imp::acquire_token_response(options)
 }

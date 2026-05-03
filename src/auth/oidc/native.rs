@@ -1,27 +1,21 @@
-use super::{StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse};
+use super::{
+    StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse,
+    common::{AUTH_ENDPOINT, TOKEN_ENDPOINT, authorization_redirect, token_response_from_oauth},
+};
 use crate::log::{error, info};
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
-    TokenResponse, TokenUrl, basic::BasicClient,
+    AuthUrl, AuthorizationCode, ClientId, CsrfToken, HttpClientError, HttpRequest,
+    PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl, basic::BasicClient,
 };
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     time::Duration,
 };
 use url::Url;
 
-const AUTH_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/auth";
-const TOKEN_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/token";
-
 /// Acquires a token response using the native OIDC authorization code flow.
-pub async fn acquire_token_response(
-    options: &StdbOidcAuthOptions,
-) -> Result<StdbTokenResponse, StdbAuthError> {
-    acquire_token_response_blocking(options)
-}
-
-fn acquire_token_response_blocking(
+pub(crate) fn acquire_token_response(
     options: &StdbOidcAuthOptions,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
     info!(
@@ -36,7 +30,7 @@ fn acquire_token_response_blocking(
 
     let listener = bind_redirect_listener(&redirect_uri)?;
 
-    let client = BasicClient::new(ClientId::new(options.client_id.clone()))
+    let oauth_client = BasicClient::new(ClientId::new(options.client_id.clone()))
         .set_auth_uri(AuthUrl::new(AUTH_ENDPOINT.to_string()).map_err(|error| {
             error!("invalid OIDC authorization endpoint: {error}");
             StdbAuthError::Internal(format!("invalid OIDC authorization endpoint: {error}"))
@@ -54,7 +48,7 @@ fn acquire_token_response_blocking(
 
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
-    let mut authorize_request = client
+    let mut authorize_request = oauth_client
         .authorize_url(CsrfToken::new_random)
         .set_pkce_challenge(pkce_challenge);
 
@@ -73,17 +67,14 @@ fn acquire_token_response_blocking(
 
     let redirect_url = wait_for_redirect(listener, &redirect_uri)?;
 
-    let code = query_param(&redirect_url, "code").ok_or_else(|| {
-        error!("OIDC redirect did not include an authorization code");
-        StdbAuthError::Internal("OIDC redirect did not include an authorization code".to_string())
+    let redirect = authorization_redirect(&redirect_url).ok_or_else(|| {
+        error!("OIDC redirect did not include an authorization code and state");
+        StdbAuthError::Internal(
+            "OIDC redirect did not include an authorization code and state".to_string(),
+        )
     })?;
 
-    let state = query_param(&redirect_url, "state").ok_or_else(|| {
-        error!("OIDC redirect did not include a state");
-        StdbAuthError::Internal("OIDC redirect did not include a state".to_string())
-    })?;
-
-    if state != *csrf_token.secret() {
+    if redirect.state != *csrf_token.secret() {
         error!("OIDC redirect state did not match the original CSRF token");
         return Err(StdbAuthError::Internal(
             "OIDC redirect state did not match the original CSRF token".to_string(),
@@ -92,8 +83,8 @@ fn acquire_token_response_blocking(
 
     info!("OIDC redirect received; exchanging authorization code for token");
 
-    let http_client = oauth2::reqwest::blocking::ClientBuilder::new()
-        .redirect(oauth2::reqwest::redirect::Policy::none())
+    let http_client = reqwest::blocking::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| {
             error!("failed to create OIDC token exchange HTTP client: {error}");
@@ -102,10 +93,27 @@ fn acquire_token_response_blocking(
             ))
         })?;
 
-    let token = client
-        .exchange_code(AuthorizationCode::new(code))
+    let token = oauth_client
+        .exchange_code(AuthorizationCode::new(redirect.code))
         .set_pkce_verifier(pkce_verifier)
-        .request(&http_client)
+        .request(&|request: HttpRequest| {
+            let mut response = http_client
+                .execute(request.try_into().map_err(Box::new)?)
+                .map_err(Box::new)?;
+
+            let mut builder = oauth2::http::Response::builder()
+                .status(response.status())
+                .version(response.version());
+
+            for (name, value) in response.headers() {
+                builder = builder.header(name, value);
+            }
+
+            let mut body = Vec::new();
+            response.read_to_end(&mut body)?;
+
+            builder.body(body).map_err(HttpClientError::Http)
+        })
         .map_err(|error| {
             error!("OIDC authorization code exchange failed: {error}");
             StdbAuthError::Internal(format!("OIDC authorization code exchange failed: {error}"))
@@ -117,21 +125,7 @@ fn acquire_token_response_blocking(
         token.refresh_token().is_some()
     );
 
-    Ok(StdbTokenResponse {
-        access_token: token.access_token().secret().to_string(),
-        token_type: format!("{:?}", token.token_type()),
-        expires_in: token.expires_in().map(|duration| duration.as_secs()),
-        refresh_token: token
-            .refresh_token()
-            .map(|refresh_token| refresh_token.secret().to_string()),
-        scope: token.scopes().map(|scopes| {
-            scopes
-                .iter()
-                .map(|scope| scope.as_ref())
-                .collect::<Vec<_>>()
-                .join(" ")
-        }),
-    })
+    Ok(token_response_from_oauth(&token))
 }
 
 fn bind_redirect_listener(redirect_uri: &Url) -> Result<TcpListener, StdbAuthError> {
@@ -146,7 +140,6 @@ fn bind_redirect_listener(redirect_uri: &Url) -> Result<TcpListener, StdbAuthErr
     })?;
 
     let bind_addr = format!("{host}:{port}");
-
     let listener = TcpListener::bind(&bind_addr).map_err(|error| {
         error!("failed to bind OIDC redirect listener at {bind_addr}: {error}");
         StdbAuthError::Internal(format!(
@@ -256,9 +249,4 @@ fn write_redirect_response(stream: &mut TcpStream) -> Result<(), StdbAuthError> 
         error!("failed to flush OIDC redirect response: {error}");
         StdbAuthError::Internal(format!("failed to flush OIDC redirect response: {error}"))
     })
-}
-
-fn query_param(url: &Url, key: &str) -> Option<String> {
-    url.query_pairs()
-        .find_map(|(name, value)| (name == key).then(|| value.into_owned()))
 }
