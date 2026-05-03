@@ -254,7 +254,6 @@ where
             (|mut subs: ResMut<StdbSubscriptions<K, M>>| {
                 for entry in subs.entries.values_mut() {
                     entry.queued |= entry.handle.is_some();
-                    entry.handle = None;
                 }
             })
             .in_set(StdbSet::Subscriptions)
