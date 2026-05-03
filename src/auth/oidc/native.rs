@@ -52,6 +52,10 @@ pub(crate) fn acquire_token_response(
         .authorize_url(CsrfToken::new_random)
         .set_pkce_challenge(pkce_challenge);
 
+    if let Some(prompt) = options.prompt.as_param() {
+        authorize_request = authorize_request.add_extra_param("prompt", prompt);
+    }
+
     for scope in &options.scopes {
         authorize_request = authorize_request.add_scope(Scope::new(scope.clone()));
     }

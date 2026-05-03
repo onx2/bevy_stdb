@@ -1,6 +1,7 @@
 use crate::{
     auth::{StdbAuthError, StdbAuthSource, StdbTokenResponse},
     connection::{StdbConnection, StdbConnectionConfig},
+    log::{error, info},
     message::{
         StdbLoginFailedMessage, StdbLoginRequest, StdbLoginSucceededMessage, StdbLogoutRequest,
     },
@@ -189,8 +190,15 @@ fn poll_pending_login<
 
             if let Some(refresh_token) = outcome.token_response.refresh_token.as_deref() {
                 if let Some(client_id) = client_id.as_deref() {
+                    info!("storing OIDC refresh token for client_id={client_id}");
                     store_refresh_token(client_id, refresh_token);
+                } else {
+                    error!(
+                        "received OIDC refresh token but no client ID was available for storage"
+                    );
                 }
+            } else {
+                info!("login token response did not include a refresh token");
             }
 
             if let Some(auth_refresh) =
@@ -358,11 +366,38 @@ async fn acquire_login_token_response(
 ) -> Result<StdbTokenResponse, StdbAuthError> {
     #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
     if let StdbAuthSource::Oidc(options) = auth_source {
+        info!(
+            "checking keyring service `{KEYRING_SERVICE}` for stored OIDC refresh token for client_id={}",
+            options.client_id
+        );
+
         if let Some(refresh_token) = stored_refresh_token(&options.client_id) {
+            info!(
+                "found stored OIDC refresh token for client_id={}; attempting refresh",
+                options.client_id
+            );
+
             match refresh_token_response(options.client_id.clone(), refresh_token).await {
-                Ok(token_response) => return Ok(token_response),
-                Err(_) => clear_stored_refresh_token(&options.client_id),
+                Ok(token_response) => {
+                    info!(
+                        "stored OIDC refresh token succeeded for client_id={}",
+                        options.client_id
+                    );
+                    return Ok(token_response);
+                }
+                Err(error) => {
+                    error!(
+                        "stored OIDC refresh token failed for client_id={}: {:?}",
+                        options.client_id, error
+                    );
+                    clear_stored_refresh_token(&options.client_id);
+                }
             }
+        } else {
+            info!(
+                "no stored OIDC refresh token found for client_id={}; starting interactive login",
+                options.client_id
+            );
         }
     }
 
@@ -371,10 +406,30 @@ async fn acquire_login_token_response(
 
 #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
 fn stored_refresh_token(client_id: &str) -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, client_id)
-        .ok()?
-        .get_password()
-        .ok()
+    let entry = match keyring::Entry::new(KEYRING_SERVICE, client_id) {
+        Ok(entry) => entry,
+        Err(error) => {
+            error!(
+                "failed to open keyring service `{KEYRING_SERVICE}` entry for OIDC refresh token client_id={client_id}: {error}"
+            );
+            return None;
+        }
+    };
+
+    match entry.get_password() {
+        Ok(refresh_token) => {
+            info!(
+                "loaded OIDC refresh token from keyring service `{KEYRING_SERVICE}` for client_id={client_id}"
+            );
+            Some(refresh_token)
+        }
+        Err(error) => {
+            info!(
+                "no OIDC refresh token available in keyring service `{KEYRING_SERVICE}` for client_id={client_id}: {error}"
+            );
+            None
+        }
+    }
 }
 
 #[cfg(not(all(feature = "auth-oidc", not(feature = "browser"))))]
@@ -382,8 +437,27 @@ fn store_refresh_token(_client_id: &str, _refresh_token: &str) {}
 
 #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
 fn store_refresh_token(client_id: &str, refresh_token: &str) {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, client_id) {
-        let _ = entry.set_password(refresh_token);
+    let entry = match keyring::Entry::new(KEYRING_SERVICE, client_id) {
+        Ok(entry) => entry,
+        Err(error) => {
+            error!(
+                "failed to open keyring service `{KEYRING_SERVICE}` entry for storing OIDC refresh token client_id={client_id}: {error}"
+            );
+            return;
+        }
+    };
+
+    match entry.set_password(refresh_token) {
+        Ok(()) => {
+            info!(
+                "stored OIDC refresh token in keyring service `{KEYRING_SERVICE}` for client_id={client_id}"
+            );
+        }
+        Err(error) => {
+            error!(
+                "failed to store OIDC refresh token in keyring for client_id={client_id}: {error}"
+            );
+        }
     }
 }
 
@@ -392,8 +466,27 @@ fn clear_stored_refresh_token(_client_id: &str) {}
 
 #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
 fn clear_stored_refresh_token(client_id: &str) {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, client_id) {
-        let _ = entry.delete_credential();
+    let entry = match keyring::Entry::new(KEYRING_SERVICE, client_id) {
+        Ok(entry) => entry,
+        Err(error) => {
+            error!(
+                "failed to open keyring service `{KEYRING_SERVICE}` entry for clearing OIDC refresh token client_id={client_id}: {error}"
+            );
+            return;
+        }
+    };
+
+    match entry.delete_credential() {
+        Ok(()) => {
+            info!(
+                "cleared OIDC refresh token from keyring service `{KEYRING_SERVICE}` for client_id={client_id}"
+            );
+        }
+        Err(error) => {
+            error!(
+                "failed to clear OIDC refresh token from keyring for client_id={client_id}: {error}"
+            );
+        }
     }
 }
 

@@ -64,7 +64,7 @@ auth-steam = [
 # -----------------------------------------------------------------------------
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 reqwest = { version = "0.13", optional = true, features = ["blocking", "json", "form"] }
-keyring = { version = "3.6", optional = true }
+keyring = { version = "3.6", optional = true, features = ["linux-native-sync-persistent", "apple-native", "windows-native"] }
 webbrowser = { version = "1", optional = true }
 steamworks = { version = "0.13", optional = true }
 hex = { version = "0.4", optional = true }

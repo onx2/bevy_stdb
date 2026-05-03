@@ -16,7 +16,7 @@ pub(crate) mod steam;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 pub(crate) use error::StdbAuthError;
 #[cfg(feature = "auth-oidc")]
-pub use oidc::StdbOidcAuthOptions;
+pub use oidc::{StdbOidcAuthOptions, StdbOidcPrompt};
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 pub use plugin::StdbAuthPlugin;
 

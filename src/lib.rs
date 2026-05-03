@@ -127,8 +127,8 @@ pub mod prelude {
         subscription::StdbSubscriptions,
     };
 
-    #[cfg(feature = "auth-oidc")]
-    pub use crate::auth::StdbOidcAuthOptions;
     #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
     pub use crate::auth::StdbSteamAuthOptions;
+    #[cfg(feature = "auth-oidc")]
+    pub use crate::auth::{StdbOidcAuthOptions, StdbOidcPrompt};
 }
