@@ -319,15 +319,13 @@ fn handle_disconnect_request<
 >(
     world: &mut World,
 ) {
-    let Some(request) = world
+    let Some(_request) = world
         .resource_mut::<Messages<StdbDisconnectRequest>>()
         .drain()
         .last()
     else {
         return;
     };
-
-    let _ = request.options;
 
     if let Some(conn) = world.get_resource::<StdbConnection<C>>() {
         let _ = conn.disconnect();
@@ -365,15 +363,15 @@ fn handle_connection_request<
     let connect_config = {
         let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
 
-        if let Some(uri) = request.options.uri {
+        if let Some(uri) = request.uri {
             config.uri = uri;
         }
 
-        if let Some(module_name) = request.options.module_name {
+        if let Some(module_name) = request.module_name {
             config.module_name = module_name;
         }
 
-        if let Some(token) = request.options.token {
+        if let Some(token) = request.token {
             config.token = Some(token);
         }
 

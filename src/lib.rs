@@ -111,12 +111,14 @@ pub mod prelude {
             ReadStdbSubscriptionErrorMessage, ReadUpdateMessage,
         },
         auth::StdbAuthSource,
-        commands::StdbCommands,
+        commands::{
+            StdbCommands, StdbConnectOptions, StdbDisconnectOptions, StdbLoginOptions,
+            StdbLogoutOptions,
+        },
         connection::StdbConnection,
         message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectOptions,
-            StdbConnectedMessage, StdbDisconnectOptions, StdbDisconnectedMessage,
-            StdbLoginFailedMessage, StdbLoginOptions, StdbLoginSucceededMessage, StdbLogoutOptions,
+            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
+            StdbDisconnectedMessage, StdbLoginFailedMessage, StdbLoginSucceededMessage,
             StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,

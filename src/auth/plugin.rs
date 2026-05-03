@@ -150,7 +150,7 @@ fn handle_login_request(world: &mut World) {
         return;
     };
 
-    let auth_source = request.options.auth_source;
+    let auth_source = request.auth_source;
     let client_id = auth_source.client_id();
 
     world.insert_resource(PendingLogin(IoTaskPool::get().spawn(async move {
@@ -233,13 +233,13 @@ fn handle_logout_request<
         .get_resource::<StdbConnectionConfig<C, M>>()
         .and_then(|config| config.client_id().map(str::to_owned));
 
-    if request.options.clear_stored_refresh_token {
+    if request.clear_stored_refresh_token {
         if let Some(client_id) = client_id.as_deref() {
             clear_stored_refresh_token(client_id);
         }
     }
 
-    if request.options.clear_memory_session {
+    if request.clear_memory_session {
         if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
             config.clear_auth();
         }
