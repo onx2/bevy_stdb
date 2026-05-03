@@ -1,12 +1,9 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-use crate::auth::StdbAuthRefresh;
 use crate::log::{error, info};
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
-    auth::StdbTokenResponse,
     channel_bridge::{channel_sender, register_channel},
     message::{
         StdbConnectRequest, StdbConnectedMessage, StdbDisconnectRequest, StdbDisconnectedMessage,
@@ -25,29 +22,8 @@ use spacetimedb_sdk::{
 };
 use std::sync::Arc;
 
-/// Stores the finalized connection inputs for a pending attempt.
-struct PreparedConnection {
-    /// The URI override for this attempt.
-    uri: Option<String>,
-    /// The module name override for this attempt.
-    module_name: Option<String>,
-    /// The token response for this attempt, if one was acquired.
-    token_response: Option<StdbTokenResponse>,
-    /// The client ID for this attempt, if needed.
-    client_id: Option<String>,
-}
-
-/// Represents a failure while preparing a connection attempt.
-#[derive(Debug)]
-enum PrepareConnectionError {
-    /// The requested authentication source did not produce a token response.
-    TokenResponseUnavailable,
-}
-
 /// Tracks the current phase of a pending connection attempt.
 enum PendingConnectionPhase<C: DbContext + Send + Sync + 'static> {
-    /// Prepares the finalized connection inputs for this attempt.
-    Prepare(Task<std::result::Result<PreparedConnection, PrepareConnectionError>>),
     /// Builds the SpacetimeDB connection from a finalized config snapshot.
     Build(Task<Result<Arc<C>>>),
 }
@@ -161,6 +137,19 @@ where
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub(crate) fn update_token(&mut self, token: String) {
         self.token = Some(token);
+    }
+
+    /// Updates the client ID used for token refresh.
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    pub(crate) fn update_client_id(&mut self, client_id: Option<String>) {
+        self.client_id = client_id;
+    }
+
+    /// Clears stored authentication data from the connection config.
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    pub(crate) fn clear_auth(&mut self) {
+        self.token = None;
+        self.client_id = None;
     }
 
     /// Returns the client ID used for auth refresh, if available.
@@ -338,8 +327,7 @@ fn handle_disconnect_request<
         return;
     };
 
-    #[cfg(not(any(feature = "auth-oidc", feature = "auth-steam")))]
-    let _ = request;
+    let _ = request.options;
 
     if let Some(conn) = world.get_resource::<StdbConnection<C>>() {
         let _ = conn.disconnect();
@@ -347,16 +335,6 @@ fn handle_disconnect_request<
 
     world.remove_resource::<StdbConnection<C>>();
     world.remove_resource::<PendingConnection<C>>();
-
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    if request.forget_auth {
-        if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
-            config.token = None;
-            config.client_id = None;
-        }
-
-        world.remove_resource::<StdbAuthRefresh>();
-    }
 }
 
 /// Initiates a pending connection attempt from a connection request.
@@ -384,32 +362,27 @@ fn handle_connection_request<
 
     info!("preparing SpacetimeDB connection request");
 
-    world.insert_resource(PendingConnection::<C>::new(
-        PendingConnectionPhase::Prepare(IoTaskPool::get().spawn(async move {
-            let (token_response, client_id) = match request.auth_source {
-                Some(auth_source) => {
-                    info!("acquiring authentication token for SpacetimeDB connection");
-                    let Some(token_response) = auth_source.acquire_token_response().await else {
-                        error!("authentication token acquisition did not produce a token response");
-                        return Err(PrepareConnectionError::TokenResponseUnavailable);
-                    };
-                    info!("authentication token acquired for SpacetimeDB connection");
-                    (Some(token_response), auth_source.client_id())
-                }
-                None => {
-                    info!("preparing unauthenticated SpacetimeDB connection");
-                    (None, None)
-                }
-            };
+    let connect_config = {
+        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
 
-            Ok(PreparedConnection {
-                uri: request.uri,
-                module_name: request.module_name,
-                token_response,
-                client_id,
-            })
-        })),
-    ));
+        if let Some(uri) = request.options.uri {
+            config.uri = uri;
+        }
+
+        if let Some(module_name) = request.options.module_name {
+            config.module_name = module_name;
+        }
+
+        if let Some(token) = request.options.token {
+            config.token = Some(token);
+        }
+
+        config.clone()
+    };
+
+    world.insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
+        IoTaskPool::get().spawn(async move { connect_config.build_connection().await }),
+    )));
 }
 
 /// Polls a pending connection resource per tick, advancing the connection phase when needed.
@@ -424,57 +397,6 @@ fn poll_pending_connection<
     };
 
     match pending_connection.phase {
-        PendingConnectionPhase::Prepare(mut task) => {
-            let Some(result) = block_on(poll_once(&mut task)) else {
-                world.insert_resource(PendingConnection::<C> {
-                    phase: PendingConnectionPhase::Prepare(task),
-                });
-                return;
-            };
-
-            let prepared_conn = match result {
-                Ok(prepared_conn) => prepared_conn,
-                Err(err) => {
-                    error!("failed to prepare SpacetimeDB connection: {err:?}");
-                    return;
-                }
-            };
-
-            let connect_config = {
-                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-                if let Some(uri) = prepared_conn.uri {
-                    config.uri = uri;
-                }
-                if let Some(module_name) = prepared_conn.module_name {
-                    config.module_name = module_name;
-                }
-                if let Some(token_response) = prepared_conn.token_response.as_ref() {
-                    config.token = Some(token_response.access_token.clone());
-                }
-                if let Some(client_id) = prepared_conn.client_id {
-                    config.client_id = Some(client_id);
-                }
-                config.clone()
-            };
-
-            // Auto-refresh behavior only available when using OIDC or Steam auth
-            #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-            {
-                if let Some(auth_refresh) = prepared_conn
-                    .token_response
-                    .as_ref()
-                    .and_then(StdbAuthRefresh::from_token_response)
-                {
-                    world.insert_resource(auth_refresh);
-                } else {
-                    world.remove_resource::<StdbAuthRefresh>();
-                }
-            }
-
-            world.insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
-                IoTaskPool::get().spawn(async move { connect_config.build_connection().await }),
-            )));
-        }
         PendingConnectionPhase::Build(mut task) => {
             let Some(result) = block_on(poll_once(&mut task)) else {
                 world.insert_resource(PendingConnection::<C> {

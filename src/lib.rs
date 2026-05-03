@@ -105,17 +105,18 @@ mod table;
 pub mod prelude {
     pub use crate::{
         alias::{
-            ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage, ReadStdbConnectRequest,
-            ReadStdbConnectedMessage, ReadStdbDisconnectRequest, ReadStdbDisconnectedMessage,
-            ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
-            ReadUpdateMessage, WriteStdbConnectRequest, WriteStdbDisconnectRequest,
+            ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
+            ReadStdbConnectedMessage, ReadStdbDisconnectedMessage, ReadStdbLoginFailedMessage,
+            ReadStdbLoginSucceededMessage, ReadStdbSubscriptionAppliedMessage,
+            ReadStdbSubscriptionErrorMessage, ReadUpdateMessage,
         },
         auth::StdbAuthSource,
         commands::StdbCommands,
         connection::StdbConnection,
         message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectRequest,
-            StdbConnectedMessage, StdbDisconnectRequest, StdbDisconnectedMessage,
+            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectOptions,
+            StdbConnectedMessage, StdbDisconnectOptions, StdbDisconnectedMessage,
+            StdbLoginFailedMessage, StdbLoginOptions, StdbLoginSucceededMessage, StdbLogoutOptions,
             StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,

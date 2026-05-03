@@ -110,61 +110,126 @@ where
     pub new: T,
 }
 
-/// Requests a SpacetimeDB connection attempt.
-///
-/// If any field is `Some`, it overrides the currently stored value and becomes the
-/// value used for this attempt and future reconnect attempts.
-#[derive(Message, Clone, Debug, Default)]
-pub struct StdbConnectRequest {
-    /// Optional [`StdbAuthSource`] for the connection.
-    pub auth_source: Option<StdbAuthSource>,
+/// Options for authenticating with SpacetimeDB.
+#[derive(Clone, Debug)]
+pub struct StdbLoginOptions {
+    /// The authentication source used to acquire an access token.
+    pub auth_source: StdbAuthSource,
+}
+
+impl StdbLoginOptions {
+    /// Creates [`StdbLoginOptions`] with the given [`StdbAuthSource`].
+    pub fn new(auth_source: StdbAuthSource) -> Self {
+        Self { auth_source }
+    }
+}
+
+/// Options for clearing stored SpacetimeDB authentication.
+#[derive(Clone, Debug)]
+pub struct StdbLogoutOptions {
+    /// Clears the in-memory authentication session when `true`.
+    pub clear_memory_session: bool,
+    /// Clears the stored refresh token when `true`.
+    pub clear_stored_refresh_token: bool,
+}
+
+impl Default for StdbLogoutOptions {
+    fn default() -> Self {
+        Self {
+            clear_memory_session: true,
+            clear_stored_refresh_token: true,
+        }
+    }
+}
+
+/// Options for starting a SpacetimeDB connection attempt.
+#[derive(Clone, Debug, Default)]
+pub struct StdbConnectOptions {
+    /// Optional access token for this connection attempt.
+    pub token: Option<String>,
     /// Optional URI for this connection attempt.
     pub uri: Option<String>,
     /// Optional module name for this connection attempt.
     pub module_name: Option<String>,
 }
 
-impl StdbConnectRequest {
-    /// Creates a [`StdbConnectRequest`] with an authentication source.
-    pub fn with_auth(auth_source: StdbAuthSource) -> Self {
+impl StdbConnectOptions {
+    /// Creates [`StdbConnectOptions`] with an access token.
+    pub fn with_token(token: impl Into<String>) -> Self {
         Self {
-            auth_source: Some(auth_source),
+            token: Some(token.into()),
             uri: None,
             module_name: None,
         }
     }
 
-    /// Creates a [`StdbConnectRequest`] with a URI.
+    /// Creates [`StdbConnectOptions`] with a URI.
     pub fn with_uri(uri: impl Into<String>) -> Self {
         Self {
-            auth_source: None,
+            token: None,
             uri: Some(uri.into()),
             module_name: None,
         }
     }
 
-    /// Creates a [`StdbConnectRequest`] with a module name.
+    /// Creates [`StdbConnectOptions`] with a module name.
     pub fn with_module_name(module_name: impl Into<String>) -> Self {
         Self {
-            auth_source: None,
+            token: None,
             uri: None,
             module_name: Some(module_name.into()),
         }
     }
 
-    /// Creates a [`StdbConnectRequest`] with a URI and module name.
+    /// Creates [`StdbConnectOptions`] with a URI and module name.
     pub fn with_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
         Self {
-            auth_source: None,
+            token: None,
             uri: Some(uri.into()),
             module_name: Some(module_name.into()),
         }
     }
 }
 
+/// Options for disconnecting from SpacetimeDB.
+#[derive(Clone, Debug, Default)]
+pub struct StdbDisconnectOptions;
+
+/// Requests SpacetimeDB authentication.
+#[derive(Message, Clone, Debug)]
+pub(crate) struct StdbLoginRequest {
+    /// The login options.
+    pub options: StdbLoginOptions,
+}
+
+/// Requests stored SpacetimeDB authentication to be cleared.
+#[derive(Message, Clone, Debug, Default)]
+pub(crate) struct StdbLogoutRequest {
+    /// The logout options.
+    pub options: StdbLogoutOptions,
+}
+
+/// Requests a SpacetimeDB connection attempt.
+#[derive(Message, Clone, Debug, Default)]
+pub(crate) struct StdbConnectRequest {
+    /// The connection options.
+    pub options: StdbConnectOptions,
+}
+
 /// Requests a SpacetimeDB disconnection.
 #[derive(Message, Clone, Debug, Default)]
-pub struct StdbDisconnectRequest {
-    /// Clears stored authentication state when `true`.
-    pub forget_auth: bool,
+pub(crate) struct StdbDisconnectRequest {
+    /// The disconnection options.
+    pub options: StdbDisconnectOptions,
+}
+
+/// A [`Message`] sent when SpacetimeDB authentication succeeds.
+#[derive(Message, Clone, Debug)]
+pub struct StdbLoginSucceededMessage;
+
+/// A [`Message`] sent when SpacetimeDB authentication fails.
+#[derive(Message, Clone, Debug)]
+pub struct StdbLoginFailedMessage {
+    /// The failure message.
+    pub message: String,
 }

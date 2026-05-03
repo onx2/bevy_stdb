@@ -18,7 +18,8 @@ pub(crate) use error::StdbAuthError;
 #[cfg(feature = "auth-oidc")]
 pub use oidc::StdbOidcAuthOptions;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub use plugin::{StdbAuthPlugin, StdbAuthRefresh};
+pub use plugin::StdbAuthPlugin;
+
 #[cfg(feature = "auth-steam")]
 pub use steam::StdbSteamAuthOptions;
 
@@ -30,7 +31,7 @@ pub enum StdbAuthSource {
     Token(String),
     #[cfg(feature = "auth-oidc")]
     Oidc(StdbOidcAuthOptions),
-    #[cfg(feature = "auth-steam")]
+    #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
     Steam(StdbSteamAuthOptions),
 }
 impl StdbAuthSource {
@@ -38,19 +39,20 @@ impl StdbAuthSource {
         match self {
             #[cfg(feature = "auth-oidc")]
             StdbAuthSource::Oidc(opts) => Some(opts.client_id.clone()),
-            #[cfg(feature = "auth-steam")]
+            #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
             StdbAuthSource::Steam(opts) => Some(opts.client_id.clone()),
             _ => None,
         }
     }
 
-    pub(crate) async fn acquire_token_response(&self) -> Option<StdbTokenResponse> {
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    pub(crate) async fn acquire_token_response(&self) -> Result<StdbTokenResponse, StdbAuthError> {
         match self {
             #[cfg(feature = "auth-oidc")]
-            StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).await.ok(),
-            #[cfg(all(feature = "auth-steam", not(target_arch = "wasm32")))]
-            StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts).ok(),
-            StdbAuthSource::Token(token) => Some(StdbTokenResponse {
+            StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).await,
+            #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
+            StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts),
+            StdbAuthSource::Token(token) => Ok(StdbTokenResponse {
                 access_token: token.to_owned(),
                 ..StdbTokenResponse::default()
             }),
