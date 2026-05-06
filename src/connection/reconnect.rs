@@ -4,9 +4,9 @@
 //! disconnect error message is received, a reconnect timer is scheduled. When
 //! the timer fires, a connection task is spawned directly.
 
+use super::{PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig};
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
-    connection::{PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};

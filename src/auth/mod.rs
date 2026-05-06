@@ -23,6 +23,11 @@ pub use plugin::StdbAuthPlugin;
 #[cfg(feature = "auth-steam")]
 pub use steam::StdbSteamAuthOptions;
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub(crate) mod commands;
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub use commands::{StdbAuthCommands, StdbLoginOptions, StdbLogoutOptions};
+
 use bevy_ecs::prelude::Resource;
 
 /// The specific auth target for a given attempt.

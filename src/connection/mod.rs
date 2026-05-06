@@ -1,6 +1,10 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
+
+pub(crate) mod commands;
+pub(crate) mod reconnect;
+
 use crate::log::error;
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
@@ -12,6 +16,8 @@ use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, Resource, World, resource_exists};
 use bevy_tasks::{Task, block_on, poll_once};
 use crossbeam_channel::Sender;
+pub(crate) use reconnect::ReconnectPlugin;
+pub use reconnect::StdbReconnectOptions;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,

@@ -2,9 +2,8 @@
 use crate::auth::StdbAuthPlugin;
 use crate::{
     channel_bridge::ChannelBridgePlugin,
-    connection::{ConnectionDriver, StdbConnectionPlugin},
+    connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
     message::RowEvent,
-    reconnect::{ReconnectPlugin, StdbReconnectOptions},
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{

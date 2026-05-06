@@ -91,12 +91,10 @@ compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-
 mod alias;
 mod auth;
 mod channel_bridge;
-mod commands;
 mod connection;
 mod log;
 mod message;
 mod plugin;
-mod reconnect;
 mod set;
 mod subscription;
 mod table;
@@ -110,24 +108,22 @@ pub mod prelude {
             ReadStdbLoginSucceededMessage, ReadStdbSubscriptionAppliedMessage,
             ReadStdbSubscriptionErrorMessage, ReadUpdateMessage,
         },
-        commands::{StdbCommands, StdbConnectOptions},
-        connection::StdbConnection,
+        connection::{
+            StdbConnection, StdbReconnectOptions,
+            commands::{StdbCommands, StdbConnectOptions},
+        },
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
             StdbDisconnectedMessage, StdbLoginFailedMessage, StdbLoginSucceededMessage,
             StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
-        reconnect::StdbReconnectOptions,
         set::StdbSet,
         subscription::StdbSubscriptions,
     };
 
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub use crate::{
-        auth::StdbAuthSource,
-        commands::{StdbLoginOptions, StdbLogoutOptions},
-    };
+    pub use crate::auth::{StdbAuthCommands, StdbAuthSource, StdbLoginOptions, StdbLogoutOptions};
 
     #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
     pub use crate::auth::StdbSteamAuthOptions;
