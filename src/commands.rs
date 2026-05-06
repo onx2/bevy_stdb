@@ -1,13 +1,14 @@
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+use crate::auth::{
+    StdbAuthSource,
+    plugin::{
+        LoginOutcome, PendingLogin, PendingTokenRefresh, StdbAuthRefresh,
+        acquire_login_token_response, clear_stored_refresh_token,
+    },
+};
 use crate::connection::{
     PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig,
 };
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-use crate::{
-    auth::StdbAuthSource,
-    message::{StdbLoginRequest, StdbLogoutRequest},
-};
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-use bevy_ecs::prelude::MessageWriter;
 use bevy_ecs::{
     prelude::{Commands, Res, ResMut},
     system::SystemParam,
@@ -64,7 +65,7 @@ pub struct StdbConnectOptions {
 
 impl StdbConnectOptions {
     /// Creates [`StdbConnectOptions`] with an access token.
-    pub fn with_token(token: impl Into<String>) -> Self {
+    pub fn from_token(token: impl Into<String>) -> Self {
         Self {
             token: Some(token.into()),
             uri: None,
@@ -73,7 +74,7 @@ impl StdbConnectOptions {
     }
 
     /// Creates [`StdbConnectOptions`] with a URI.
-    pub fn with_uri(uri: impl Into<String>) -> Self {
+    pub fn from_uri(uri: impl Into<String>) -> Self {
         Self {
             token: None,
             uri: Some(uri.into()),
@@ -82,7 +83,7 @@ impl StdbConnectOptions {
     }
 
     /// Creates [`StdbConnectOptions`] with a module name.
-    pub fn with_module_name(module_name: impl Into<String>) -> Self {
+    pub fn from_module_name(module_name: impl Into<String>) -> Self {
         Self {
             token: None,
             uri: None,
@@ -91,7 +92,7 @@ impl StdbConnectOptions {
     }
 
     /// Creates [`StdbConnectOptions`] with a URI and module name.
-    pub fn with_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
+    pub fn from_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
         Self {
             token: None,
             uri: Some(uri.into()),
@@ -99,10 +100,6 @@ impl StdbConnectOptions {
         }
     }
 }
-
-/// Options for disconnecting from SpacetimeDB.
-#[derive(Clone, Debug, Default)]
-pub struct StdbDisconnectOptions;
 
 /// Sends SpacetimeDB commands from Bevy systems.
 #[derive(SystemParam)]
@@ -116,9 +113,7 @@ where
     pending: Option<Res<'w, PendingConnection<C>>>,
     commands: Commands<'w, 's>,
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    login_requests: MessageWriter<'w, StdbLoginRequest>,
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    logout_requests: MessageWriter<'w, StdbLogoutRequest>,
+    pending_login: Option<Res<'w, PendingLogin>>,
 }
 
 impl<C, M> StdbCommands<'_, '_, C, M>
@@ -129,17 +124,33 @@ where
     /// Requests authentication using [`StdbLoginOptions`].
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub fn login(&mut self, options: StdbLoginOptions) {
-        self.login_requests.write(StdbLoginRequest {
-            auth_source: options.auth_source,
+        if self.pending_login.is_some() {
+            return;
+        }
+        let auth_source = options.auth_source;
+        let client_id = auth_source.client_id();
+        let task = IoTaskPool::get().spawn(async move {
+            let token_response = acquire_login_token_response(&auth_source).await?;
+            Ok(LoginOutcome {
+                token_response,
+                client_id,
+            })
         });
+        self.commands.insert_resource(PendingLogin(task));
     }
 
     /// Requests stored authentication to be cleared using [`StdbLogoutOptions`].
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub fn logout(&mut self, options: StdbLogoutOptions) {
-        self.logout_requests.write(StdbLogoutRequest {
-            clear_stored_refresh_token: options.clear_stored_refresh_token,
-        });
+        if options.clear_stored_refresh_token {
+            if let Some(client_id) = self.config.client_id() {
+                clear_stored_refresh_token(client_id);
+            }
+        }
+        self.config.clear_auth();
+        self.commands.remove_resource::<StdbAuthRefresh>();
+        self.commands.remove_resource::<PendingLogin>();
+        self.commands.remove_resource::<PendingTokenRefresh>();
     }
 
     /// Spawns a connection task immediately using [`StdbConnectOptions`].
@@ -168,8 +179,8 @@ where
             )));
     }
 
-    /// Disconnects from SpacetimeDB using [`StdbDisconnectOptions`].
-    pub fn disconnect(&mut self, _options: StdbDisconnectOptions) {
+    /// Disconnects from the active SpacetimeDB.
+    pub fn disconnect(&mut self) {
         if let Some(conn) = &self.connection {
             let _ = conn.disconnect();
         }

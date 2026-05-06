@@ -25,15 +25,17 @@ pub use steam::StdbSteamAuthOptions;
 
 use bevy_ecs::prelude::Resource;
 
-/// The specific auth target for a given attempt
+/// The specific auth target for a given attempt.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[derive(Clone, Debug)]
 pub enum StdbAuthSource {
-    Token(String),
     #[cfg(feature = "auth-oidc")]
     Oidc(StdbOidcAuthOptions),
     #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
     Steam(StdbSteamAuthOptions),
 }
+
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 impl StdbAuthSource {
     pub fn client_id(&self) -> Option<String> {
         match self {
@@ -41,21 +43,15 @@ impl StdbAuthSource {
             StdbAuthSource::Oidc(opts) => Some(opts.client_id.clone()),
             #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
             StdbAuthSource::Steam(opts) => Some(opts.client_id.clone()),
-            _ => None,
         }
     }
 
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub(crate) async fn acquire_token_response(&self) -> Result<StdbTokenResponse, StdbAuthError> {
         match self {
             #[cfg(feature = "auth-oidc")]
             StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).await,
             #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
             StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts),
-            StdbAuthSource::Token(token) => Ok(StdbTokenResponse {
-                access_token: token.to_owned(),
-                ..StdbTokenResponse::default()
-            }),
         }
     }
 }

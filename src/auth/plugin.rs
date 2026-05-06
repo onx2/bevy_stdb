@@ -2,9 +2,7 @@ use crate::{
     auth::{StdbAuthError, StdbAuthSource, StdbTokenResponse},
     connection::{StdbConnection, StdbConnectionConfig},
     log::{error, info},
-    message::{
-        StdbLoginFailedMessage, StdbLoginRequest, StdbLoginSucceededMessage, StdbLogoutRequest,
-    },
+    message::{StdbLoginFailedMessage, StdbLoginSucceededMessage},
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Messages, Resource, World, not, resource_exists};
@@ -49,22 +47,8 @@ impl<
 > Plugin for StdbAuthPlugin<C, M>
 {
     fn build(&self, app: &mut App) {
-        app.add_message::<StdbLoginRequest>();
-        app.add_message::<StdbLogoutRequest>();
         app.add_message::<StdbLoginSucceededMessage>();
         app.add_message::<StdbLoginFailedMessage>();
-
-        app.add_systems(
-            PreUpdate,
-            handle_logout_request::<C, M>.run_if(resource_exists::<StdbConnectionConfig<C, M>>),
-        );
-
-        app.add_systems(
-            PreUpdate,
-            handle_login_request
-                .run_if(not(resource_exists::<PendingLogin>))
-                .run_if(resource_exists::<StdbConnectionConfig<C, M>>),
-        );
 
         app.add_systems(
             PreUpdate,
@@ -124,43 +108,22 @@ impl StdbAuthRefresh {
     }
 }
 
-struct LoginOutcome {
-    token_response: StdbTokenResponse,
-    client_id: Option<String>,
+pub(crate) struct LoginOutcome {
+    pub(crate) token_response: StdbTokenResponse,
+    pub(crate) client_id: Option<String>,
 }
 
 #[derive(Resource)]
-struct PendingLogin(Task<Result<LoginOutcome, StdbAuthError>>);
+pub(crate) struct PendingLogin(pub(crate) Task<Result<LoginOutcome, StdbAuthError>>);
 
 #[derive(Resource)]
-struct PendingTokenRefresh(Task<Result<StdbTokenResponse, StdbAuthError>>);
+pub(crate) struct PendingTokenRefresh(Task<Result<StdbTokenResponse, StdbAuthError>>);
 
 fn refresh_timer(expires_in_secs: u64) -> Timer {
     let refresh_after_secs = expires_in_secs
         .saturating_sub(TOKEN_REFRESH_BUFFER_SECS)
         .max(1);
     Timer::new(Duration::from_secs(refresh_after_secs), TimerMode::Once)
-}
-
-fn handle_login_request(world: &mut World) {
-    let Some(request) = world
-        .resource_mut::<Messages<StdbLoginRequest>>()
-        .drain()
-        .last()
-    else {
-        return;
-    };
-
-    let auth_source = request.auth_source;
-    let client_id = auth_source.client_id();
-
-    world.insert_resource(PendingLogin(IoTaskPool::get().spawn(async move {
-        let token_response = acquire_login_token_response(&auth_source).await?;
-        Ok(LoginOutcome {
-            token_response,
-            client_id,
-        })
-    })));
 }
 
 fn poll_pending_login<
@@ -221,39 +184,6 @@ fn poll_pending_login<
                 });
         }
     }
-}
-
-fn handle_logout_request<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-) {
-    let Some(request) = world
-        .resource_mut::<Messages<StdbLogoutRequest>>()
-        .drain()
-        .last()
-    else {
-        return;
-    };
-
-    let client_id = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .and_then(|config| config.client_id().map(str::to_owned));
-
-    if request.clear_stored_refresh_token {
-        if let Some(client_id) = client_id.as_deref() {
-            clear_stored_refresh_token(client_id);
-        }
-    }
-
-    if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
-        config.clear_auth();
-    }
-
-    world.remove_resource::<StdbAuthRefresh>();
-    world.remove_resource::<PendingLogin>();
-    world.remove_resource::<PendingTokenRefresh>();
 }
 
 fn arm_token_refresh<
@@ -359,7 +289,7 @@ fn poll_pending_token_refresh<
     }
 }
 
-async fn acquire_login_token_response(
+pub(crate) async fn acquire_login_token_response(
     auth_source: &StdbAuthSource,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
     #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
@@ -460,10 +390,10 @@ fn store_refresh_token(client_id: &str, refresh_token: &str) {
 }
 
 #[cfg(not(all(feature = "auth-oidc", not(feature = "browser"))))]
-fn clear_stored_refresh_token(_client_id: &str) {}
+pub(crate) fn clear_stored_refresh_token(_client_id: &str) {}
 
 #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
-fn clear_stored_refresh_token(client_id: &str) {
+pub(crate) fn clear_stored_refresh_token(client_id: &str) {
     let entry = match keyring::Entry::new(KEYRING_SERVICE, client_id) {
         Ok(entry) => entry,
         Err(error) => {

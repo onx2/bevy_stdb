@@ -1,5 +1,5 @@
 //! Bevy message types for SpacetimeDB connection, subscription, and table events.
-use crate::auth::StdbAuthSource;
+
 use bevy_ecs::prelude::Message;
 use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
@@ -108,20 +108,6 @@ where
     pub old: Option<T>,
     /// The current row value.
     pub new: T,
-}
-
-/// Requests SpacetimeDB authentication.
-#[derive(Message, Clone, Debug)]
-pub(crate) struct StdbLoginRequest {
-    /// The authentication source used to acquire an access token.
-    pub auth_source: StdbAuthSource,
-}
-
-/// Requests stored SpacetimeDB authentication to be cleared.
-#[derive(Message, Clone, Debug, Default)]
-pub(crate) struct StdbLogoutRequest {
-    /// Also clears the stored refresh token when `true`.
-    pub clear_stored_refresh_token: bool,
 }
 
 /// A [`Message`] sent when SpacetimeDB authentication succeeds.

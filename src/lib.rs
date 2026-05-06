@@ -110,8 +110,7 @@ pub mod prelude {
             ReadStdbLoginSucceededMessage, ReadStdbSubscriptionAppliedMessage,
             ReadStdbSubscriptionErrorMessage, ReadUpdateMessage,
         },
-        auth::StdbAuthSource,
-        commands::{StdbCommands, StdbConnectOptions, StdbDisconnectOptions},
+        commands::{StdbCommands, StdbConnectOptions},
         connection::StdbConnection,
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
@@ -125,7 +124,10 @@ pub mod prelude {
     };
 
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub use crate::commands::{StdbLoginOptions, StdbLogoutOptions};
+    pub use crate::{
+        auth::StdbAuthSource,
+        commands::{StdbLoginOptions, StdbLogoutOptions},
+    };
 
     #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
     pub use crate::auth::StdbSteamAuthOptions;
