@@ -1,8 +1,17 @@
 use crate::{
     auth::StdbAuthSource,
-    message::{StdbConnectRequest, StdbDisconnectRequest, StdbLoginRequest, StdbLogoutRequest},
+    connection::{PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig},
+    message::{StdbLoginRequest, StdbLogoutRequest},
 };
-use bevy_ecs::{prelude::MessageWriter, system::SystemParam};
+use bevy_ecs::{
+    prelude::{Commands, MessageWriter, Res, ResMut},
+    system::SystemParam,
+};
+use bevy_tasks::IoTaskPool;
+use spacetimedb_sdk::{
+    __codegen::{DbConnection, SpacetimeModule},
+    DbContext,
+};
 
 /// Options for authenticating with SpacetimeDB.
 #[derive(Clone, Debug)]
@@ -91,14 +100,24 @@ pub struct StdbDisconnectOptions;
 
 /// Sends SpacetimeDB commands from Bevy systems.
 #[derive(SystemParam)]
-pub struct StdbCommands<'w> {
+pub struct StdbCommands<'w, 's, C, M>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    config: ResMut<'w, StdbConnectionConfig<C, M>>,
+    connection: Option<Res<'w, StdbConnection<C>>>,
+    pending: Option<Res<'w, PendingConnection<C>>>,
+    commands: Commands<'w, 's>,
     login_requests: MessageWriter<'w, StdbLoginRequest>,
     logout_requests: MessageWriter<'w, StdbLogoutRequest>,
-    connect_requests: MessageWriter<'w, StdbConnectRequest>,
-    disconnect_requests: MessageWriter<'w, StdbDisconnectRequest>,
 }
 
-impl StdbCommands<'_> {
+impl<C, M> StdbCommands<'_, '_, C, M>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
     /// Requests authentication using [`StdbLoginOptions`].
     pub fn login(&mut self, options: StdbLoginOptions) {
         self.login_requests.write(StdbLoginRequest {
@@ -114,17 +133,38 @@ impl StdbCommands<'_> {
         });
     }
 
-    /// Requests a SpacetimeDB connection attempt using [`StdbConnectOptions`].
+    /// Spawns a connection task immediately using [`StdbConnectOptions`].
+    ///
+    /// No-op if a connection attempt is already pending.
     pub fn connect(&mut self, options: StdbConnectOptions) {
-        self.connect_requests.write(StdbConnectRequest {
-            token: options.token,
-            uri: options.uri,
-            module_name: options.module_name,
-        });
+        if self.pending.is_some() {
+            return;
+        }
+
+        if let Some(uri) = options.uri {
+            self.config.uri = uri;
+        }
+        if let Some(module_name) = options.module_name {
+            self.config.module_name = module_name;
+        }
+        if let Some(token) = options.token {
+            self.config.token = Some(token);
+        }
+
+        let config = self.config.clone();
+        let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
+        self.commands
+            .insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
+                task,
+            )));
     }
 
-    /// Requests disconnection from SpacetimeDB using [`StdbDisconnectOptions`].
+    /// Disconnects from SpacetimeDB using [`StdbDisconnectOptions`].
     pub fn disconnect(&mut self, _options: StdbDisconnectOptions) {
-        self.disconnect_requests.write(StdbDisconnectRequest);
+        if let Some(conn) = &self.connection {
+            let _ = conn.disconnect();
+        }
+        self.commands.remove_resource::<StdbConnection<C>>();
+        self.commands.remove_resource::<PendingConnection<C>>();
     }
 }

@@ -2,16 +2,16 @@
 //!
 //! Manages reconnect timing and backoff. When a disconnect with an error or a
 //! disconnect error message is received, a reconnect timer is scheduled. When
-//! the timer fires, a [`StdbConnectRequest`] is sent and the
-//! connection module handles the actual connection building.
+//! the timer fires, a connection task is spawned directly.
 
 use crate::{
-    alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage, WriteStdbConnectRequest},
-    connection::StdbConnection,
+    alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
+    connection::{PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
+use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, ResMut, Resource};
+use bevy_tasks::IoTaskPool;
 use bevy_time::{Time, Timer, TimerMode};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
@@ -111,7 +111,7 @@ impl<
             (
                 reset_reconnect_state,
                 update_reconnect_backoff::<C>,
-                tick_reconnect_timer,
+                tick_reconnect_timer::<C, M>,
             )
                 .chain()
                 .in_set(StdbSet::Connection),
@@ -180,12 +180,17 @@ fn reset_reconnect_state(
     reconnect.timer = None;
 }
 
-/// Ticks the reconnect timer and requests a connection when it fires.
-fn tick_reconnect_timer(
+/// Ticks the reconnect timer and spawns a connection task when it fires.
+fn tick_reconnect_timer<C, M>(
     time: Res<Time>,
     mut reconnect: ResMut<ReconnectBackoff>,
-    mut request_connection: WriteStdbConnectRequest,
-) {
+    config: Res<StdbConnectionConfig<C, M>>,
+    pending: Option<Res<PendingConnection<C>>>,
+    mut commands: Commands,
+) where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
     let Some(timer) = reconnect.timer.as_mut() else {
         return;
     };
@@ -194,6 +199,12 @@ fn tick_reconnect_timer(
 
     if timer.just_finished() {
         reconnect.timer = None;
-        request_connection.write_default();
+        if pending.is_none() {
+            let config = config.clone();
+            let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
+            commands.insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
+                task,
+            )));
+        }
     }
 }

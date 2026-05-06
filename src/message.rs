@@ -126,21 +126,6 @@ pub(crate) struct StdbLogoutRequest {
     pub clear_stored_refresh_token: bool,
 }
 
-/// Requests a SpacetimeDB connection attempt.
-#[derive(Message, Clone, Debug, Default)]
-pub(crate) struct StdbConnectRequest {
-    /// Optional access token for this connection attempt.
-    pub token: Option<String>,
-    /// Optional URI for this connection attempt.
-    pub uri: Option<String>,
-    /// Optional module name for this connection attempt.
-    pub module_name: Option<String>,
-}
-
-/// Requests a SpacetimeDB disconnection.
-#[derive(Message, Clone, Debug, Default)]
-pub(crate) struct StdbDisconnectRequest;
-
 /// A [`Message`] sent when SpacetimeDB authentication succeeds.
 #[derive(Message, Clone, Debug)]
 pub struct StdbLoginSucceededMessage;

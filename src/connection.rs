@@ -1,20 +1,16 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
-use crate::log::{error, info};
+use crate::log::error;
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
-    message::{
-        StdbConnectRequest, StdbConnectedMessage, StdbDisconnectRequest, StdbDisconnectedMessage,
-    },
+    message::{StdbConnectedMessage, StdbDisconnectedMessage},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Messages, Res, Resource, World, resource_exists,
-};
-use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
+use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, Resource, World, resource_exists};
+use bevy_tasks::{Task, block_on, poll_once};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
@@ -23,14 +19,14 @@ use spacetimedb_sdk::{
 use std::sync::Arc;
 
 /// Tracks the current phase of a pending connection attempt.
-enum PendingConnectionPhase<C: DbContext + Send + Sync + 'static> {
+pub(crate) enum PendingConnectionPhase<C: DbContext + Send + Sync + 'static> {
     /// Builds the SpacetimeDB connection from a finalized config snapshot.
     Build(Task<Result<Arc<C>>>),
 }
 
 /// Stores the in-flight task state for a pending connection attempt.
 #[derive(Resource)]
-struct PendingConnection<C: DbContext + Send + Sync + 'static> {
+pub(crate) struct PendingConnection<C: DbContext + Send + Sync + 'static> {
     /// The current phase for this pending attempt.
     phase: PendingConnectionPhase<C>,
 }
@@ -67,11 +63,11 @@ pub(crate) struct StdbConnectionConfig<
     M: SpacetimeModule<DbConnection = C>,
 > {
     /// The remote module/database name.
-    module_name: String,
+    pub(crate) module_name: String,
     /// The URI of the SpacetimeDB host.
-    uri: String,
+    pub(crate) uri: String,
     /// Optional authentication token.
-    token: Option<String>,
+    pub(crate) token: Option<String>,
     /// Optional client ID for authentication.
     client_id: Option<String>,
     /// The configured connection driver.
@@ -263,9 +259,6 @@ impl<
 {
     /// Initializes connection state, resources, and lifecycle systems.
     fn build(&self, app: &mut App) {
-        app.add_message::<StdbConnectRequest>();
-        app.add_message::<StdbDisconnectRequest>();
-
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
 
@@ -288,12 +281,8 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            (
-                handle_disconnect_request::<C, M>,
-                handle_connection_request::<C, M>,
-                poll_pending_connection::<C, M>.run_if(resource_exists::<PendingConnection<C>>),
-            )
-                .chain()
+            poll_pending_connection::<C, M>
+                .run_if(resource_exists::<PendingConnection<C>>)
                 .in_set(StdbSet::Connection),
         );
 
@@ -310,77 +299,6 @@ impl<
             );
         }
     }
-}
-
-/// Handles pending disconnection requests.
-fn handle_disconnect_request<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-) {
-    let Some(_request) = world
-        .resource_mut::<Messages<StdbDisconnectRequest>>()
-        .drain()
-        .last()
-    else {
-        return;
-    };
-
-    if let Some(conn) = world.get_resource::<StdbConnection<C>>() {
-        let _ = conn.disconnect();
-    }
-
-    world.remove_resource::<StdbConnection<C>>();
-    world.remove_resource::<PendingConnection<C>>();
-}
-
-/// Initiates a pending connection attempt from a connection request.
-///
-/// Requests can override the current connection configuration and while an
-/// active connection exists, this will clear any pending requests.
-fn handle_connection_request<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-) {
-    if world.get_resource::<PendingConnection<C>>().is_some() {
-        world.resource_mut::<Messages<StdbConnectRequest>>().clear();
-        return;
-    }
-
-    let Some(request) = world
-        .resource_mut::<Messages<StdbConnectRequest>>()
-        .drain()
-        .last()
-    else {
-        return;
-    };
-
-    info!("preparing SpacetimeDB connection request");
-
-    let connect_config = {
-        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-
-        if let Some(uri) = request.uri {
-            config.uri = uri;
-        }
-
-        if let Some(module_name) = request.module_name {
-            config.module_name = module_name;
-        }
-
-        if let Some(token) = request.token {
-            config.token = Some(token);
-        }
-
-        config.clone()
-    };
-
-    world.insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
-        IoTaskPool::get().spawn(async move { connect_config.build_connection().await }),
-    )));
 }
 
 /// Polls a pending connection resource per tick, advancing the connection phase when needed.
