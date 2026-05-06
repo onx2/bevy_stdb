@@ -1,10 +1,15 @@
+use crate::connection::{
+    PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig,
+};
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 use crate::{
     auth::StdbAuthSource,
-    connection::{PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig},
     message::{StdbLoginRequest, StdbLogoutRequest},
 };
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+use bevy_ecs::prelude::MessageWriter;
 use bevy_ecs::{
-    prelude::{Commands, MessageWriter, Res, ResMut},
+    prelude::{Commands, Res, ResMut},
     system::SystemParam,
 };
 use bevy_tasks::IoTaskPool;
@@ -13,6 +18,7 @@ use spacetimedb_sdk::{
     DbContext,
 };
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 /// Options for authenticating with SpacetimeDB.
 #[derive(Clone, Debug)]
 pub struct StdbLoginOptions {
@@ -20,6 +26,7 @@ pub struct StdbLoginOptions {
     pub auth_source: StdbAuthSource,
 }
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 impl StdbLoginOptions {
     /// Creates [`StdbLoginOptions`] with the given [`StdbAuthSource`].
     pub fn new(auth_source: StdbAuthSource) -> Self {
@@ -27,19 +34,18 @@ impl StdbLoginOptions {
     }
 }
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 /// Options for clearing stored SpacetimeDB authentication.
 #[derive(Clone, Debug)]
 pub struct StdbLogoutOptions {
-    /// Clears the in-memory authentication session when `true`.
-    pub clear_memory_session: bool,
-    /// Clears the stored refresh token when `true`.
+    /// Also clears the stored refresh token when `true`.
     pub clear_stored_refresh_token: bool,
 }
 
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 impl Default for StdbLogoutOptions {
     fn default() -> Self {
         Self {
-            clear_memory_session: true,
             clear_stored_refresh_token: true,
         }
     }
@@ -109,7 +115,9 @@ where
     connection: Option<Res<'w, StdbConnection<C>>>,
     pending: Option<Res<'w, PendingConnection<C>>>,
     commands: Commands<'w, 's>,
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     login_requests: MessageWriter<'w, StdbLoginRequest>,
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     logout_requests: MessageWriter<'w, StdbLogoutRequest>,
 }
 
@@ -119,6 +127,7 @@ where
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
     /// Requests authentication using [`StdbLoginOptions`].
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub fn login(&mut self, options: StdbLoginOptions) {
         self.login_requests.write(StdbLoginRequest {
             auth_source: options.auth_source,
@@ -126,9 +135,9 @@ where
     }
 
     /// Requests stored authentication to be cleared using [`StdbLogoutOptions`].
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub fn logout(&mut self, options: StdbLogoutOptions) {
         self.logout_requests.write(StdbLogoutRequest {
-            clear_memory_session: options.clear_memory_session,
             clear_stored_refresh_token: options.clear_stored_refresh_token,
         });
     }

@@ -120,9 +120,7 @@ pub(crate) struct StdbLoginRequest {
 /// Requests stored SpacetimeDB authentication to be cleared.
 #[derive(Message, Clone, Debug, Default)]
 pub(crate) struct StdbLogoutRequest {
-    /// Clears the in-memory authentication session when `true`.
-    pub clear_memory_session: bool,
-    /// Clears the stored refresh token when `true`.
+    /// Also clears the stored refresh token when `true`.
     pub clear_stored_refresh_token: bool,
 }
 

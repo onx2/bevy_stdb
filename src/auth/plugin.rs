@@ -247,15 +247,13 @@ fn handle_logout_request<
         }
     }
 
-    if request.clear_memory_session {
-        if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
-            config.clear_auth();
-        }
-
-        world.remove_resource::<StdbAuthRefresh>();
-        world.remove_resource::<PendingLogin>();
-        world.remove_resource::<PendingTokenRefresh>();
+    if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
+        config.clear_auth();
     }
+
+    world.remove_resource::<StdbAuthRefresh>();
+    world.remove_resource::<PendingLogin>();
+    world.remove_resource::<PendingTokenRefresh>();
 }
 
 fn arm_token_refresh<
