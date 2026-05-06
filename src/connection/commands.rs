@@ -1,4 +1,4 @@
-use super::{PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig};
+use super::{PendingConnection, StdbConnection, StdbConnectionConfig};
 use bevy_ecs::{
     prelude::{Commands, Res, ResMut},
     system::SystemParam,
@@ -96,10 +96,7 @@ where
 
         let config = self.config.clone();
         let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
-        self.commands
-            .insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
-                task,
-            )));
+        self.commands.insert_resource(PendingConnection::<C>(task));
     }
 
     /// Disconnects from the active SpacetimeDB connection.

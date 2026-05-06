@@ -24,23 +24,11 @@ use spacetimedb_sdk::{
 };
 use std::sync::Arc;
 
-/// Tracks the current phase of a pending connection attempt.
-pub(crate) enum PendingConnectionPhase<C: DbContext + Send + Sync + 'static> {
-    /// Builds the SpacetimeDB connection from a finalized config snapshot.
-    Build(Task<Result<Arc<C>>>),
-}
-
-/// Stores the in-flight task state for a pending connection attempt.
+/// Stores the in-flight task for a pending connection attempt.
 #[derive(Resource)]
-pub(crate) struct PendingConnection<C: DbContext + Send + Sync + 'static> {
-    /// The current phase for this pending attempt.
-    phase: PendingConnectionPhase<C>,
-}
-impl<C: DbContext + Send + Sync + 'static> PendingConnection<C> {
-    pub fn new(phase: PendingConnectionPhase<C>) -> Self {
-        Self { phase }
-    }
-}
+pub(crate) struct PendingConnection<C: DbContext + Send + Sync + 'static>(
+    pub(crate) Task<Result<Arc<C>>>,
+);
 
 /// Internal connection driver configuration.
 pub(crate) enum ConnectionDriver<C: DbContext + Send + Sync + 'static> {
@@ -318,12 +306,10 @@ fn poll_pending_connection<
         return;
     };
 
-    match pending_connection.phase {
-        PendingConnectionPhase::Build(mut task) => {
+    match pending_connection {
+        PendingConnection(mut task) => {
             let Some(result) = block_on(poll_once(&mut task)) else {
-                world.insert_resource(PendingConnection::<C> {
-                    phase: PendingConnectionPhase::Build(task),
-                });
+                world.insert_resource(PendingConnection::<C>(task));
                 return;
             };
 

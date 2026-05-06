@@ -4,7 +4,7 @@
 //! disconnect error message is received, a reconnect timer is scheduled. When
 //! the timer fires, a connection task is spawned directly.
 
-use super::{PendingConnection, PendingConnectionPhase, StdbConnection, StdbConnectionConfig};
+use super::{PendingConnection, StdbConnection, StdbConnectionConfig};
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     set::StdbSet,
@@ -202,9 +202,7 @@ fn tick_reconnect_timer<C, M>(
         if pending.is_none() {
             let config = config.clone();
             let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
-            commands.insert_resource(PendingConnection::<C>::new(PendingConnectionPhase::Build(
-                task,
-            )));
+            commands.insert_resource(PendingConnection::<C>(task));
         }
     }
 }
