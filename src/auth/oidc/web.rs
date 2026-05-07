@@ -11,14 +11,3 @@ pub async fn acquire_token_response(
         "browser OIDC authentication is not implemented yet".to_string(),
     ))
 }
-
-/// Stub for OIDC session termination in the browser.
-pub(crate) async fn end_session(
-    _client_id: Option<&str>,
-    _id_token: &str,
-) -> Result<(), StdbAuthError> {
-    error!("browser OIDC session end is not implemented yet");
-    Err(StdbAuthError::Internal(
-        "browser OIDC session end is not implemented yet".to_string(),
-    ))
-}

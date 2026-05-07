@@ -2,7 +2,7 @@
 pub(crate) enum StdbAuthError {
     Http(reqwest::Error),
     Decode(serde_json::Error),
-    #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
+    #[cfg(feature = "auth-steam")]
     Steam(steamworks::SteamError),
     Timeout,
     Internal(String),

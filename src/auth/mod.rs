@@ -27,7 +27,7 @@ use bevy_ecs::prelude::Resource;
 pub enum StdbAuthSource {
     #[cfg(feature = "auth-oidc")]
     Oidc(StdbOidcAuthOptions),
-    #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
+    #[cfg(feature = "auth-steam")]
     Steam(StdbSteamAuthOptions),
 }
 
@@ -36,7 +36,7 @@ impl StdbAuthSource {
         match self {
             #[cfg(feature = "auth-oidc")]
             StdbAuthSource::Oidc(opts) => Some(opts.client_id.clone()),
-            #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
+            #[cfg(feature = "auth-steam")]
             StdbAuthSource::Steam(opts) => Some(opts.client_id.clone()),
         }
     }
@@ -45,7 +45,7 @@ impl StdbAuthSource {
         match self {
             #[cfg(feature = "auth-oidc")]
             StdbAuthSource::Oidc(opts) => oidc::acquire_token_response(opts).await,
-            #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
+            #[cfg(feature = "auth-steam")]
             StdbAuthSource::Steam(opts) => steam::acquire_token_response(opts),
         }
     }

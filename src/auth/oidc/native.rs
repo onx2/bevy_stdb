@@ -1,9 +1,6 @@
 use super::{
     StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse,
-    common::{
-        AUTH_ENDPOINT, END_SESSION_ENDPOINT, OidcTokenResponse, TOKEN_ENDPOINT,
-        authorization_redirect, token_response_from_oauth,
-    },
+    common::{AUTH_ENDPOINT, OidcTokenResponse, TOKEN_ENDPOINT, authorization_redirect},
 };
 use crate::log::{error, info};
 use oauth2::{
@@ -141,7 +138,7 @@ pub(crate) fn acquire_token_response(
         token.refresh_token().is_some()
     );
 
-    Ok(token_response_from_oauth(&token))
+    Ok((&token).into())
 }
 
 fn bind_redirect_listener(redirect_uri: &Url) -> Result<TcpListener, StdbAuthError> {
@@ -245,34 +242,6 @@ fn resolve_redirect_target(redirect_uri: &Url, request_target: &str) -> Result<U
             "invalid OIDC redirect request target `{request_target}`: {error}"
         ))
     })
-}
-
-/// Terminates the OIDC session via the end-session endpoint.
-pub(crate) fn end_session(client_id: Option<&str>, id_token: &str) -> Result<(), StdbAuthError> {
-    info!("ending OIDC session via end-session endpoint");
-
-    let mut params: Vec<(&str, &str)> = vec![("id_token_hint", id_token)];
-    if let Some(client_id) = client_id {
-        params.push(("client_id", client_id));
-    }
-
-    let client = reqwest::blocking::Client::new();
-    client
-        .post(END_SESSION_ENDPOINT)
-        .form(&params)
-        .send()
-        .map_err(|error| {
-            error!("OIDC end-session request failed: {error}");
-            StdbAuthError::from(error)
-        })?
-        .error_for_status()
-        .map_err(|error| {
-            error!("OIDC end-session returned error status: {error}");
-            StdbAuthError::from(error)
-        })?;
-
-    info!("OIDC session ended successfully");
-    Ok(())
 }
 
 fn write_redirect_response(stream: &mut TcpStream) -> Result<(), StdbAuthError> {

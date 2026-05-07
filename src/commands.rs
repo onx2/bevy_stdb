@@ -3,7 +3,9 @@
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 use crate::auth::{
     StdbAuthSource,
-    plugin::{LoginOutcome, PendingLogin, PendingLogout, acquire_login_token_response},
+    plugin::{
+        LoginOutcome, PendingLogin, PendingLogout, acquire_login_token_response, end_session,
+    },
 };
 use crate::connection::{PendingConnection, StdbConnection, StdbConnectionConfig};
 use bevy_ecs::{
@@ -120,14 +122,23 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    /// Spawns a connection task immediately using [`StdbConnectOptions`].
+    /// Spawns a connection task using [`StdbConnectOptions`].
     ///
-    /// No-op if a connection attempt is already pending.
+    /// No-op if a [`StdbConnection`] or [`PendingConnection`] already exists.
     pub fn connect(&mut self, options: StdbConnectOptions) {
-        if self.pending.is_some() {
+        if self.connection.is_some() || self.pending.is_some() {
             return;
         }
+        self.start_connect(options);
+    }
 
+    /// Disconnects any active or pending connection, then spawns a new connection task.
+    pub fn reconnect(&mut self, options: StdbConnectOptions) {
+        self.disconnect();
+        self.start_connect(options);
+    }
+
+    fn start_connect(&mut self, options: StdbConnectOptions) {
         if let Some(uri) = options.uri {
             self.config.uri = uri;
         }
@@ -186,17 +197,14 @@ where
             return;
         }
 
-        let client_id = self.config.client_id().map(str::to_owned);
+        let Some(client_id) = self.config.client_id().map(str::to_owned) else {
+            return;
+        };
         let id_token = self.config.id_token().map(str::to_owned);
         let clear_refresh_token = options.clear_stored_refresh_token;
 
-        let task = IoTaskPool::get().spawn(async move {
-            #[cfg(feature = "auth-oidc")]
-            if let Some(id_token) = id_token {
-                return crate::auth::oidc::end_session(client_id.as_deref(), &id_token).await;
-            }
-            Ok(())
-        });
+        let task = IoTaskPool::get()
+            .spawn(async move { end_session(&client_id, id_token.as_deref()).await });
 
         self.commands.insert_resource(PendingLogout {
             task,

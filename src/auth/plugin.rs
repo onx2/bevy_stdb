@@ -18,6 +18,7 @@ use spacetimedb_sdk::{
 use std::{marker::PhantomData, time::Duration};
 
 const TOKEN_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/token";
+const END_SESSION_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/session/end";
 
 #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
 const KEYRING_SERVICE: &str = "bevy_stdb";
@@ -530,5 +531,37 @@ async fn refresh_token_response(
             .await?;
 
         return Ok(response);
+    }
+}
+
+/// Ends the active SpacetimeDB auth session at the end-session endpoint.
+///
+/// Best-effort — local auth state is always cleared regardless of the outcome.
+pub(crate) async fn end_session(
+    client_id: &str,
+    id_token: Option<&str>,
+) -> Result<(), StdbAuthError> {
+    #[cfg(not(feature = "browser"))]
+    {
+        let mut params: Vec<(&str, &str)> = vec![("client_id", client_id)];
+        if let Some(id_token) = id_token {
+            params.push(("id_token_hint", id_token));
+        }
+        let client = reqwest::blocking::Client::new();
+        client
+            .post(END_SESSION_ENDPOINT)
+            .form(&params)
+            .send()?
+            .error_for_status()?;
+        info!("SpacetimeDB auth session ended successfully");
+        return Ok(());
+    }
+
+    #[cfg(feature = "browser")]
+    {
+        error!("browser session end is not implemented yet");
+        return Err(StdbAuthError::Internal(
+            "browser session end is not implemented yet".to_string(),
+        ));
     }
 }
