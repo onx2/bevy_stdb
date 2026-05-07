@@ -50,3 +50,14 @@ pub async fn acquire_token_response(
 ) -> Result<StdbTokenResponse, StdbAuthError> {
     auth_imp::acquire_token_response(options)
 }
+
+/// Terminates the active OIDC session at the end-session endpoint.
+pub(crate) async fn end_session(
+    client_id: Option<&str>,
+    id_token: &str,
+) -> Result<(), StdbAuthError> {
+    #[cfg(not(feature = "browser"))]
+    return auth_imp::end_session(client_id, id_token);
+    #[cfg(feature = "browser")]
+    return auth_imp::end_session(client_id, id_token).await;
+}

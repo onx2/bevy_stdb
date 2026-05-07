@@ -92,6 +92,7 @@ mod alias;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 mod auth;
 mod channel_bridge;
+mod commands;
 mod connection;
 mod log;
 mod message;
@@ -106,17 +107,17 @@ pub mod prelude {
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
             ReadStdbConnectedMessage, ReadStdbDisconnectedMessage, ReadStdbLoginFailedMessage,
-            ReadStdbLoginSucceededMessage, ReadStdbSubscriptionAppliedMessage,
+            ReadStdbLoginSucceededMessage, ReadStdbLogoutFailedMessage,
+            ReadStdbLogoutSucceededMessage, ReadStdbSubscriptionAppliedMessage,
             ReadStdbSubscriptionErrorMessage, ReadUpdateMessage,
         },
-        connection::{
-            StdbConnection, StdbReconnectOptions,
-            commands::{StdbCommands, StdbConnectOptions},
-        },
+        commands::{StdbCommands, StdbConnectOptions},
+        connection::{StdbConnection, StdbReconnectOptions},
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
             StdbDisconnectedMessage, StdbLoginFailedMessage, StdbLoginSucceededMessage,
-            StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
+            StdbLogoutFailedMessage, StdbLogoutSucceededMessage, StdbSubscriptionAppliedMessage,
+            StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
         set::StdbSet,
@@ -124,7 +125,10 @@ pub mod prelude {
     };
 
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub use crate::auth::{StdbAuthCommands, StdbAuthSource, StdbLoginOptions, StdbLogoutOptions};
+    pub use crate::{
+        auth::StdbAuthSource,
+        commands::{StdbLoginOptions, StdbLogoutOptions},
+    };
 
     #[cfg(all(feature = "auth-steam", not(feature = "browser")))]
     pub use crate::auth::StdbSteamAuthOptions;

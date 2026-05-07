@@ -120,3 +120,16 @@ pub struct StdbLoginFailedMessage {
     /// The failure message.
     pub message: String,
 }
+
+/// A [`Message`] sent when SpacetimeDB logout succeeds.
+#[derive(Message, Clone, Debug)]
+pub struct StdbLogoutSucceededMessage;
+
+/// A [`Message`] sent when SpacetimeDB logout fails.
+///
+/// Local auth state is always cleared regardless of this message being sent.
+#[derive(Message, Clone, Debug)]
+pub struct StdbLogoutFailedMessage {
+    /// The failure message.
+    pub message: String,
+}

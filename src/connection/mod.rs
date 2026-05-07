@@ -2,7 +2,6 @@
 //!
 //! Manages the active connection, lifecycle states, and related resources.
 
-pub(crate) mod commands;
 pub(crate) mod reconnect;
 
 use crate::log::error;
@@ -64,6 +63,8 @@ pub(crate) struct StdbConnectionConfig<
     pub(crate) token: Option<String>,
     /// Optional client ID for authentication.
     client_id: Option<String>,
+    /// Optional ID token returned by the OIDC provider.
+    id_token: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -85,6 +86,7 @@ where
             uri: self.uri.clone(),
             token: self.token.clone(),
             client_id: self.client_id.clone(),
+            id_token: self.id_token.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
@@ -140,12 +142,25 @@ where
     pub(crate) fn clear_auth(&mut self) {
         self.token = None;
         self.client_id = None;
+        self.id_token = None;
     }
 
     /// Returns the client ID used for auth refresh, if available.
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub(crate) fn client_id(&self) -> Option<&str> {
         self.client_id.as_deref()
+    }
+
+    /// Updates the ID token returned by the OIDC provider.
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    pub(crate) fn update_id_token(&mut self, id_token: Option<String>) {
+        self.id_token = id_token;
+    }
+
+    /// Returns the ID token returned by the OIDC provider, if available.
+    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+    pub(crate) fn id_token(&self) -> Option<&str> {
+        self.id_token.as_deref()
     }
 
     /// Builds a SpacetimeDB connection from this config.
@@ -262,6 +277,7 @@ impl<
             uri: self.uri.clone(),
             token: None,
             client_id: None,
+            id_token: None,
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),

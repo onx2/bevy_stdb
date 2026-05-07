@@ -4,7 +4,6 @@
 //   -d "refresh_token=<REFRESH_TOKEN>" \
 //   -d "client_id=<CLIENT_ID>"
 
-pub(crate) mod commands;
 pub(crate) mod error;
 pub(crate) mod plugin;
 
@@ -13,7 +12,6 @@ pub(crate) mod oidc;
 #[cfg(feature = "auth-steam")]
 pub(crate) mod steam;
 
-pub use commands::{StdbAuthCommands, StdbLoginOptions, StdbLogoutOptions};
 pub(crate) use error::StdbAuthError;
 pub use plugin::StdbAuthPlugin;
 
@@ -66,6 +64,8 @@ pub(crate) struct StdbTokenResponse {
     pub refresh_token: Option<String>,
     /// The granted scopes - "openid email profile" for example
     pub scope: Option<String>,
+    /// The ID token returned by the OIDC provider.
+    pub id_token: Option<String>,
 }
 
 // TODO:

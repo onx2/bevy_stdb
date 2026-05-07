@@ -2,7 +2,8 @@
 use crate::message::{
     DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
     StdbDisconnectedMessage, StdbLoginFailedMessage, StdbLoginSucceededMessage,
-    StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
+    StdbLogoutFailedMessage, StdbLogoutSucceededMessage, StdbSubscriptionAppliedMessage,
+    StdbSubscriptionErrorMessage, UpdateMessage,
 };
 use bevy_ecs::prelude::MessageReader;
 
@@ -37,3 +38,9 @@ pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
 /// A [`MessageReader`] for [`StdbSubscriptionErrorMessage<K>`].
 pub type ReadStdbSubscriptionErrorMessage<'w, 's, K> =
     MessageReader<'w, 's, StdbSubscriptionErrorMessage<K>>;
+
+/// A [`MessageReader`] for [`StdbLogoutSucceededMessage`].
+pub type ReadStdbLogoutSucceededMessage<'w, 's> = MessageReader<'w, 's, StdbLogoutSucceededMessage>;
+
+/// A [`MessageReader`] for [`StdbLogoutFailedMessage`].
+pub type ReadStdbLogoutFailedMessage<'w, 's> = MessageReader<'w, 's, StdbLogoutFailedMessage>;

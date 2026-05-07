@@ -2,7 +2,10 @@ use crate::{
     auth::{StdbAuthError, StdbAuthSource, StdbTokenResponse},
     connection::{StdbConnection, StdbConnectionConfig},
     log::{error, info},
-    message::{StdbLoginFailedMessage, StdbLoginSucceededMessage},
+    message::{
+        StdbLoginFailedMessage, StdbLoginSucceededMessage, StdbLogoutFailedMessage,
+        StdbLogoutSucceededMessage,
+    },
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Messages, Resource, World, not, resource_exists};
@@ -49,6 +52,8 @@ impl<
     fn build(&self, app: &mut App) {
         app.add_message::<StdbLoginSucceededMessage>();
         app.add_message::<StdbLoginFailedMessage>();
+        app.add_message::<StdbLogoutSucceededMessage>();
+        app.add_message::<StdbLogoutFailedMessage>();
 
         app.add_systems(
             PreUpdate,
@@ -79,6 +84,11 @@ impl<
                 .run_if(resource_exists::<PendingTokenRefresh>)
                 .run_if(resource_exists::<StdbAuthRefresh>)
                 .run_if(resource_exists::<StdbConnectionConfig<C, M>>),
+        );
+
+        app.add_systems(
+            PreUpdate,
+            poll_pending_logout::<C, M>.run_if(resource_exists::<PendingLogout>),
         );
     }
 }
@@ -119,6 +129,13 @@ pub(crate) struct PendingLogin(pub(crate) Task<Result<LoginOutcome, StdbAuthErro
 #[derive(Resource)]
 pub(crate) struct PendingTokenRefresh(Task<Result<StdbTokenResponse, StdbAuthError>>);
 
+/// Stores the pending result of an in-flight OIDC session-end request.
+#[derive(Resource)]
+pub(crate) struct PendingLogout {
+    pub(crate) task: Task<Result<(), StdbAuthError>>,
+    pub(crate) clear_refresh_token: bool,
+}
+
 fn refresh_timer(expires_in_secs: u64) -> Timer {
     let refresh_after_secs = expires_in_secs
         .saturating_sub(TOKEN_REFRESH_BUFFER_SECS)
@@ -149,6 +166,7 @@ fn poll_pending_login<
                 let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
                 config.update_token(outcome.token_response.access_token.clone());
                 config.update_client_id(outcome.client_id);
+                config.update_id_token(outcome.token_response.id_token.clone());
             }
 
             if let Some(refresh_token) = outcome.token_response.refresh_token.as_deref() {
@@ -245,6 +263,62 @@ fn tick_token_refresh<
         .insert_resource(PendingTokenRefresh(IoTaskPool::get().spawn(async move {
             refresh_token_response(client_id, refresh_token).await
         })));
+}
+
+fn poll_pending_logout<
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+>(
+    world: &mut World,
+) {
+    let Some(pending) = world.remove_resource::<PendingLogout>() else {
+        return;
+    };
+
+    let PendingLogout {
+        mut task,
+        clear_refresh_token,
+    } = pending;
+
+    let Some(result) = block_on(poll_once(&mut task)) else {
+        world.insert_resource(PendingLogout {
+            task,
+            clear_refresh_token,
+        });
+        return;
+    };
+
+    if clear_refresh_token {
+        if let Some(config) = world.get_resource::<StdbConnectionConfig<C, M>>() {
+            if let Some(client_id) = config.client_id() {
+                clear_stored_refresh_token(client_id);
+            }
+        }
+    }
+
+    if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
+        config.clear_auth();
+    }
+
+    world.remove_resource::<StdbAuthRefresh>();
+    world.remove_resource::<PendingLogin>();
+    world.remove_resource::<PendingTokenRefresh>();
+
+    match result {
+        Ok(()) => {
+            world
+                .resource_mut::<Messages<StdbLogoutSucceededMessage>>()
+                .write(StdbLogoutSucceededMessage);
+        }
+        Err(error) => {
+            error!("OIDC end-session failed: {error:?}");
+            world
+                .resource_mut::<Messages<StdbLogoutFailedMessage>>()
+                .write(StdbLogoutFailedMessage {
+                    message: format!("{error:?}"),
+                });
+        }
+    }
 }
 
 fn poll_pending_token_refresh<
