@@ -89,6 +89,7 @@ compile_error!("`auth-steam` is not supported with the `browser` feature.");
 compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-unknown`.");
 
 mod alias;
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 mod auth;
 mod channel_bridge;
 mod connection;

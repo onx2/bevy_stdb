@@ -4,34 +4,27 @@
 //   -d "refresh_token=<REFRESH_TOKEN>" \
 //   -d "client_id=<CLIENT_ID>"
 
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub(crate) mod commands;
 pub(crate) mod error;
+pub(crate) mod plugin;
+
 #[cfg(feature = "auth-oidc")]
 pub(crate) mod oidc;
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub(crate) mod plugin;
 #[cfg(feature = "auth-steam")]
 pub(crate) mod steam;
 
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub use commands::{StdbAuthCommands, StdbLoginOptions, StdbLogoutOptions};
 pub(crate) use error::StdbAuthError;
-#[cfg(feature = "auth-oidc")]
-pub use oidc::{StdbOidcAuthOptions, StdbOidcPrompt};
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 pub use plugin::StdbAuthPlugin;
 
+#[cfg(feature = "auth-oidc")]
+pub use oidc::{StdbOidcAuthOptions, StdbOidcPrompt};
 #[cfg(feature = "auth-steam")]
 pub use steam::StdbSteamAuthOptions;
-
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub(crate) mod commands;
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-pub use commands::{StdbAuthCommands, StdbLoginOptions, StdbLogoutOptions};
 
 use bevy_ecs::prelude::Resource;
 
 /// The specific auth target for a given attempt.
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[derive(Clone, Debug)]
 pub enum StdbAuthSource {
     #[cfg(feature = "auth-oidc")]
@@ -40,7 +33,6 @@ pub enum StdbAuthSource {
     Steam(StdbSteamAuthOptions),
 }
 
-#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 impl StdbAuthSource {
     pub fn client_id(&self) -> Option<String> {
         match self {
@@ -62,11 +54,7 @@ impl StdbAuthSource {
 }
 
 /// Stores the token payload returned by the token endpoint.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Resource)]
-#[cfg_attr(
-    any(feature = "auth-oidc", feature = "auth-steam"),
-    derive(serde::Deserialize)
-)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Resource, serde::Deserialize)]
 pub(crate) struct StdbTokenResponse {
     /// The access token used for SpacetimeDB connections.
     pub access_token: String,
