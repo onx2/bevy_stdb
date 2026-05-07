@@ -11,6 +11,7 @@ use bevy_ecs::prelude::{IntoScheduleConfigs, Messages, Resource, World, not, res
 use bevy_log::{error, info};
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use bevy_time::{Time, Timer, TimerMode};
+use crossbeam_channel::Receiver;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
@@ -58,8 +59,8 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            poll_pending_login::<C, M>
-                .run_if(resource_exists::<PendingLogin>)
+            poll_pending_auth::<C, M>
+                .run_if(resource_exists::<PendingAuth>)
                 .run_if(resource_exists::<StdbConnectionConfig<C, M>>),
         );
 
@@ -85,11 +86,6 @@ impl<
                 .run_if(resource_exists::<PendingTokenRefresh>)
                 .run_if(resource_exists::<StdbAuthRefresh>)
                 .run_if(resource_exists::<StdbConnectionConfig<C, M>>),
-        );
-
-        app.add_systems(
-            PreUpdate,
-            poll_pending_logout::<C, M>.run_if(resource_exists::<PendingLogout>),
         );
     }
 }
@@ -124,18 +120,18 @@ pub(crate) struct LoginOutcome {
     pub(crate) client_id: Option<String>,
 }
 
+/// Stores the in-flight task for a pending authentication operation.
 #[derive(Resource)]
-pub(crate) struct PendingLogin(pub(crate) Task<Result<LoginOutcome, StdbAuthError>>);
+pub(crate) enum PendingAuth {
+    Login(Task<Result<LoginOutcome, StdbAuthError>>),
+    Logout {
+        task: Task<Result<(), StdbAuthError>>,
+        clear_refresh_token: bool,
+    },
+}
 
 #[derive(Resource)]
 pub(crate) struct PendingTokenRefresh(Task<Result<StdbTokenResponse, StdbAuthError>>);
-
-/// Stores the pending result of an in-flight OIDC session-end request.
-#[derive(Resource)]
-pub(crate) struct PendingLogout {
-    pub(crate) task: Task<Result<(), StdbAuthError>>,
-    pub(crate) clear_refresh_token: bool,
-}
 
 fn refresh_timer(expires_in_secs: u64) -> Timer {
     let refresh_after_secs = expires_in_secs
@@ -144,63 +140,112 @@ fn refresh_timer(expires_in_secs: u64) -> Timer {
     Timer::new(Duration::from_secs(refresh_after_secs), TimerMode::Once)
 }
 
-fn poll_pending_login<
+fn poll_pending_auth<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
     world: &mut World,
 ) {
-    let Some(PendingLogin(mut task)) = world.remove_resource::<PendingLogin>() else {
+    let Some(pending) = world.remove_resource::<PendingAuth>() else {
         return;
     };
 
-    let Some(result) = block_on(poll_once(&mut task)) else {
-        world.insert_resource(PendingLogin(task));
-        return;
-    };
+    match pending {
+        PendingAuth::Login(mut task) => {
+            let Some(result) = block_on(poll_once(&mut task)) else {
+                world.insert_resource(PendingAuth::Login(task));
+                return;
+            };
 
-    match result {
-        Ok(outcome) => {
-            let client_id = outcome.client_id.clone();
+            match result {
+                Ok(outcome) => {
+                    let client_id = outcome.client_id.clone();
 
-            {
-                let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-                config.update_token(outcome.token_response.access_token.clone());
-                config.update_client_id(outcome.client_id);
-                config.update_id_token(outcome.token_response.id_token.clone());
-            }
+                    {
+                        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
+                        config.update_token(outcome.token_response.access_token.clone());
+                        config.update_client_id(outcome.client_id);
+                        config.update_id_token(outcome.token_response.id_token.clone());
+                    }
 
-            if let Some(refresh_token) = outcome.token_response.refresh_token.as_deref() {
-                if let Some(client_id) = client_id.as_deref() {
-                    info!("storing OIDC refresh token for client_id={client_id}");
-                    store_refresh_token(client_id, refresh_token);
-                } else {
-                    error!(
-                        "received OIDC refresh token but no client ID was available for storage"
-                    );
+                    if let Some(refresh_token) = outcome.token_response.refresh_token.as_deref() {
+                        if let Some(client_id) = client_id.as_deref() {
+                            info!("storing OIDC refresh token for client_id={client_id}");
+                            store_refresh_token(client_id, refresh_token);
+                        } else {
+                            error!(
+                                "received OIDC refresh token but no client ID was available for storage"
+                            );
+                        }
+                    } else {
+                        info!("login token response did not include a refresh token");
+                    }
+
+                    if let Some(auth_refresh) =
+                        StdbAuthRefresh::from_token_response(&outcome.token_response)
+                    {
+                        world.insert_resource(auth_refresh);
+                    } else {
+                        world.remove_resource::<StdbAuthRefresh>();
+                    }
+
+                    world
+                        .resource_mut::<Messages<StdbLoginSucceededMessage>>()
+                        .write(StdbLoginSucceededMessage);
                 }
-            } else {
-                info!("login token response did not include a refresh token");
+                Err(error) => {
+                    world
+                        .resource_mut::<Messages<StdbLoginFailedMessage>>()
+                        .write(StdbLoginFailedMessage {
+                            message: format!("{error:?}"),
+                        });
+                }
             }
-
-            if let Some(auth_refresh) =
-                StdbAuthRefresh::from_token_response(&outcome.token_response)
-            {
-                world.insert_resource(auth_refresh);
-            } else {
-                world.remove_resource::<StdbAuthRefresh>();
-            }
-
-            world
-                .resource_mut::<Messages<StdbLoginSucceededMessage>>()
-                .write(StdbLoginSucceededMessage);
         }
-        Err(error) => {
-            world
-                .resource_mut::<Messages<StdbLoginFailedMessage>>()
-                .write(StdbLoginFailedMessage {
-                    message: format!("{error:?}"),
+
+        PendingAuth::Logout {
+            mut task,
+            clear_refresh_token,
+        } => {
+            let Some(result) = block_on(poll_once(&mut task)) else {
+                world.insert_resource(PendingAuth::Logout {
+                    task,
+                    clear_refresh_token,
                 });
+                return;
+            };
+
+            if clear_refresh_token {
+                if let Some(config) = world.get_resource::<StdbConnectionConfig<C, M>>() {
+                    if let Some(client_id) = config.client_id() {
+                        clear_stored_refresh_token(client_id);
+                    }
+                }
+            }
+
+            if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
+                config.clear_auth();
+            }
+
+            world.remove_resource::<StdbAuthRefresh>();
+            world.remove_resource::<PendingAuth>();
+            world.remove_resource::<PendingTokenRefresh>();
+
+            match result {
+                Ok(()) => {
+                    world
+                        .resource_mut::<Messages<StdbLogoutSucceededMessage>>()
+                        .write(StdbLogoutSucceededMessage);
+                }
+                Err(error) => {
+                    error!("OIDC end-session failed: {error:?}");
+                    world
+                        .resource_mut::<Messages<StdbLogoutFailedMessage>>()
+                        .write(StdbLogoutFailedMessage {
+                            message: format!("{error:?}"),
+                        });
+                }
+            }
         }
     }
 }
@@ -264,62 +309,6 @@ fn tick_token_refresh<
         .insert_resource(PendingTokenRefresh(IoTaskPool::get().spawn(async move {
             refresh_token_response(client_id, refresh_token).await
         })));
-}
-
-fn poll_pending_logout<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-) {
-    let Some(pending) = world.remove_resource::<PendingLogout>() else {
-        return;
-    };
-
-    let PendingLogout {
-        mut task,
-        clear_refresh_token,
-    } = pending;
-
-    let Some(result) = block_on(poll_once(&mut task)) else {
-        world.insert_resource(PendingLogout {
-            task,
-            clear_refresh_token,
-        });
-        return;
-    };
-
-    if clear_refresh_token {
-        if let Some(config) = world.get_resource::<StdbConnectionConfig<C, M>>() {
-            if let Some(client_id) = config.client_id() {
-                clear_stored_refresh_token(client_id);
-            }
-        }
-    }
-
-    if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
-        config.clear_auth();
-    }
-
-    world.remove_resource::<StdbAuthRefresh>();
-    world.remove_resource::<PendingLogin>();
-    world.remove_resource::<PendingTokenRefresh>();
-
-    match result {
-        Ok(()) => {
-            world
-                .resource_mut::<Messages<StdbLogoutSucceededMessage>>()
-                .write(StdbLogoutSucceededMessage);
-        }
-        Err(error) => {
-            error!("OIDC end-session failed: {error:?}");
-            world
-                .resource_mut::<Messages<StdbLogoutFailedMessage>>()
-                .write(StdbLogoutFailedMessage {
-                    message: format!("{error:?}"),
-                });
-        }
-    }
 }
 
 fn poll_pending_token_refresh<

@@ -3,9 +3,7 @@
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 use crate::auth::{
     StdbAuthSource,
-    plugin::{
-        LoginOutcome, PendingLogin, PendingLogout, acquire_login_token_response, end_session,
-    },
+    plugin::{LoginOutcome, PendingAuth, acquire_login_token_response, end_session},
 };
 use crate::connection::{PendingConnection, StdbConnection, StdbConnectionConfig};
 use bevy_ecs::{
@@ -109,12 +107,10 @@ where
 {
     config: ResMut<'w, StdbConnectionConfig<C, M>>,
     connection: Option<Res<'w, StdbConnection<C>>>,
-    pending: Option<Res<'w, PendingConnection<C>>>,
+    pending_connection: Option<Res<'w, PendingConnection<C>>>,
     commands: Commands<'w, 's>,
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pending_login: Option<Res<'w, PendingLogin>>,
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pending_logout: Option<Res<'w, PendingLogout>>,
+    pending_auth: Option<Res<'w, PendingAuth>>,
 }
 
 impl<C, M> StdbCommands<'_, '_, C, M>
@@ -126,7 +122,7 @@ where
     ///
     /// No-op if a [`StdbConnection`] or [`PendingConnection`] already exists.
     pub fn connect(&mut self, options: StdbConnectOptions) {
-        if self.connection.is_some() || self.pending.is_some() {
+        if self.connection.is_some() || self.pending_connection.is_some() {
             return;
         }
         self.connect_impl(options);
@@ -174,7 +170,7 @@ where
     ///
     /// No-op if a login attempt is already pending.
     pub fn login(&mut self, options: StdbLoginOptions) {
-        if self.pending_login.is_some() {
+        if self.pending_auth.is_some() {
             return;
         }
         let auth_source = options.auth_source;
@@ -186,14 +182,14 @@ where
                 client_id,
             })
         });
-        self.commands.insert_resource(PendingLogin(task));
+        self.commands.insert_resource(PendingAuth::Login(task));
     }
 
-    /// Initiates an async logout, ending the OIDC session and clearing local auth state.
+    /// Initiates an async logout, ending the Spacetime Auth session and clearing local auth state.
     ///
     /// No-op if a logout attempt is already pending.
     pub fn logout(&mut self, options: StdbLogoutOptions) {
-        if self.pending_logout.is_some() {
+        if self.pending_auth.is_some() {
             return;
         }
 
@@ -206,7 +202,7 @@ where
         let task = IoTaskPool::get()
             .spawn(async move { end_session(&client_id, id_token.as_deref()).await });
 
-        self.commands.insert_resource(PendingLogout {
+        self.commands.insert_resource(PendingAuth::Logout {
             task,
             clear_refresh_token,
         });
