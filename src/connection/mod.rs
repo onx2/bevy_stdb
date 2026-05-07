@@ -4,7 +4,6 @@
 
 pub(crate) mod reconnect;
 
-use crate::log::error;
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
@@ -13,6 +12,7 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, Resource, World, resource_exists};
+use bevy_log::error;
 use bevy_tasks::{Task, block_on, poll_once};
 use crossbeam_channel::Sender;
 pub(crate) use reconnect::ReconnectPlugin;

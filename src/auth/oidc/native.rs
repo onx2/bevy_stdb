@@ -2,7 +2,7 @@ use super::{
     StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse,
     common::{AUTH_ENDPOINT, OidcTokenResponse, TOKEN_ENDPOINT, authorization_redirect},
 };
-use crate::log::{error, info};
+use bevy_log::{error, info};
 use oauth2::{
     AuthUrl, AuthorizationCode, Client, ClientId, CsrfToken, HttpClientError, HttpRequest,
     PkceCodeChallenge, RedirectUrl, Scope, StandardRevocableToken, TokenResponse as _, TokenUrl,

@@ -23,7 +23,7 @@ bevy_tasks = "0.18"
 crossbeam-channel = "0.5"
 spacetimedb-sdk = { version = "2.1" }
 
-bevy_log = { version = "0.18", optional = true }
+bevy_log = { version = "0.18" }
 
 serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
@@ -32,8 +32,6 @@ oauth2 = { version = "5.0", optional = true, default-features = false }
 
 [features]
 default = []
-
-log = ["dep:bevy_log"]
 
 browser = [
     "spacetimedb-sdk/browser",

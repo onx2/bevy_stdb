@@ -129,16 +129,16 @@ where
         if self.connection.is_some() || self.pending.is_some() {
             return;
         }
-        self.start_connect(options);
+        self.connect_impl(options);
     }
 
     /// Disconnects any active or pending connection, then spawns a new connection task.
     pub fn reconnect(&mut self, options: StdbConnectOptions) {
         self.disconnect();
-        self.start_connect(options);
+        self.connect_impl(options);
     }
 
-    fn start_connect(&mut self, options: StdbConnectOptions) {
+    fn connect_impl(&mut self, options: StdbConnectOptions) {
         if let Some(uri) = options.uri {
             self.config.uri = uri;
         }

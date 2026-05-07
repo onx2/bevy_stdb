@@ -1,5 +1,5 @@
 use super::{StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse};
-use crate::log::error;
+use bevy_log::error;
 
 /// Acquires a token response using the browser OIDC flow.
 pub async fn acquire_token_response(

@@ -1,5 +1,5 @@
 use super::{StdbAuthError, StdbTokenResponse};
-use crate::log::{error, info};
+use bevy_log::{error, info};
 use std::{
     thread,
     time::{Duration, Instant},

@@ -1,7 +1,6 @@
 use crate::{
     auth::{StdbAuthError, StdbAuthSource, StdbTokenResponse},
     connection::{StdbConnection, StdbConnectionConfig},
-    log::{error, info},
     message::{
         StdbLoginFailedMessage, StdbLoginSucceededMessage, StdbLogoutFailedMessage,
         StdbLogoutSucceededMessage,
@@ -9,6 +8,7 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Messages, Resource, World, not, resource_exists};
+use bevy_log::{error, info};
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use bevy_time::{Time, Timer, TimerMode};
 use spacetimedb_sdk::{
