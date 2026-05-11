@@ -361,9 +361,8 @@ fn sync_connection_resource<C: DbContext + Send + Sync + 'static>(
     conn: Option<Res<StdbConnection<C>>>,
     mut commands: Commands,
 ) {
-    if connected_msgs.read().next().is_some() || disconnected_msgs.read().next().is_some() {
-        if conn.as_ref().is_some_and(|conn| !conn.is_active()) {
+    if (connected_msgs.read().next().is_some() || disconnected_msgs.read().next().is_some())
+        && conn.as_ref().is_some_and(|conn| !conn.is_active()) {
             commands.remove_resource::<StdbConnection<C>>();
         }
-    }
 }

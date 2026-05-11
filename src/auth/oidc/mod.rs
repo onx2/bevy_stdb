@@ -50,5 +50,8 @@ pub struct StdbOidcAuthOptions {
 pub async fn acquire_token_response(
     options: &StdbOidcAuthOptions,
 ) -> Result<StdbTokenResponse, StdbAuthError> {
-    auth_imp::acquire_token_response(options)
+    #[cfg(feature = "browser")]
+    return auth_imp::acquire_token_response(options).await;
+    #[cfg(not(feature = "browser"))]
+    return auth_imp::acquire_token_response(options);
 }

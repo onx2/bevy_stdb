@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) enum StdbAuthError {
     Http(reqwest::Error),

@@ -174,8 +174,8 @@ fn poll_pending_auth<
                         config.update_id_token(outcome.token_response.id_token.clone());
                     }
 
+                    #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
                     if let Some(refresh_token) = outcome.token_response.refresh_token.as_deref() {
-                        #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
                         if let Some(client_id) = client_id.as_deref() {
                             info!("storing OIDC refresh token for client_id={client_id}");
                             store_refresh_token(client_id, refresh_token);
@@ -319,8 +319,8 @@ fn poll_pending_token_refresh<
 
     let mut auth_refresh = world.resource_mut::<StdbAuthRefresh>();
 
+    #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
     if let Some(refresh_token) = token_response.refresh_token {
-        #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
         if let Some(client_id) = client_id.as_deref() {
             store_refresh_token(client_id, &refresh_token);
         }
@@ -412,7 +412,7 @@ async fn refresh_token_response(
             .json::<StdbTokenResponse>()
             .await?;
 
-        return Ok(response);
+        Ok(response)
     }
 }
 
@@ -442,8 +442,8 @@ pub(crate) async fn end_session(
     #[cfg(feature = "browser")]
     {
         error!("browser session end is not implemented yet");
-        return Err(StdbAuthError::Internal(
+        Err(StdbAuthError::Internal(
             "browser session end is not implemented yet".to_string(),
-        ));
+        ))
     }
 }
