@@ -1,4 +1,6 @@
 mod common;
+#[cfg(not(feature = "browser"))]
+pub(crate) mod keyring;
 
 #[cfg(feature = "browser")]
 #[path = "web.rs"]
