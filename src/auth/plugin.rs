@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Messages, Resource, World, not, resource_exists};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Resource, World, not, resource_exists};
 use bevy_log::{error, info};
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use bevy_time::{Time, Timer, TimerMode};
@@ -184,16 +184,12 @@ fn poll_pending_auth<
                         world.remove_resource::<StdbAuthRefresh>();
                     }
 
-                    world
-                        .resource_mut::<Messages<StdbLoginSucceededMessage>>()
-                        .write(StdbLoginSucceededMessage);
+                    world.write_message_default::<StdbLoginSucceededMessage>();
                 }
                 Err(error) => {
-                    world
-                        .resource_mut::<Messages<StdbLoginFailedMessage>>()
-                        .write(StdbLoginFailedMessage {
-                            message: format!("{error:?}"),
-                        });
+                    world.write_message(StdbLoginFailedMessage {
+                        message: format!("{error:?}"),
+                    });
                 }
             }
         }
@@ -229,17 +225,13 @@ fn poll_pending_auth<
 
             match result {
                 Ok(()) => {
-                    world
-                        .resource_mut::<Messages<StdbLogoutSucceededMessage>>()
-                        .write(StdbLogoutSucceededMessage);
+                    world.write_message_default::<StdbLogoutSucceededMessage>();
                 }
                 Err(error) => {
                     error!("OIDC end-session failed: {error:?}");
-                    world
-                        .resource_mut::<Messages<StdbLogoutFailedMessage>>()
-                        .write(StdbLogoutFailedMessage {
-                            message: format!("{error:?}"),
-                        });
+                    world.write_message(StdbLogoutFailedMessage {
+                        message: format!("{error:?}"),
+                    });
                 }
             }
         }

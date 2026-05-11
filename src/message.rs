@@ -111,7 +111,7 @@ where
 }
 
 /// A [`Message`] sent when SpacetimeDB authentication succeeds.
-#[derive(Message, Clone, Debug)]
+#[derive(Message, Clone, Debug, Default)]
 pub struct StdbLoginSucceededMessage;
 
 /// A [`Message`] sent when SpacetimeDB authentication fails.
@@ -122,7 +122,7 @@ pub struct StdbLoginFailedMessage {
 }
 
 /// A [`Message`] sent when SpacetimeDB logout succeeds.
-#[derive(Message, Clone, Debug)]
+#[derive(Message, Clone, Debug, Default)]
 pub struct StdbLogoutSucceededMessage;
 
 /// A [`Message`] sent when SpacetimeDB logout fails.
