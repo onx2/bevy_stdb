@@ -3,10 +3,6 @@ use bevy_ecs::prelude::SystemSet;
 
 /// System sets for `bevy_stdb` systems in [`PreUpdate`](bevy_app::PreUpdate).
 ///
-/// Sets run in declaration order:
-/// [`Flush`](Self::Flush) → [`StateSync`](Self::StateSync) →
-/// [`Connection`](Self::Connection) → [`Subscriptions`](Self::Subscriptions).
-///
 /// # Example
 ///
 /// ```ignore
@@ -23,6 +19,8 @@ pub enum StdbSet {
     StateSync,
     /// Manages connection lifecycle: building, finalizing, driving, and reconnect.
     Connection,
+    /// Runs after the connection is established, before subscriptions are applied.
+    PostConnection,
     /// Applies queued subscriptions to the active connection.
     Subscriptions,
 }

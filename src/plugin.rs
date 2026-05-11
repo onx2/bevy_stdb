@@ -406,6 +406,7 @@ impl<
                 StdbSet::Flush,
                 StdbSet::StateSync,
                 StdbSet::Connection,
+                StdbSet::PostConnection,
                 StdbSet::Subscriptions,
             )
                 .chain(),

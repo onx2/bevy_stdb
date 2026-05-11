@@ -5,9 +5,13 @@ use crate::{
         StdbLoginFailedMessage, StdbLoginSucceededMessage, StdbLogoutFailedMessage,
         StdbLogoutSucceededMessage,
     },
+    set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Resource, World, not, resource_exists};
+use bevy_ecs::{
+    prelude::{IntoScheduleConfigs, Resource, World, not, resource_exists},
+    schedule::common_conditions::resource_added,
+};
 use bevy_log::{error, info};
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use bevy_time::{Time, Timer, TimerMode};
@@ -59,15 +63,16 @@ impl<
             PreUpdate,
             poll_pending_auth::<C, M>
                 .run_if(resource_exists::<PendingAuth>)
-                .run_if(resource_exists::<StdbConnectionConfig<C, M>>),
+                .run_if(resource_exists::<StdbConnectionConfig<C, M>>)
+                .in_set(StdbSet::PostConnection),
         );
 
         app.add_systems(
             PreUpdate,
             arm_token_refresh::<C, M>
                 .run_if(resource_exists::<StdbAuthRefresh>)
-                .run_if(resource_exists::<StdbConnectionConfig<C, M>>)
-                .run_if(resource_exists::<StdbConnection<C>>),
+                .run_if(resource_added::<StdbConnection<C>>)
+                .in_set(StdbSet::PostConnection),
         );
 
         app.add_systems(
@@ -75,7 +80,9 @@ impl<
             tick_token_refresh::<C, M>
                 .run_if(not(resource_exists::<PendingTokenRefresh>))
                 .run_if(resource_exists::<StdbAuthRefresh>)
-                .run_if(resource_exists::<StdbConnectionConfig<C, M>>),
+                .run_if(resource_exists::<StdbConnection<C>>)
+                .run_if(resource_exists::<StdbConnectionConfig<C, M>>)
+                .in_set(StdbSet::PostConnection),
         );
 
         app.add_systems(
@@ -83,7 +90,8 @@ impl<
             poll_pending_token_refresh::<C, M>
                 .run_if(resource_exists::<PendingTokenRefresh>)
                 .run_if(resource_exists::<StdbAuthRefresh>)
-                .run_if(resource_exists::<StdbConnectionConfig<C, M>>),
+                .run_if(resource_exists::<StdbConnectionConfig<C, M>>)
+                .in_set(StdbSet::PostConnection),
         );
     }
 }
@@ -244,24 +252,10 @@ fn arm_token_refresh<
 >(
     world: &mut World,
 ) {
-    let saw_connected = {
-        let connected_msgs = world
-            .resource_mut::<bevy_ecs::message::Messages<crate::message::StdbConnectedMessage>>();
-        let mut cursor = connected_msgs.get_cursor_current();
-        cursor.read(&connected_msgs).next().is_some()
-    };
-
-    if !saw_connected {
-        return;
-    }
-
-    let _ = world.remove_resource::<PendingTokenRefresh>();
-
-    let Some(mut auth_refresh) = world.get_resource_mut::<StdbAuthRefresh>() else {
-        return;
-    };
-
-    auth_refresh.refresh_timer.reset();
+    world.resource_scope::<StdbAuthRefresh, _>(|world, mut auth_refresh| {
+        world.remove_resource::<PendingTokenRefresh>();
+        auth_refresh.refresh_timer.reset();
+    });
 }
 
 fn tick_token_refresh<
@@ -273,16 +267,15 @@ fn tick_token_refresh<
     let delta = world.resource::<Time>().delta();
 
     let Some(client_id) = world
-        .get_resource::<StdbConnectionConfig<C, M>>()
-        .and_then(|config| config.client_id().map(str::to_owned))
+        .resource::<StdbConnectionConfig<C, M>>()
+        .client_id()
+        .map(str::to_owned)
     else {
         return;
     };
 
     let refresh_token = {
-        let Some(mut auth_refresh) = world.get_resource_mut::<StdbAuthRefresh>() else {
-            return;
-        };
+        let mut auth_refresh = world.resource_mut::<StdbAuthRefresh>();
 
         auth_refresh.refresh_timer.tick(delta);
 
@@ -324,16 +317,13 @@ fn poll_pending_token_refresh<
         conn_config.client_id().map(str::to_owned)
     };
 
-    let Some(mut auth_refresh) = world.get_resource_mut::<StdbAuthRefresh>() else {
-        return;
-    };
+    let mut auth_refresh = world.resource_mut::<StdbAuthRefresh>();
 
     if let Some(refresh_token) = token_response.refresh_token {
         #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
         if let Some(client_id) = client_id.as_deref() {
             store_refresh_token(client_id, &refresh_token);
         }
-
         auth_refresh.refresh_token = refresh_token;
     }
 
