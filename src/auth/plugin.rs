@@ -1,5 +1,5 @@
 use crate::{
-    auth::{StdbAuthError, StdbAuthSource, StdbTokenResponse},
+    auth::{AUTH_URI_BASE, StdbAuthError, StdbAuthSource, StdbTokenResponse},
     connection::{StdbConnection, StdbConnectionConfig},
     message::{
         StdbLoginFailedMessage, StdbLoginSucceededMessage, StdbLogoutFailedMessage,
@@ -11,15 +11,11 @@ use bevy_ecs::prelude::{IntoScheduleConfigs, Messages, Resource, World, not, res
 use bevy_log::{error, info};
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use bevy_time::{Time, Timer, TimerMode};
-use crossbeam_channel::Receiver;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
 use std::{marker::PhantomData, time::Duration};
-
-const TOKEN_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/token";
-const END_SESSION_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/session/end";
 
 #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
 const KEYRING_SERVICE: &str = "bevy_stdb";
@@ -490,7 +486,7 @@ async fn refresh_token_response(
     {
         let client = reqwest::blocking::Client::new();
         let response = client
-            .post(TOKEN_ENDPOINT)
+            .post(format!("{AUTH_URI_BASE}/token"))
             .form(&[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token.as_str()),
@@ -507,7 +503,7 @@ async fn refresh_token_response(
     {
         let client = reqwest::Client::new();
         let response = client
-            .post(TOKEN_ENDPOINT)
+            .post(format!("{AUTH_URI_BASE}/token"))
             .form(&[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token.as_str()),
@@ -538,7 +534,7 @@ pub(crate) async fn end_session(
         }
         let client = reqwest::blocking::Client::new();
         client
-            .post(END_SESSION_ENDPOINT)
+            .post(format!("{AUTH_URI_BASE}/session/end"))
             .form(&params)
             .send()?
             .error_for_status()?;

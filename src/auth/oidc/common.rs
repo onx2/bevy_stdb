@@ -2,9 +2,6 @@ use super::StdbTokenResponse;
 use oauth2::{Scope, TokenResponse as _};
 use url::Url;
 
-pub(crate) const AUTH_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/auth";
-pub(crate) const TOKEN_ENDPOINT: &str = "https://auth.spacetimedb.com/oidc/token";
-
 /// Extra OIDC fields returned by the token endpoint.
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 pub(crate) struct OidcExtraFields {

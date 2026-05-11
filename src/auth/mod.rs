@@ -22,6 +22,8 @@ pub use steam::StdbSteamAuthOptions;
 
 use bevy_ecs::prelude::Resource;
 
+pub(crate) const AUTH_URI_BASE: &'static str = "https://auth.spacetimedb.com/oidc";
+
 /// The specific auth target for a given attempt.
 #[derive(Clone, Debug)]
 pub enum StdbAuthSource {

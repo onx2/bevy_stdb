@@ -1,4 +1,4 @@
-use super::{StdbAuthError, StdbTokenResponse};
+use super::{AUTH_URI_BASE, StdbAuthError, StdbTokenResponse};
 use bevy_log::{error, info};
 use std::{
     thread,
@@ -57,7 +57,7 @@ fn exchange_steam_ticket_request(
 
     let client = reqwest::blocking::Client::new();
     let response = client
-        .post("https://auth.spacetimedb.com/oidc/token")
+        .post(format!("{AUTH_URI_BASE}/token"))
         .form(&[
             ("grant_type", "urn:spacetimeauth:steam-ticket"),
             ("steam_ticket", hex::encode(steam_ticket).as_str()),

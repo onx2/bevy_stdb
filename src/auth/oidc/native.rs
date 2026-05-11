@@ -1,6 +1,7 @@
+use super::super::AUTH_URI_BASE;
 use super::{
     StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse,
-    common::{AUTH_ENDPOINT, OidcTokenResponse, TOKEN_ENDPOINT, authorization_redirect},
+    common::{OidcTokenResponse, authorization_redirect},
 };
 use bevy_log::{error, info};
 use oauth2::{
@@ -40,14 +41,18 @@ pub(crate) fn acquire_token_response(
     let listener = bind_redirect_listener(&redirect_uri)?;
 
     let oauth_client = OidcClient::new(ClientId::new(options.client_id.clone()))
-        .set_auth_uri(AuthUrl::new(AUTH_ENDPOINT.to_string()).map_err(|error| {
-            error!("invalid OIDC authorization endpoint: {error}");
-            StdbAuthError::Internal(format!("invalid OIDC authorization endpoint: {error}"))
-        })?)
-        .set_token_uri(TokenUrl::new(TOKEN_ENDPOINT.to_string()).map_err(|error| {
-            error!("invalid OIDC token endpoint: {error}");
-            StdbAuthError::Internal(format!("invalid OIDC token endpoint: {error}"))
-        })?)
+        .set_auth_uri(
+            AuthUrl::new(format!("{AUTH_URI_BASE}/auth")).map_err(|error| {
+                error!("invalid OIDC authorization endpoint: {error}");
+                StdbAuthError::Internal(format!("invalid OIDC authorization endpoint: {error}"))
+            })?,
+        )
+        .set_token_uri(
+            TokenUrl::new(format!("{AUTH_URI_BASE}/token")).map_err(|error| {
+                error!("invalid OIDC token endpoint: {error}");
+                StdbAuthError::Internal(format!("invalid OIDC token endpoint: {error}"))
+            })?,
+        )
         .set_redirect_uri(
             RedirectUrl::new(options.redirect_uri.clone()).map_err(|error| {
                 error!("invalid OIDC redirect URL: {error}");
