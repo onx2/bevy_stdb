@@ -103,15 +103,22 @@ pub struct StdbAuthRefresh {
 }
 
 impl StdbAuthRefresh {
+    fn build_refresh_timer(expires_in_secs: u64) -> Timer {
+        let refresh_after_secs = expires_in_secs
+            .saturating_sub(TOKEN_REFRESH_BUFFER_SECS)
+            .max(1);
+        Timer::new(Duration::from_secs(refresh_after_secs), TimerMode::Once)
+    }
+
     pub(crate) fn new(refresh_token: impl Into<String>, expires_in_secs: u64) -> Self {
         Self {
             refresh_token: refresh_token.into(),
-            refresh_timer: refresh_timer(expires_in_secs),
+            refresh_timer: Self::build_refresh_timer(expires_in_secs),
         }
     }
 
     pub(crate) fn reset_timer(&mut self, expires_in_secs: u64) {
-        self.refresh_timer = refresh_timer(expires_in_secs);
+        self.refresh_timer = Self::build_refresh_timer(expires_in_secs);
     }
 
     pub(crate) fn from_token_response(token_response: &StdbTokenResponse) -> Option<Self> {
@@ -138,13 +145,6 @@ pub(crate) enum PendingAuth {
 
 #[derive(Resource)]
 pub(crate) struct PendingTokenRefresh(Task<Result<StdbTokenResponse, StdbAuthError>>);
-
-fn refresh_timer(expires_in_secs: u64) -> Timer {
-    let refresh_after_secs = expires_in_secs
-        .saturating_sub(TOKEN_REFRESH_BUFFER_SECS)
-        .max(1);
-    Timer::new(Duration::from_secs(refresh_after_secs), TimerMode::Once)
-}
 
 fn poll_pending_auth<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
