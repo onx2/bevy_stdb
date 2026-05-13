@@ -52,7 +52,7 @@ fn main() {
                 .with_reconnect(StdbReconnectOptions::default())
                 .with_background_driver(DbConnection::run_threaded),
         )
-        .add_systems(PreStartup, connect)
+        .add_systems(Startup, connect)
         .add_systems(Update, (subscribe_on_connect, on_player_info_insert))
         .run();
 }
