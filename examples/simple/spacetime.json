@@ -1,0 +1,8 @@
+{
+  "dev": {
+    "run": "cargo run"
+  },
+  "server": "local",
+  "module-path": "./spacetimedb",
+  "database": "simple-jls8z"
+}

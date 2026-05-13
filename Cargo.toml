@@ -12,6 +12,7 @@ documentation = "https://docs.rs/bevy_stdb"
 keywords = ["bevy", "spacetimedb", "database", "multiplayer", "ecs"]
 categories = ["game-development", "network-programming", "database"]
 exclude = [
+    "examples/",
     ".github/",
 ]
 
