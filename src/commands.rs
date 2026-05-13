@@ -78,7 +78,7 @@ where
 {
     /// Spawns a connection task using [`StdbConnectOptions`].
     ///
-    /// No-op if a [`StdbConnection`] or [`PendingConnection`] already exists.
+    /// No-op if a [`StdbConnection`] or `PendingConnection` already exists.
     pub fn connect(&mut self, options: StdbConnectOptions) {
         if self.connection.is_some() || self.pending_connection.is_some() {
             return;

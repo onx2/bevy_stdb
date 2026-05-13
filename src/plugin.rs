@@ -199,8 +199,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Sets the authentication token used for the initial connection.
     ///
-    /// If a later [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
-    /// provides a token at runtime, the most recently provided token becomes the
+    /// If a token is provided at runtime, the most recently provided token becomes the
     /// stored token used for subsequent reconnect attempts.
     ///
     /// # Panics
@@ -369,8 +368,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// When reconnect is enabled, reconnect attempts use the most recently
     /// stored token. That token comes from either [`Self::with_token`] or a
-    /// later runtime [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
-    /// with `token: Some(...)`.
+    /// later runtime token update with `token: Some(...)`.
     ///
     /// On a successful reconnect, table callbacks are re-bound and queued
     /// subscriptions are re-applied automatically.

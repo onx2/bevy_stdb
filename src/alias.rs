@@ -24,7 +24,7 @@ pub type ReadStdbConnectedMessage<'w, 's> = MessageReader<'w, 's, StdbConnectedM
 /// A [`MessageReader`] for [`StdbDisconnectedMessage`].
 pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconnectedMessage>;
 
-/// A [`MessageReader`] for [`StdbConnectionErrorMessage`].
+/// A [`MessageReader`] for [`StdbConnectErrorMessage`].
 pub type ReadStdbConnectErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectErrorMessage>;
 
 /// A [`MessageReader`] for [`StdbSubscriptionAppliedMessage<K>`].
