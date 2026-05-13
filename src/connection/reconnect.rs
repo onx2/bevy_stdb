@@ -180,7 +180,7 @@ fn tick_reconnect_timer<C, M>(
     backoff.timer = None;
     backoff.attempts += 1;
 
-    if config.max_attempts > 0 && backoff.attempts >= config.max_attempts {
+    if config.max_attempts > 0 && backoff.attempts > config.max_attempts {
         return;
     }
 

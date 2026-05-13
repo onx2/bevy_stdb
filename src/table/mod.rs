@@ -8,7 +8,7 @@
 mod bind;
 mod register;
 
-use crate::connection::StdbConnection;
+use crate::{connection::StdbConnection, set::StdbSet};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{
     prelude::{Resource, World, resource_added},
@@ -77,7 +77,10 @@ where
         });
         app.add_systems(
             PreUpdate,
-            on_connected_bind::<C, M>.run_if(resource_added::<StdbConnection<C>>),
+            on_connected_bind::<C, M>
+                .run_if(resource_added::<StdbConnection<C>>)
+                .after(StdbSet::Connection)
+                .before(StdbSet::Subscriptions),
         );
     }
 }

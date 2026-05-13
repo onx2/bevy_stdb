@@ -29,7 +29,7 @@ pub struct StdbDisconnectedMessage {
 /// A [`Message`] sent when a SpacetimeDB connection fails to connect.
 #[derive(Message, Debug)]
 pub struct StdbConnectErrorMessage {
-    /// The error that caused the disconnect, if any.
+    /// The error that caused the connection attempt to fail.
     pub err: Error,
 }
 
