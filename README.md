@@ -24,7 +24,6 @@ _Please enjoy this useless AI generated image based on the README contents of th
 - **Table event bridging** into normal Bevy `Message`s
 - **Managed subscription intent** through `StdbSubscriptions`
 - **Optional reconnect support** through `StdbReconnectOptions`
-- **Optional delayed connection** through `with_delayed_connection`
 
 ## Example
 
@@ -233,7 +232,7 @@ Reconnect behavior is opt-in. Use `StdbPlugin::with_reconnect` with `StdbReconne
 
 ## Type Aliases
 
-It is useful to define some type aliases of your own. I suggest doing something like this:
+It is useful to define some type aliases of your own. I suggest making aliases for the connection, subscription, and commands:
 
 ```rust
 #[derive(Clone, Eq, Hash, PartialEq, Debug)]
@@ -244,6 +243,7 @@ pub enum SubKeys {
 
 pub type StdbConn = StdbConnection<DbConnection>;
 pub type StdbSubs = StdbSubscriptions<SubKeys, RemoteModule>;
+pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
 
 // Or a more constrained version for typical use cases:
 // pub type StdbConn<'w> = Res<'w, StdbConnection<DbConnection>>;
@@ -256,14 +256,16 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 }
 ```
 
-## Delayed Connection
+## Using commands
 
-Use `with_delayed_connection` when the initial connection should be requested later at runtime instead of during startup.
+Use `StdbCommands<C, M>` to connect and disconnect with overrides, such as with a token.
 
 ```rust
 use bevy::prelude::*;
 use bevy_stdb::prelude::*;
 use crate::module_bindings::{DbConnection, RemoteModule};
+
+pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
 
 #[derive(Resource)]
 struct ConnectTimer(Timer);
@@ -276,7 +278,6 @@ fn main() {
             StdbPlugin::<DbConnection, RemoteModule>::default()
                 .with_module_name("my_module")
                 .with_uri("http://localhost:3000")
-                .with_delayed_connection()
                 .with_background_driver(DbConnection::run_threaded),
         )
         .add_systems(Update, connect_after_delay)
@@ -286,18 +287,21 @@ fn main() {
 fn connect_after_delay(
     time: Res<Time>,
     mut timer: ResMut<ConnectTimer>,
-    mut request: WriteRequestStdbConnectionMessage,
+    mut stdb_cmds: StdbCmds,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        request.write_default();
+        // Send a connect request without any overrides
+        stdb_cmds.connect(StdbConnectOptions::default());
     }
 }
 ```
 
-You can also override configuration values for `token`, `uri`, and `module_name` using:
+You can also override configuration values for `token`, `uri`, and `module_name` using the `from_*` methods. See `StdbConnectOptions` for more details.
 
 ```rust
-`request.write(RequestStdbConnectionMessage { token, uri, module_name })`
+StdbConnectOptions::from_token("json.web.token_goes_here");
+StdbConnectOptions::from_uri("https://www.example.com/");
+StdbConnectOptions::from_module_name("my_cool_module");
 ```
 
 ### Connection-dependent resources
@@ -306,13 +310,48 @@ You can also override configuration values for `token`, `uri`, and `module_name`
 
 This avoids runtime failures when a system runs before the connection has been established or after it has been lost.
 
+```rust
+use bevy::prelude::*;
+use bevy_stdb::prelude::*;
+use crate::module_bindings::{DbConnection, RemoteModule};
+
+pub type StdbConn = StdbConnection<DbConnection>;
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(
+            StdbPlugin::<DbConnection, RemoteModule>::default()
+                .with_module_name("my_module")
+                .with_uri("http://localhost:3000")
+                .with_background_driver(DbConnection::run_threaded),
+        )
+        .add_systems(
+            Update,
+            my_system_run_condition.run_if(resource_exists::<StdbConn>)
+        )
+        .add_systems(Update, my_system_option_res)
+        .run();
+}
+
+fn my_system_run_condition(mut conn: ResMut<StdbConn>) {
+    // Safe to access connection
+}
+
+fn my_system_option_res(mut conn: Option<ResMut<StdbConn>>) {
+    if let Some(conn) = conn {
+        // Safe to access connection
+    }
+}
+```
+
 
 ## Compatibility
 
 | bevy_stdb | bevy   | spacetimedb_sdk |
 | --------- | ------ | --------------- |
 | 0.1 - 0.2 | 0.18   | 2.0             |
-| 0.3 - 0.7 | 0.18   | 2.1             |
+| 0.3 - 0.8 | 0.18   | 2.1             |
 
 ## Notes
 

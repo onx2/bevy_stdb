@@ -3,10 +3,6 @@ use bevy_ecs::prelude::SystemSet;
 
 /// System sets for `bevy_stdb` systems in [`PreUpdate`](bevy_app::PreUpdate).
 ///
-/// Sets run in declaration order:
-/// [`Flush`](Self::Flush) → [`StateSync`](Self::StateSync) →
-/// [`Connection`](Self::Connection) → [`Subscriptions`](Self::Subscriptions).
-///
 /// # Example
 ///
 /// ```ignore

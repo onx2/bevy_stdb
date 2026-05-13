@@ -1,8 +1,7 @@
 use crate::{
     channel_bridge::ChannelBridgePlugin,
-    connection::{ConnectionDriver, StdbConnectionPlugin},
+    connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
     message::RowEvent,
-    reconnect::{ReconnectPlugin, StdbReconnectOptions},
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
@@ -13,7 +12,6 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::IntoScheduleConfigs;
-use bevy_state::app::StatesPlugin;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
     Compression, DbContext, SubscriptionHandle,
@@ -60,7 +58,6 @@ pub struct StdbPlugin<
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
-    delayed_connection: bool,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
@@ -77,7 +74,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             compression: None,
             driver: None,
             reconnect_options: None,
-            delayed_connection: false,
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
@@ -407,41 +403,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.reconnect_options = Some(reconnect_config);
         self
     }
-
-    /// Defers the initial connection until explicitly requested at runtime.
-    ///
-    /// Row-message registration still happens eagerly during plugin build, but
-    /// no connection is started. Send a
-    /// [`RequestStdbConnectionMessage`](crate::prelude::RequestStdbConnectionMessage)
-    /// to begin connecting.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // During setup:
-    /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
-    ///     .with_uri("http://localhost:3000")
-    ///     .with_delayed_connection()
-    ///     .with_background_driver(DbConnection::run_threaded)
-    ///
-    /// // Later, from a system:
-    /// fn connect_on_button_press(mut requests: WriteRequestStdbConnectionMessage) {
-    ///     requests.write_default();
-    /// }
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    pub fn with_delayed_connection(mut self) -> Self {
-        assert!(
-            !self.delayed_connection,
-            "`with_delayed_connection()` may only be called once"
-        );
-        self.delayed_connection = true;
-        self
-    }
 }
 
 impl<
@@ -462,9 +423,6 @@ impl<
     /// - URI
     /// - connection driver
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<StatesPlugin>() {
-            app.add_plugins(StatesPlugin);
-        }
         app.add_plugins(ChannelBridgePlugin);
 
         app.configure_sets(PreStartup, StdbSet::Connection);
@@ -500,7 +458,6 @@ impl<
                 )
             }),
             compression: self.compression.unwrap_or_default(),
-            delayed_connection: self.delayed_connection,
         });
 
         app.add_plugins(StdbTablePlugin::<C, M>::new(

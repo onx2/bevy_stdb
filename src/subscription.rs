@@ -3,13 +3,15 @@
 //! Manages subscription intent and active handles via Bevy systems and resources.
 use crate::{
     channel_bridge::{channel_sender, register_channel},
-    connection::{StdbConnection, StdbConnectionState},
+    connection::StdbConnection,
     message::{StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
-use bevy_state::prelude::{OnEnter, State};
+use bevy_ecs::{
+    prelude::{IntoScheduleConfigs, Res, ResMut, Resource, resource_exists},
+    schedule::common_conditions::resource_exists_and_changed,
+};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
@@ -248,58 +250,23 @@ where
         });
 
         app.add_systems(
-            OnEnter(StdbConnectionState::Disconnected),
-            queue_subscriptions_on_disconnect::<K, M>,
+            PreUpdate,
+            (|mut subs: ResMut<StdbSubscriptions<K, M>>| {
+                for entry in subs.entries.values_mut() {
+                    entry.queued |= entry.handle.is_some();
+                }
+            })
+            .in_set(StdbSet::Subscriptions)
+            .run_if(resource_exists_and_changed::<StdbConnection<C>>),
         );
-
         app.add_systems(
             PreUpdate,
-            apply_queued_subscriptions::<K, C, M>
-                .in_set(StdbSet::Subscriptions)
-                .run_if(should_apply_subscriptions::<K, M>),
+            (|conn: Res<StdbConnection<C>>, mut subs: ResMut<StdbSubscriptions<K, M>>| {
+                subs.apply_queued(&conn);
+            })
+            .in_set(StdbSet::Subscriptions)
+            .run_if(resource_exists::<StdbConnection<C>>)
+            .run_if(|subs: Res<StdbSubscriptions<K, M>>| subs.has_queued()),
         );
     }
-}
-
-fn should_apply_subscriptions<K, M>(
-    subs: Res<StdbSubscriptions<K, M>>,
-    state: Res<State<StdbConnectionState>>,
-) -> bool
-where
-    K: Eq + Hash + Clone + Send + Sync + 'static,
-    M: SpacetimeModule,
-    M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
-{
-    *state.get() == StdbConnectionState::Connected && subs.has_queued()
-}
-
-/// Re-queues all active subscriptions for re-application after a disconnect.
-fn queue_subscriptions_on_disconnect<K, M>(mut subs: ResMut<StdbSubscriptions<K, M>>)
-where
-    K: Eq + Hash + Clone + Send + Sync + 'static,
-    M: SpacetimeModule,
-    M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
-{
-    for entry in subs.entries.values_mut() {
-        if entry.handle.take().is_some() {
-            entry.queued = true;
-        }
-    }
-}
-
-/// Sends queued subscriptions to the current connection.
-fn apply_queued_subscriptions<K, C, M>(
-    conn: Res<StdbConnection<C>>,
-    mut subs: ResMut<StdbSubscriptions<K, M>>,
-) where
-    K: Eq + Hash + Clone + Send + Sync + 'static,
-    C: DbConnection<Module = M>
-        + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
-        + Send
-        + Sync
-        + 'static,
-    M: SpacetimeModule<DbConnection = C>,
-    M::SubscriptionHandle: StdbSubscriptionHandle + Send + Sync + 'static,
-{
-    subs.apply_queued(&conn);
 }
