@@ -236,7 +236,7 @@ fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn
 
 Reconnect behavior is opt-in. Pass `StdbReconnectOptions` to `StdbPlugin::with_reconnect` to enable it.
 
-The reconnect cycle activates on unexpected disconnects (where the disconnect carries an error) and on connection errors — including a first-time failure. A clean `disconnect()` call does not trigger a retry. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
+The reconnect cycle activates when a disconnect message includes an error, or when a connection attempt fails — including a first-time failure. A clean `disconnect()` call does not trigger a retry. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
 
 ```rust
 .with_reconnect(StdbReconnectOptions {
