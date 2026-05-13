@@ -1,8 +1,8 @@
 //! [`MessageReader`] type aliases for connection lifecycle and table messages.
 use crate::message::{
-    DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-    StdbDisconnectedMessage, StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage,
-    UpdateMessage,
+    DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
+    StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+    StdbSubscriptionErrorMessage, UpdateMessage,
 };
 use bevy_ecs::prelude::MessageReader;
 
@@ -23,6 +23,9 @@ pub type ReadStdbConnectedMessage<'w, 's> = MessageReader<'w, 's, StdbConnectedM
 
 /// A [`MessageReader`] for [`StdbDisconnectedMessage`].
 pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconnectedMessage>;
+
+/// A [`MessageReader`] for [`StdbConnectionErrorMessage`].
+pub type ReadStdbConnectErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectErrorMessage>;
 
 /// A [`MessageReader`] for [`StdbSubscriptionAppliedMessage<K>`].
 pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =

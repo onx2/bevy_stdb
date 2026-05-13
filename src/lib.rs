@@ -95,16 +95,16 @@ pub mod prelude {
     pub use crate::{
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
+            ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage,
         },
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
         message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-            StdbDisconnectedMessage, StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage,
-            UpdateMessage,
+            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
+            StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+            StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
         set::StdbSet,

@@ -26,6 +26,13 @@ pub struct StdbDisconnectedMessage {
     pub err: Option<Error>,
 }
 
+/// A [`Message`] sent when a SpacetimeDB connection fails to connect.
+#[derive(Message, Debug)]
+pub struct StdbConnectErrorMessage {
+    /// The error that caused the disconnect, if any.
+    pub err: Error,
+}
+
 /// A [`Message`] sent when a subscription is applied.
 #[derive(Message, Clone, Debug)]
 pub struct StdbSubscriptionAppliedMessage<K> {
