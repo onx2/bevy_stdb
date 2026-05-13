@@ -69,7 +69,7 @@ pub(crate) struct StdbConnectionConfig<
     /// Sender used by the SpacetimeDB on-disconnect callback.
     disconnected_tx: Sender<StdbDisconnectedMessage>,
     /// Sender used by the SpacetimeDB on-connection error callback.
-    connection_error_tx: Sender<StdbConnectErrorMessage>,
+    connect_error_tx: Sender<StdbConnectErrorMessage>,
 }
 
 impl<C, M> Clone for StdbConnectionConfig<C, M>
@@ -86,7 +86,7 @@ where
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
             disconnected_tx: self.disconnected_tx.clone(),
-            connection_error_tx: self.connection_error_tx.clone(),
+            connect_error_tx: self.connect_error_tx.clone(),
         }
     }
 }
@@ -100,7 +100,7 @@ where
     fn connection_builder(&self) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
-        let connect_error_tx = self.connection_error_tx.clone();
+        let connect_error_tx = self.connect_error_tx.clone();
 
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
@@ -242,7 +242,7 @@ impl<
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
             disconnected_tx: channel_sender::<StdbDisconnectedMessage>(world),
-            connection_error_tx: channel_sender::<StdbConnectErrorMessage>(world),
+            connect_error_tx: channel_sender::<StdbConnectErrorMessage>(world),
         });
 
         app.add_systems(
