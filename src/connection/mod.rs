@@ -60,10 +60,6 @@ pub(crate) struct StdbConnectionConfig<
     pub(crate) uri: String,
     /// Optional authentication token.
     pub(crate) token: Option<String>,
-    /// Optional client ID for authentication.
-    client_id: Option<String>,
-    /// Optional ID token returned by the OIDC provider.
-    id_token: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -84,8 +80,6 @@ where
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
-            client_id: self.client_id.clone(),
-            id_token: self.id_token.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
@@ -240,8 +234,6 @@ impl<
             module_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
-            client_id: None,
-            id_token: None,
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
