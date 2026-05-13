@@ -9,7 +9,7 @@ use crate::{
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, resource_exists};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
@@ -268,9 +268,7 @@ where
                 subs.apply_queued(&conn);
             })
             .in_set(StdbSet::Subscriptions)
-            .run_if(|conn: Option<Res<StdbConnection<C>>>| {
-                conn.is_some_and(|conn| conn.is_active())
-            })
+            .run_if(resource_exists::<StdbConnection<C>>)
             .run_if(|subs: Res<StdbSubscriptions<K, M>>| subs.has_queued()),
         );
     }

@@ -52,8 +52,13 @@ fn main() {
                 .with_reconnect(StdbReconnectOptions::default())
                 .with_background_driver(DbConnection::run_threaded),
         )
+        .add_systems(PreStartup, connect)
         .add_systems(Update, (subscribe_on_connect, on_player_info_insert))
         .run();
+}
+
+fn connect(mut cmds: StdbCmds) {
+    cmds.connect(StdbConnectOptions::default());
 }
 
 fn subscribe_on_connect(
@@ -231,7 +236,7 @@ fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn
 
 Reconnect behavior is opt-in. Pass `StdbReconnectOptions` to `StdbPlugin::with_reconnect` to enable it.
 
-The reconnect cycle activates on both disconnect and connection error — including a first-time failure. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
+The reconnect cycle activates on unexpected disconnects (where the disconnect carries an error) and on connection errors — including a first-time failure. A clean `disconnect()` call does not trigger a retry. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
 
 ```rust
 .with_reconnect(StdbReconnectOptions {
@@ -287,13 +292,11 @@ fn connect_with_token(mut cmds: StdbCmds) {
 }
 ```
 
-See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_module_name`).
+See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_module_name`, `from_target`).
 
 ### Connection-dependent resources
 
-`bevy_stdb` resources are only available while a connection is active. Systems that access those resources should either be guarded with a run condition such as `resource_exists::<StdbConnection<_>>()`, or accept them as optional system parameters.
-
-This avoids runtime failures when a system runs before the connection has been established or after it has been lost.
+`bevy_stdb` resources are only available while a connection is active. Guard systems with `resource_exists::<StdbConnection<_>>()` or accept the connection as an optional parameter. If you need to detect that a connection has been lost before the resource is cleaned up, `StdbConnection::is_active()` checks whether the underlying send channel is still open:
 
 ```rust
 use bevy::prelude::*;
@@ -313,17 +316,17 @@ fn main() {
         )
         .add_systems(
             Update,
-            my_system_run_condition.run_if(resource_exists::<StdbConn>)
+            my_system_active.run_if(|conn: Option<Res<StdbConn>>| conn.is_some_and(|c| c.is_active()))
         )
         .add_systems(Update, my_system_option_res)
         .run();
 }
 
-fn my_system_run_condition(mut conn: ResMut<StdbConn>) {
-    // Safe to access connection
+fn my_system_active(conn: Res<StdbConn>) {
+    // Only runs when StdbConnection resource exists
 }
 
-fn my_system_option_res(mut conn: Option<ResMut<StdbConn>>) {
+fn my_system_option_res(conn: Option<Res<StdbConn>>) {
     if let Some(conn) = conn {
         // Safe to access connection
     }

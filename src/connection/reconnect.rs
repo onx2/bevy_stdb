@@ -136,15 +136,28 @@ fn on_connect(
     }
 }
 
-/// Arms the reconnect timer on disconnect or connection error.
+/// Arms the reconnect timer on an unexpected disconnect or connection error.
+///
+/// A clean disconnect (no error) is treated as intentional and does not trigger
+/// a reconnect. Initializes [`ReconnectBackoff::current_delay`] from
+/// [`ReconnectConfig::initial_delay`] before the first attempt.
 fn arm_reconnect_timer(
     mut disconnect_msgs: ReadStdbDisconnectedMessage,
     mut error_msgs: ReadStdbConnectErrorMessage,
     mut backoff: ResMut<ReconnectBackoff>,
+    config: Res<ReconnectConfig>,
 ) {
-    if disconnect_msgs.read().next().is_some() || error_msgs.read().next().is_some() {
-        backoff.timer = Some(Timer::new(backoff.current_delay, TimerMode::Once));
+    let unexpected_disconnect = disconnect_msgs.read().any(|msg| msg.err.is_some());
+    let connect_error = error_msgs.read().next().is_some();
+
+    if !(unexpected_disconnect || connect_error) {
+        return;
     }
+
+    if backoff.current_delay.is_zero() {
+        backoff.current_delay = config.initial_delay;
+    }
+    backoff.timer = Some(Timer::new(backoff.current_delay, TimerMode::Once));
 }
 
 /// Ticks the reconnect timer and spawns a new connection attempt when it fires.
