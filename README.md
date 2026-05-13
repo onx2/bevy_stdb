@@ -159,6 +159,13 @@ Use the `StdbPlugin` builder methods to register table bindings during app setup
 
 Each method eagerly registers the Bevy message channels for the row type you specify and stores a deferred binding callback that runs whenever a connection becomes active.
 
+| Method | Use when |
+|---|---|
+| `add_table` | Table has a primary key — emits insert, update, and delete messages |
+| `add_table_without_pk` | Table has no primary key — emits insert and delete messages only |
+| `add_event_table` | Append-only log table — emits insert messages only |
+| `add_view` | Server-computed virtual table — emits insert and delete messages |
+
 ```rust
 .add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
 .add_table_without_pk::<WorldClock>(|reg, db| reg.bind(db.world_clock()))
@@ -166,7 +173,7 @@ Each method eagerly registers the Bevy message channels for the row type you spe
 .add_view::<NearbyMonster>(|reg, db| reg.bind(db.nearby_monsters()))
 ```
 
-This keeps table message registration eager while table callback binding stays lazy and connection-scoped.
+Table message registration happens eagerly at startup; callback binding is deferred until a connection is active.
 
 ## Messages
 
@@ -191,7 +198,7 @@ fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
         /* r.status, r.timestamp, r.reducer */ 
         if let Reducer::CreatePerson(p) = &r.reducer { /* ... */ }
       },
-      _ => ={ /* ... */ }
+      _ => { /* ... */ }
     }
   }
 }
@@ -199,23 +206,21 @@ fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
 
 ## Subscriptions
 
-`StdbSubscriptions` stores desired subscription intent separately from the live connection and serves as a lightweight wrapper to manage them.
+`StdbSubscriptions` stores desired subscription intent separately from the live connection. Subscriptions are keyed by a type you define, so you can refer to them by domain-specific identifiers for dynamic resubscription or unsubscription.
 
-That means you can:
+Enable it during plugin setup with `with_subscriptions`, then queue subscriptions from any Bevy system — typically in response to `StdbConnectedMessage`. Queued intent is automatically re-applied after a reconnect.
 
-- enable subscription management during plugin setup using `with_subscriptions`
-- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
-- automatically re-apply queued subscription intent after reconnect
+There are two ways to subscribe:
 
-Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
+- `subscribe_sql(key, "SELECT * FROM my_table")` — raw SQL string
+- `subscribe_query(key, |q| q.from.my_table())` — generated query builder
 
-There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
+`ReadStdbSubscriptionAppliedMessage` and `ReadStdbSubscriptionErrorMessage` are emitted for the `on_applied` and `on_error` callbacks per subscription.
 
 ```rust
-// Check the client cache once a particular subscription has been applied.
 fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
-  for message in applied_messages.read() {
-    if message.is(&SubKey::MyCharacters) {
+  for msg in applied_msgs.read() {
+    if msg.is(&SubKey::MyCharacters) {
       println!("You have {} characters.", conn.db().my_characters().count());
     }
   }
@@ -224,10 +229,23 @@ fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn
 
 ## Reconnects
 
-Reconnect behavior is opt-in. Use `StdbPlugin::with_reconnect` with `StdbReconnectOptions` to enable retry behavior after disconnects. When a reconnect succeeds:
+Reconnect behavior is opt-in. Pass `StdbReconnectOptions` to `StdbPlugin::with_reconnect` to enable it.
+
+The reconnect cycle activates on both disconnect and connection error — including a first-time failure. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
+
+```rust
+.with_reconnect(StdbReconnectOptions {
+    initial_delay: Duration::from_secs(1), // delay before the first retry
+    backoff_factor: 1.5,                   // multiplier applied after each failure
+    max_delay: Duration::from_secs(15),    // delay is capped at this value
+    max_attempts: 0,                       // 0 = retry indefinitely
+})
+```
+
+When a reconnect succeeds:
 
 - the `StdbConnection` resource is replaced
-- table messages are re-bound
+- table callbacks are re-bound
 - subscriptions are re-applied
 
 ## Type Aliases
@@ -245,11 +263,6 @@ pub type StdbConn = StdbConnection<DbConnection>;
 pub type StdbSubs = StdbSubscriptions<SubKeys, RemoteModule>;
 pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
 
-// Or a more constrained version for typical use cases:
-// pub type StdbConn<'w> = Res<'w, StdbConnection<DbConnection>>;
-// pub type StdbSubs<'w> = ResMut<'w, StdbSubscriptions<SubKeys, RemoteModule>>;
-
-// Usage example
 fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
     let my_table = conn.db().player_info().id().find(&1);
     subs.subscribe_query(SubKeys::TimeOfDay, |q| q.from.world_clock());
@@ -258,51 +271,23 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Using commands
 
-Use `StdbCommands<C, M>` to connect and disconnect with overrides, such as with a token.
+Use `StdbCommands<C, M>` to connect or disconnect at runtime, optionally overriding the token, URI, or module name configured on the plugin.
 
 ```rust
-use bevy::prelude::*;
-use bevy_stdb::prelude::*;
-use crate::module_bindings::{DbConnection, RemoteModule};
-
 pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
 
-#[derive(Resource)]
-struct ConnectTimer(Timer);
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .insert_resource(ConnectTimer(Timer::from_seconds(10.0, TimerMode::Once)))
-        .add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
-                .with_uri("http://localhost:3000")
-                .with_background_driver(DbConnection::run_threaded),
-        )
-        .add_systems(Update, connect_after_delay)
-        .run();
+// Connect with plugin defaults:
+fn connect(mut cmds: StdbCmds) {
+    cmds.connect(StdbConnectOptions::default());
 }
 
-fn connect_after_delay(
-    time: Res<Time>,
-    mut timer: ResMut<ConnectTimer>,
-    mut stdb_cmds: StdbCmds,
-) {
-    if timer.0.tick(time.delta()).just_finished() {
-        // Send a connect request without any overrides
-        stdb_cmds.connect(StdbConnectOptions::default());
-    }
+// Connect with a runtime token override:
+fn connect_with_token(mut cmds: StdbCmds) {
+    cmds.connect(StdbConnectOptions::from_token("json.web.token"));
 }
 ```
 
-You can also override configuration values for `token`, `uri`, and `module_name` using the `from_*` methods. See `StdbConnectOptions` for more details.
-
-```rust
-StdbConnectOptions::from_token("json.web.token_goes_here");
-StdbConnectOptions::from_uri("https://www.example.com/");
-StdbConnectOptions::from_module_name("my_cool_module");
-```
+See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_module_name`).
 
 ### Connection-dependent resources
 

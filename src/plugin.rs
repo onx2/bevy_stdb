@@ -384,7 +384,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// // Or customize:
     /// .with_reconnect(StdbReconnectOptions {
     ///     initial_delay: Duration::from_secs(2),
-    ///     max_attempts: Some(5),
+    ///     max_attempts: 5,
     ///     backoff_factor: 2.0,
     ///     max_delay: Duration::from_secs(30),
     /// })
