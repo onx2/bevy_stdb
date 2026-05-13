@@ -131,11 +131,14 @@ fn update_reconnect_backoff<C: DbContext + Send + Sync + 'static>(
         return;
     }
 
-    let saw_disconnect_error = disconnected_msgs.read().any(|msg| msg.err.is_some());
-
-    if !saw_disconnect_error {
+    if disconnected_msgs.read().next().is_none() {
         return;
     }
+    // let saw_disconnect_error = disconnected_msgs.read().any(|msg| msg.err.is_some());
+
+    // if !saw_disconnect_error {
+    //     return;
+    // }
 
     let active_conn = conn.as_ref().map(|conn| conn.is_active()).unwrap_or(false);
     if active_conn {
@@ -170,14 +173,12 @@ fn reset_reconnect_state(
     mut reconnect: ResMut<ReconnectBackoff>,
     mut connected_msgs: ReadStdbConnectedMessage,
 ) {
-    if connected_msgs.read().next().is_none() {
-        return;
+    if connected_msgs.read().next().is_some() {
+        reconnect.active = false;
+        reconnect.attempts = 0;
+        reconnect.current_delay = Duration::ZERO;
+        reconnect.timer = None;
     }
-
-    reconnect.active = false;
-    reconnect.attempts = 0;
-    reconnect.current_delay = Duration::ZERO;
-    reconnect.timer = None;
 }
 
 /// Ticks the reconnect timer and spawns a connection task when it fires.

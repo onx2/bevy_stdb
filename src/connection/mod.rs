@@ -2,7 +2,7 @@
 //!
 //! Manages the active connection, lifecycle states, and related resources.
 
-pub(crate) mod reconnect;
+pub mod reconnect;
 
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
