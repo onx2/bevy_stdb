@@ -169,9 +169,9 @@ fn poll_pending_auth<
 
                     {
                         let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-                        config.update_token(outcome.token_response.access_token.clone());
-                        config.update_client_id(outcome.client_id);
-                        config.update_id_token(outcome.token_response.id_token.clone());
+                        config.token = Some(outcome.token_response.access_token.clone());
+                        config.client_id = outcome.client_id;
+                        config.id_token = outcome.token_response.id_token.clone();
                     }
 
                     #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
@@ -217,14 +217,16 @@ fn poll_pending_auth<
             if clear_refresh_token {
                 #[cfg(all(feature = "auth-oidc", not(feature = "browser")))]
                 if let Some(config) = world.get_resource::<StdbConnectionConfig<C, M>>() {
-                    if let Some(client_id) = config.client_id() {
+                    if let Some(client_id) = config.client_id.as_deref() {
                         clear_stored_refresh_token(client_id);
                     }
                 }
             }
 
             if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
-                config.clear_auth();
+                config.token = None;
+                config.client_id = None;
+                config.id_token = None;
             }
 
             world.remove_resource::<StdbAuthRefresh>();
@@ -268,8 +270,8 @@ fn tick_token_refresh<
 
     let Some(client_id) = world
         .resource::<StdbConnectionConfig<C, M>>()
-        .client_id()
-        .map(str::to_owned)
+        .client_id
+        .clone()
     else {
         return;
     };
@@ -313,8 +315,8 @@ fn poll_pending_token_refresh<
 
     let client_id = {
         let mut conn_config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-        conn_config.update_token(token_response.access_token.clone());
-        conn_config.client_id().map(str::to_owned)
+        conn_config.token = Some(token_response.access_token.clone());
+        conn_config.client_id.clone()
     };
 
     let mut auth_refresh = world.resource_mut::<StdbAuthRefresh>();

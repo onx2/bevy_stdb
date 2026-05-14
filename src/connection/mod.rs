@@ -55,16 +55,16 @@ pub(crate) struct StdbConnectionConfig<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 > {
-    /// The remote module/database name.
-    pub(crate) module_name: String,
+    /// The name or identity of the remote database.
+    pub database_name: String,
     /// The URI of the SpacetimeDB host.
-    pub(crate) uri: String,
+    pub uri: String,
     /// Optional authentication token.
-    pub(crate) token: Option<String>,
+    pub token: Option<String>,
     /// Optional client ID for authentication.
-    client_id: Option<String>,
+    pub client_id: Option<String>,
     /// Optional ID token returned by the OIDC provider.
-    id_token: Option<String>,
+    pub id_token: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -84,7 +84,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            module_name: self.module_name.clone(),
+            database_name: self.database_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
             client_id: self.client_id.clone(),
@@ -110,7 +110,7 @@ where
         let connect_error_tx = self.connect_error_tx.clone();
 
         DbConnectionBuilder::<M>::new()
-            .with_database_name(self.module_name.clone())
+            .with_database_name(self.database_name.clone())
             .with_uri(self.uri.clone())
             .with_token(self.token.clone())
             .with_compression(self.compression)
@@ -127,44 +127,6 @@ where
                 // TODO: waiting for STDB release with fix for this to function properly.
                 let _ = connect_error_tx.send(StdbConnectErrorMessage { err });
             })
-    }
-
-    /// Updates the access token used for future connection attempts.
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub(crate) fn update_token(&mut self, token: String) {
-        self.token = Some(token);
-    }
-
-    /// Updates the client ID used for token refresh.
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub(crate) fn update_client_id(&mut self, client_id: Option<String>) {
-        self.client_id = client_id;
-    }
-
-    /// Clears stored authentication data from the connection config.
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub(crate) fn clear_auth(&mut self) {
-        self.token = None;
-        self.client_id = None;
-        self.id_token = None;
-    }
-
-    /// Returns the client ID used for auth refresh, if available.
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub(crate) fn client_id(&self) -> Option<&str> {
-        self.client_id.as_deref()
-    }
-
-    /// Updates the ID token returned by the OIDC provider.
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub(crate) fn update_id_token(&mut self, id_token: Option<String>) {
-        self.id_token = id_token;
-    }
-
-    /// Returns the ID token returned by the OIDC provider, if available.
-    #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
-    pub(crate) fn id_token(&self) -> Option<&str> {
-        self.id_token.as_deref()
     }
 
     /// Builds a SpacetimeDB connection from this config.
@@ -280,7 +242,7 @@ impl<
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
-            module_name: self.module_name.clone(),
+            database_name: self.module_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
             client_id: None,

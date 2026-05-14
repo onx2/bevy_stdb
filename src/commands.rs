@@ -24,7 +24,7 @@ pub struct StdbConnectOptions {
     /// Optional URI for this connection attempt.
     pub uri: Option<String>,
     /// Optional module name for this connection attempt.
-    pub module_name: Option<String>,
+    pub database_name: Option<String>,
 }
 
 impl StdbConnectOptions {
@@ -33,7 +33,7 @@ impl StdbConnectOptions {
         Self {
             token: Some(token.into()),
             uri: None,
-            module_name: None,
+            database_name: None,
         }
     }
 
@@ -42,7 +42,7 @@ impl StdbConnectOptions {
         Self {
             token: None,
             uri: Some(uri.into()),
-            module_name: None,
+            database_name: None,
         }
     }
 
@@ -51,7 +51,7 @@ impl StdbConnectOptions {
         Self {
             token: None,
             uri: None,
-            module_name: Some(module_name.into()),
+            database_name: Some(module_name.into()),
         }
     }
 
@@ -60,7 +60,7 @@ impl StdbConnectOptions {
         Self {
             token: None,
             uri: Some(uri.into()),
-            module_name: Some(module_name.into()),
+            database_name: Some(module_name.into()),
         }
     }
 }
@@ -138,8 +138,8 @@ where
         if let Some(uri) = options.uri {
             self.config.uri = uri;
         }
-        if let Some(module_name) = options.module_name {
-            self.config.module_name = module_name;
+        if let Some(database_name) = options.database_name {
+            self.config.database_name = database_name;
         }
         if let Some(token) = options.token {
             self.config.token = Some(token);
@@ -195,10 +195,10 @@ where
             return;
         }
 
-        let Some(client_id) = self.config.client_id().map(str::to_owned) else {
+        let Some(client_id) = self.config.client_id.clone() else {
             return;
         };
-        let id_token = self.config.id_token().map(str::to_owned);
+        let id_token = self.config.id_token.clone();
         let clear_refresh_token = options.clear_stored_refresh_token;
 
         let task = IoTaskPool::get()
