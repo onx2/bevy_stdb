@@ -22,7 +22,7 @@ impl Plugin for MyStdbPlugin {
         app.add_plugins(
             StdbPlugin::<DbConnection, RemoteModule>::default()
                 .with_uri(String::from("http://localhost:3000"))
-                .with_module_name(String::from("bevy-stdb-simple"))
+                .with_database_name(String::from("bevy-stdb-simple"))
                 .with_subscriptions::<SubKey>()
                 .add_table::<Player>(|reg, db| reg.bind(db.player()))
                 .with_background_driver(driver),

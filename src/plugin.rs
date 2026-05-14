@@ -27,7 +27,7 @@ use std::{hash::Hash, sync::Arc};
 /// ```ignore
 /// app.add_plugins(
 ///     StdbPlugin::<DbConnection, Module>::default()
-///         .with_module_name("my_module")
+///         .with_database_name("my_module")
 ///         .with_uri("http://localhost:3000")
 ///         .with_background_driver(DbConnection::run_threaded)
 ///         .with_reconnect(StdbReconnectOptions::default())
@@ -98,7 +98,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// ```ignore
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_frame_driver(DbConnection::frame_tick)
     /// ```
@@ -129,7 +129,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// ```ignore
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_background_driver(DbConnection::run_threaded)
     /// ```
@@ -138,7 +138,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// ```ignore
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_background_driver(DbConnection::run_background_task)
     /// ```
@@ -152,7 +152,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// let driver = DbConnection::run_threaded;
     ///
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_background_driver(driver)
     /// ```

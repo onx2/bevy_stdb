@@ -46,7 +46,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(
             StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
+                .with_database_name("my_module")
                 .with_uri("http://localhost:3000")
                 .add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
                 .with_subscriptions::<MySubKey>()
@@ -56,12 +56,6 @@ fn main() {
         .add_systems(Startup, connect)
         .add_systems(Update, (subscribe_on_connect, on_player_info_insert))
         .run();
-    
-    // Sending connection request immediately.
-    // Alternatively, you can use `Commands` in a normal parallelized system, `World` in
-    //  an exclusive system, in an observer, or some other bevy mechanism.
-    app.world_mut()
-        .write_message(RequestStdbConnectionMessage::default());
 }
 
 fn connect(mut cmds: StdbCmds) {
@@ -93,7 +87,7 @@ fn on_player_info_insert(mut msgs: ReadInsertMessage<PlayerInfo>) {
 
 Exactly one driver must be configured. These modes are mutually exclusive, and in most applications you'll want `with_background_driver(...)`.
 
-If WASM support is needed, you can enable the `browser` feature flag in your `spacetimedb-sdk` crate using a target cfg. This crate discovers wasm support automatically using `cfg(all(target_arch = "wasm32", target_os = "unknown"))`. 
+If WASM support is needed, you can enable the `browser` feature flag in this crate and your `spacetimedb-sdk` crate using a target cfg.
 
 ```toml
 # Enable browser support for wasm builds.
@@ -111,7 +105,7 @@ On native targets, the typical choice is `run_threaded`:
 ```rust
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000")
         .with_background_driver(DbConnection::run_threaded);
 }
@@ -124,7 +118,7 @@ On browser targets, use the generated background task helper instead:
 ```rust
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000")
         .with_background_driver(DbConnection::run_background_task)
 }
@@ -140,7 +134,7 @@ fn main() {
     let driver = DbConnection::run_threaded;
     
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000")
         .with_background_driver(driver);
 }
@@ -157,7 +151,7 @@ use crate::module_bindings::{DbConnection, RemoteModule};
 
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000")
         .with_frame_driver(DbConnection::frame_tick);
 }
@@ -345,7 +339,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(
             StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
+                .with_database_name("my_module")
                 .with_uri("http://localhost:3000")
                 .with_background_driver(DbConnection::run_threaded),
         )
