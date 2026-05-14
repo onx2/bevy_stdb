@@ -271,9 +271,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Enables automatic reconnects with the given options.
     ///
     /// When reconnect is enabled, reconnect attempts use the most recently
-    /// stored token. That token comes from the latest runtime
-    /// [`StdbConnectRequest`](crate::prelude::StdbConnectRequest) with an
-    /// authentication source.
+    /// stored token from the connection configuration, including tokens set by
+    /// [`StdbCommands`](crate::prelude::StdbCommands) through
+    /// [`StdbConnectOptions`](crate::prelude::StdbConnectOptions).
     ///
     /// On a successful reconnect, table callbacks are re-bound and queued
     /// subscriptions are re-applied automatically.
