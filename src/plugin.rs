@@ -59,6 +59,7 @@ pub struct StdbPlugin<
     token: Option<String>,
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
+    eager_connection: bool,
     reconnect_options: Option<StdbReconnectOptions>,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
@@ -75,6 +76,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             token: None,
             compression: None,
             driver: None,
+            eager_connection: false,
             reconnect_options: None,
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
@@ -171,6 +173,15 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.driver = Some(ConnectionDriver::Background(Arc::new(move |conn: &C| {
             let _ = background_driver(conn);
         })));
+        self
+    }
+
+    /// Starts the initial connection when the plugin is built.
+    ///
+    /// Without this option, start connections from a system with
+    /// [`StdbCommands::connect`](crate::prelude::StdbCommands::connect).
+    pub fn with_eager_connection(mut self) -> Self {
+        self.eager_connection = true;
         self
     }
 
@@ -454,6 +465,7 @@ impl<
                     "No connection driver set. Use with_background_driver() or with_frame_driver()"
                 )
             }),
+            eager_connection: self.eager_connection,
             compression: self.compression.unwrap_or_default(),
         });
 
@@ -462,4 +474,5 @@ impl<
             self.table_registrations.clone(),
         ));
     }
+    fn finish(&self, _app: &mut App) {}
 }

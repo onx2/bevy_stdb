@@ -235,6 +235,8 @@ fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
 
 ## Requesting a connection
 
+By default, start a connection from a Bevy system with `StdbCommands::connect`. To start the initial connection during plugin setup, add `with_eager_connection()` to `StdbPlugin`.
+
 `StdbSubscriptions` stores desired subscription intent separately from the live connection. Subscriptions are keyed by a type you define, so you can refer to them by domain-specific identifiers for dynamic resubscription or unsubscription.
 
 Enable it during plugin setup with `with_subscriptions`, then queue subscriptions from any Bevy system — typically in response to `StdbConnectedMessage`. Queued intent is automatically re-applied after a reconnect.
