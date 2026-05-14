@@ -1,56 +1,32 @@
 //! Connection state and lifecycle for SpacetimeDB.
 //!
 //! Manages the active connection, lifecycle states, and related resources.
+
+pub mod reconnect;
+
 use crate::{
-    alias::{
-        ReadStdbConnectedMessage, ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
-    },
+    alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
-    message::{
-        ConnectionBuildFinishedMessage, RequestStdbConnectionMessage, StdbConnectedMessage,
-        StdbConnectionErrorMessage, StdbDisconnectedMessage,
-    },
+    message::{StdbConnectErrorMessage, StdbConnectedMessage, StdbDisconnectedMessage},
     set::StdbSet,
 };
-
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, Messages, Res, ResMut, Resource, World, not,
-};
-use bevy_state::prelude::{AppExtStates, NextState, States, in_state};
+use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, Resource, World, resource_exists};
+use bevy_tasks::{Task, block_on, poll_once};
 use crossbeam_channel::Sender;
+pub(crate) use reconnect::ReconnectPlugin;
+pub use reconnect::StdbReconnectOptions;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
 use std::sync::Arc;
 
-/// Lifecycle [`States`] for the active SpacetimeDB connection.
-///
-/// `Connected` and `Disconnected` are driven by SDK lifecycle messages, while
-/// `Exhausted` is a policy-oriented state managed by the reconnect subsystem.
-#[derive(States, Debug, Default, Clone, PartialEq, Eq, Hash)]
-pub enum StdbConnectionState {
-    /// No connection attempt has been started yet.
-    #[default]
-    Uninitialized,
-
-    /// An initial or manually requested connection attempt is in progress.
-    Connecting,
-
-    /// The SDK has reported that the connection is active.
-    Connected,
-
-    /// No active connection is available.
-    ///
-    /// This state is entered after a disconnect or a failed connection attempt.
-    Disconnected,
-
-    /// Reconnect attempts have been exhausted.
-    ///
-    /// No further connection attempts will be made.
-    Exhausted,
-}
+/// Stores the in-flight task for a pending connection attempt.
+#[derive(Resource)]
+pub(crate) struct PendingConnection<C: DbContext + Send + Sync + 'static>(
+    pub(crate) Task<Result<Arc<C>>>,
+);
 
 /// Internal connection driver configuration.
 pub(crate) enum ConnectionDriver<C: DbContext + Send + Sync + 'static> {
@@ -79,11 +55,11 @@ pub(crate) struct StdbConnectionConfig<
     M: SpacetimeModule<DbConnection = C>,
 > {
     /// The remote module/database name.
-    module_name: String,
+    pub(crate) module_name: String,
     /// The URI of the SpacetimeDB host.
-    uri: String,
+    pub(crate) uri: String,
     /// Optional authentication token.
-    token: Option<String>,
+    pub(crate) token: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -92,8 +68,8 @@ pub(crate) struct StdbConnectionConfig<
     connected_tx: Sender<StdbConnectedMessage>,
     /// Sender used by the SpacetimeDB on-disconnect callback.
     disconnected_tx: Sender<StdbDisconnectedMessage>,
-    /// Sender used by the SpacetimeDB on-connect-error callback.
-    error_tx: Sender<StdbConnectionErrorMessage>,
+    /// Sender used by the SpacetimeDB on-connection error callback.
+    connect_error_tx: Sender<StdbConnectErrorMessage>,
 }
 
 impl<C, M> Clone for StdbConnectionConfig<C, M>
@@ -110,7 +86,7 @@ where
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
             disconnected_tx: self.disconnected_tx.clone(),
-            error_tx: self.error_tx.clone(),
+            connect_error_tx: self.connect_error_tx.clone(),
         }
     }
 }
@@ -124,7 +100,8 @@ where
     fn connection_builder(&self) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
-        let error_tx = self.error_tx.clone();
+        let connect_error_tx = self.connect_error_tx.clone();
+
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
             .with_uri(self.uri.clone())
@@ -140,24 +117,19 @@ where
                 let _ = disconnected_tx.send(StdbDisconnectedMessage { err });
             })
             .on_connect_error(move |_ctx, err| {
-                let _ = error_tx.send(StdbConnectionErrorMessage { err });
+                // TODO: waiting for STDB release with fix for this to function properly.
+                let _ = connect_error_tx.send(StdbConnectErrorMessage { err });
             })
     }
 
-    /// Synchronously builds a SpacetimeDB connection from this config.
+    /// Builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
-    #[cfg(not(feature = "browser"))]
-    pub(crate) fn build_connection(&self) -> Result<Arc<C>> {
-        self.connection_builder().build().map(Arc::new)
-    }
-
-    /// Asynchronously builds a SpacetimeDB connection from this config.
-    ///
-    /// The returned connection is not started automatically.
-    #[cfg(feature = "browser")]
     pub(crate) async fn build_connection(&self) -> Result<Arc<C>> {
-        self.connection_builder().build().await.map(Arc::new)
+        #[cfg(not(feature = "browser"))]
+        return self.connection_builder().build().map(Arc::new);
+        #[cfg(feature = "browser")]
+        return self.connection_builder().build().await.map(Arc::new);
     }
 }
 
@@ -248,8 +220,6 @@ pub(crate) struct StdbConnectionPlugin<
     pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
-    /// Whether startup should wait for an explicit connection request.
-    pub delayed_connection: bool,
 }
 
 impl<
@@ -259,18 +229,9 @@ impl<
 {
     /// Initializes connection state, resources, and lifecycle systems.
     fn build(&self, app: &mut App) {
-        app.init_state::<StdbConnectionState>();
-        app.add_message::<RequestStdbConnectionMessage>();
-
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
-        register_channel::<StdbConnectionErrorMessage>(app);
-
-        #[cfg(feature = "browser")]
-        register_channel::<ConnectionBuildFinishedMessage<C>>(app);
-
-        #[cfg(not(feature = "browser"))]
-        app.add_message::<ConnectionBuildFinishedMessage<C>>();
+        register_channel::<StdbConnectErrorMessage>(app);
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
@@ -281,161 +242,91 @@ impl<
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
             disconnected_tx: channel_sender::<StdbDisconnectedMessage>(world),
-            error_tx: channel_sender::<StdbConnectionErrorMessage>(world),
+            connect_error_tx: channel_sender::<StdbConnectErrorMessage>(world),
         });
 
-        // Sync connection state from SDK lifecycle messages.
         app.add_systems(
             PreUpdate,
-            sync_connection_state::<C>.in_set(StdbSet::StateSync),
+            sync_connection_resource::<C>.in_set(StdbSet::StateSync),
         );
 
         app.add_systems(
             PreUpdate,
-            handle_connection_request::<C, M>
-                .in_set(StdbSet::Connection)
-                .run_if(not(in_state(StdbConnectionState::Connected)))
-                .run_if(not(in_state(StdbConnectionState::Connecting))),
+            poll_pending_connection::<C, M>
+                .run_if(resource_exists::<PendingConnection<C>>)
+                .in_set(StdbSet::Connection),
         );
 
-        app.add_systems(
-            PreUpdate,
-            finalize_pending_connection::<C, M>.in_set(StdbSet::Connection),
-        );
-
-        // Only added when frame-tick driving is configured.
         if matches!(self.driver, Some(ConnectionDriver::FrameTick(_))) {
             app.add_systems(
                 PreUpdate,
                 (|conn: Res<StdbConnection<C>>, config: Res<StdbConnectionConfig<C, M>>| {
-                    let Some(ConnectionDriver::FrameTick(frame_tick)) = config.driver.as_ref() else {
-                        panic!("frame tick system should only be added when the frame tick driver is configured");
-                    };
-
-                    let _ = frame_tick(conn.conn.as_ref());
+                    if let Some(ConnectionDriver::FrameTick(frame_tick)) = config.driver {
+                        let _ = frame_tick(conn.conn.as_ref());
+                    }
                 })
                 .in_set(StdbSet::Connection)
-                .run_if(in_state(StdbConnectionState::Connected)),
+                .run_if(resource_exists::<StdbConnection<C>>),
             );
-        }
-
-        // Must come last so that `token`, `uri`, and `module_name` are already written to the config resource
-        if !self.delayed_connection {
-            app.world_mut()
-                .write_message_default::<RequestStdbConnectionMessage>();
         }
     }
 }
 
-/// Initiates a connection build from a connection request message.
-///
-/// Requests can override the current connection configuration and
-/// while an active connection exists, this will clear any pending requests.
-fn handle_connection_request<
+/// Polls a pending connection resource per tick, advancing the connection phase when needed.
+fn poll_pending_connection<
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 >(
     world: &mut World,
 ) {
-    if world.get_resource::<StdbConnection<C>>().is_some() {
-        return world
-            .resource_mut::<Messages<RequestStdbConnectionMessage>>()
-            .clear();
-    }
-
-    let Some(request) = world
-        .resource_mut::<Messages<RequestStdbConnectionMessage>>()
-        .drain()
-        .last()
-    else {
+    let Some(pending_connection) = world.remove_resource::<PendingConnection<C>>() else {
         return;
     };
 
-    // Get the current configuration and override if requested
-    let connect_config = {
-        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-        config.token = request.token.or(config.token.take());
-        config.uri = request.uri.unwrap_or(config.uri.clone());
-        config.module_name = request.module_name.unwrap_or(config.module_name.clone());
-        config.clone()
-    };
+    match pending_connection {
+        PendingConnection(mut task) => {
+            let Some(result) = block_on(poll_once(&mut task)) else {
+                world.insert_resource(PendingConnection::<C>(task));
+                return;
+            };
 
-    world
-        .resource_mut::<NextState<StdbConnectionState>>()
-        .set(StdbConnectionState::Connecting);
+            match result {
+                Ok(conn) => {
+                    let driver = world
+                        .get_resource::<StdbConnectionConfig<C, M>>()
+                        .expect("StdbConnectionConfig should exist when activating a connection")
+                        .driver
+                        .clone();
 
-    #[cfg(not(feature = "browser"))]
-    world.write_message(ConnectionBuildFinishedMessage {
-        result: connect_config.build_connection(),
-    });
+                    if let Some(ConnectionDriver::Background(background_driver)) = driver {
+                        background_driver(conn.as_ref());
+                    }
 
-    #[cfg(feature = "browser")]
-    {
-        let sender = channel_sender::<ConnectionBuildFinishedMessage<C>>(world);
-        wasm_bindgen_futures::spawn_local(async move {
-            let _ = sender.send(ConnectionBuildFinishedMessage {
-                result: connect_config.build_connection().await,
-            });
-        });
-    }
-}
-
-/// Completes a pending connection build and transitions [`StdbConnectionState`] accordingly.
-fn finalize_pending_connection<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
->(
-    world: &mut World,
-) {
-    let finished_msgs: Vec<ConnectionBuildFinishedMessage<C>> = {
-        let mut messages = world.resource_mut::<Messages<ConnectionBuildFinishedMessage<C>>>();
-        messages.drain().collect()
-    };
-
-    for msg in finished_msgs {
-        match msg.result {
-            Ok(conn) => {
-                let driver = world
-                    .get_resource::<StdbConnectionConfig<C, M>>()
-                    .expect("StdbConnectionConfig should exist when activating a connection")
-                    .driver
-                    .clone();
-
-                if let Some(ConnectionDriver::Background(background_driver)) = driver {
-                    background_driver(conn.as_ref());
+                    if let Some(prev_conn) = world.get_resource::<StdbConnection<C>>() {
+                        let _ = prev_conn.disconnect();
+                    }
+                    world.insert_resource(StdbConnection::new(conn));
                 }
-
-                world.insert_resource(StdbConnection::new(conn));
-            }
-            Err(_) => {
-                world
-                    .resource_mut::<NextState<StdbConnectionState>>()
-                    .set(StdbConnectionState::Disconnected);
+                Err(err) => {
+                    world.write_message(StdbConnectErrorMessage { err });
+                    // TODO log or send message for the error
+                    // error!("failed to build SpacetimeDB connection: {err}");
+                }
             }
         }
     }
 }
 
-/// Synchronizes [`StdbConnectionState`] from SDK lifecycle messages.
-///
-/// [`StdbConnectionState::Disconnected`] takes precedence when multiple
-/// lifecycle messages arrive in the same frame.
-fn sync_connection_state<C: DbContext + Send + Sync + 'static>(
+// Ensures the StdbConnection resource is valid when it exists, otherwise it should be removed
+fn sync_connection_resource<C: DbContext + Send + Sync + 'static>(
     mut connected_msgs: ReadStdbConnectedMessage,
     mut disconnected_msgs: ReadStdbDisconnectedMessage,
-    mut connection_error_msgs: ReadStdbConnectionErrorMessage,
-    mut next_state: ResMut<NextState<StdbConnectionState>>,
+    conn: Option<Res<StdbConnection<C>>>,
     mut commands: Commands,
 ) {
-    if connected_msgs.read().count() > 0 {
-        next_state.set(StdbConnectionState::Connected);
-    }
-    if disconnected_msgs.read().count() > 0 {
+    if (connected_msgs.read().next().is_some() || disconnected_msgs.read().next().is_some())
+        && conn.as_ref().is_some_and(|conn| !conn.is_active())
+    {
         commands.remove_resource::<StdbConnection<C>>();
-        next_state.set(StdbConnectionState::Disconnected);
-    }
-    if connection_error_msgs.read().count() > 0 {
-        commands.remove_resource::<StdbConnection<C>>();
-        next_state.set(StdbConnectionState::Disconnected);
     }
 }

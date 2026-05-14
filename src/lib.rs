@@ -8,9 +8,9 @@
 //!
 //! The crate is organized around four lifecycle concerns:
 //!
-//! - **Connection** — Establish the initial connection eagerly or on demand,
-//!   expose the active connection as [`StdbConnection`](crate::prelude::StdbConnection),
-//!   and track state via [`StdbConnectionState`](crate::prelude::StdbConnectionState).
+//! - **Connection** — Manage the connection lifecycle on demand via
+//!   [`StdbCommands`](crate::prelude::StdbCommands), and expose the active
+//!   connection as [`StdbConnection`](crate::prelude::StdbConnection).
 //! - **Tables** — Register message channels once at startup and re-bind SDK
 //!   table callbacks whenever a connection becomes active. Row changes are
 //!   forwarded as Bevy [`Message`](bevy_ecs::prelude::Message)s
@@ -71,13 +71,22 @@
 //! builder API and the [README](https://github.com/onx2/bevy_stdb)
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
-pub(crate) mod channel_bridge;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "unknown",
+    not(feature = "browser"),
+    not(docsrs),
+))]
+compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-unknown`.");
 
 mod alias;
+mod channel_bridge;
+mod commands;
 mod connection;
+
 mod message;
 mod plugin;
-mod reconnect;
 mod set;
 mod subscription;
 mod table;
@@ -87,19 +96,18 @@ pub mod prelude {
     pub use crate::{
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadRequestStdbConnectionMessage, ReadStdbConnectedMessage,
-            ReadStdbConnectionErrorMessage, ReadStdbDisconnectedMessage,
+            ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
-            ReadUpdateMessage, WriteRequestStdbConnectionMessage,
+            ReadUpdateMessage,
         },
-        connection::{StdbConnection, StdbConnectionState},
+        commands::{StdbCommands, StdbConnectOptions},
+        connection::{StdbConnection, StdbReconnectOptions},
         message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, RequestStdbConnectionMessage,
-            StdbConnectedMessage, StdbConnectionErrorMessage, StdbDisconnectedMessage,
-            StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
+            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
+            StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+            StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
-        reconnect::StdbReconnectOptions,
         set::StdbSet,
         subscription::StdbSubscriptions,
     };

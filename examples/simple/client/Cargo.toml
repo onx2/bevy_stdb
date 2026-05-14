@@ -1,0 +1,24 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+spacetimedb-sdk = { version = "2.1", features = [] }
+bevy_stdb = { path = "../../..", features = [] }
+# Use only features needed for a 2D game to improve compile time and size
+bevy = { version = "0.18", default-features = false, features = ["2d"] }
+rand = "0.9"
+# Compile out low-severity logs to improve performance.
+# Remove these features if you want to profile your game with tracy.
+# (see <https://github.com/bevyengine/bevy/blob/main/docs/profiling.md#tracy-profiler>)
+tracing = { version = "0.1", features = [
+    "max_level_debug",
+    "release_max_level_warn",
+] }
+
+[target.wasm32-unknown-unknown.dependencies]
+spacetimedb-sdk = { version = "2.1", features = ["browser"] }
+bevy_stdb = { path = "../../..", features = ["browser"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }

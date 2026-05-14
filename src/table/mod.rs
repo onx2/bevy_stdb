@@ -8,10 +8,12 @@
 mod bind;
 mod register;
 
-use crate::connection::{StdbConnection, StdbConnectionState};
-use bevy_app::{App, Plugin};
-use bevy_ecs::prelude::{Resource, World};
-use bevy_state::prelude::OnEnter;
+use crate::{connection::StdbConnection, set::StdbSet};
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::{
+    prelude::{Resource, World, resource_added},
+    schedule::IntoScheduleConfigs,
+};
 pub(crate) use bind::{EventTableBinder, TableBinder, TableWithoutPkBinder, ViewBinder};
 pub(crate) use register::*;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};
@@ -74,8 +76,11 @@ where
             table_bindings: self.table_bindings.clone(),
         });
         app.add_systems(
-            OnEnter(StdbConnectionState::Connected),
-            on_connected_bind::<C, M>,
+            PreUpdate,
+            on_connected_bind::<C, M>
+                .run_if(resource_added::<StdbConnection<C>>)
+                .after(StdbSet::Connection)
+                .before(StdbSet::Subscriptions),
         );
     }
 }

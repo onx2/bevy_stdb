@@ -309,43 +309,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_state"
-version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ae0682968e97d29c1eccc8c6bb6283f2678d362779bc03f1bb990967059473b"
-dependencies = [
- "bevy_app",
- "bevy_ecs",
- "bevy_platform",
- "bevy_reflect",
- "bevy_state_macros",
- "bevy_utils",
- "log",
- "variadics_please",
-]
-
-[[package]]
-name = "bevy_state_macros"
-version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73d32f90f9cfcef5a44401db7ce206770daaa1707b0fb95eb7a96a6933f54f1b"
-dependencies = [
- "bevy_macro_utils",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "bevy_stdb"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
- "bevy_state",
+ "bevy_tasks",
  "bevy_time",
  "crossbeam-channel",
  "spacetimedb-sdk",
- "wasm-bindgen-futures",
 ]
 
 [[package]]

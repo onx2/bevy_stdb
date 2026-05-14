@@ -3,10 +3,6 @@ use bevy_ecs::prelude::SystemSet;
 
 /// System sets for `bevy_stdb` systems in [`PreUpdate`](bevy_app::PreUpdate).
 ///
-/// Sets run in declaration order:
-/// [`Flush`](Self::Flush) → [`StateSync`](Self::StateSync) →
-/// [`Connection`](Self::Connection) → [`Subscriptions`](Self::Subscriptions).
-///
 /// # Example
 ///
 /// ```ignore
@@ -19,7 +15,7 @@ use bevy_ecs::prelude::SystemSet;
 pub enum StdbSet {
     /// Drains SDK message channels into Bevy [`Messages`](bevy_ecs::prelude::Messages).
     Flush,
-    /// Synchronizes [`StdbConnectionState`](crate::connection::StdbConnectionState) from lifecycle messages.
+    /// Synchronizes connection state from lifecycle messages.
     StateSync,
     /// Manages connection lifecycle: building, finalizing, driving, and reconnect.
     Connection,

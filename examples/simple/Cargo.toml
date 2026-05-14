@@ -1,0 +1,10 @@
+[workspace]
+members = ["server", "client"]
+resolver = "3"
+publish = false
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
