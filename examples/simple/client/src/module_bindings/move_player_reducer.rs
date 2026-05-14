@@ -6,44 +6,49 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 #[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug)]
 #[sats(crate = __lib)]
-pub(super) struct AddArgs {
-    pub name: String,
+pub(super) struct MovePlayerArgs {
+    pub x: f32,
+    pub y: f32,
 }
 
-impl From<AddArgs> for super::Reducer {
-    fn from(args: AddArgs) -> Self {
-        Self::Add { name: args.name }
+impl From<MovePlayerArgs> for super::Reducer {
+    fn from(args: MovePlayerArgs) -> Self {
+        Self::MovePlayer {
+            x: args.x,
+            y: args.y,
+        }
     }
 }
 
-impl __sdk::InModule for AddArgs {
+impl __sdk::InModule for MovePlayerArgs {
     type Module = super::RemoteModule;
 }
 
 #[allow(non_camel_case_types)]
-/// Extension trait for access to the reducer `add`.
+/// Extension trait for access to the reducer `move_player`.
 ///
 /// Implemented for [`super::RemoteReducers`].
-pub trait add {
-    /// Request that the remote module invoke the reducer `add` to run as soon as possible.
+pub trait move_player {
+    /// Request that the remote module invoke the reducer `move_player` to run as soon as possible.
     ///
     /// This method returns immediately, and errors only if we are unable to send the request.
     /// The reducer will run asynchronously in the future,
     ///  and this method provides no way to listen for its completion status.
-    /// /// Use [`add:add_then`] to run a callback after the reducer completes.
-    fn add(&self, name: String) -> __sdk::Result<()> {
-        self.add_then(name, |_, _| {})
+    /// /// Use [`move_player:move_player_then`] to run a callback after the reducer completes.
+    fn move_player(&self, x: f32, y: f32) -> __sdk::Result<()> {
+        self.move_player_then(x, y, |_, _| {})
     }
 
-    /// Request that the remote module invoke the reducer `add` to run as soon as possible,
+    /// Request that the remote module invoke the reducer `move_player` to run as soon as possible,
     /// registering `callback` to run when we are notified that the reducer completed.
     ///
     /// This method returns immediately, and errors only if we are unable to send the request.
     /// The reducer will run asynchronously in the future,
     ///  and its status can be observed with the `callback`.
-    fn add_then(
+    fn move_player_then(
         &self,
-        name: String,
+        x: f32,
+        y: f32,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
@@ -51,15 +56,17 @@ pub trait add {
     ) -> __sdk::Result<()>;
 }
 
-impl add for super::RemoteReducers {
-    fn add_then(
+impl move_player for super::RemoteReducers {
+    fn move_player_then(
         &self,
-        name: String,
+        x: f32,
+        y: f32,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
             + 'static,
     ) -> __sdk::Result<()> {
-        self.imp.invoke_reducer_with_callback(AddArgs { name }, callback)
+        self.imp
+            .invoke_reducer_with_callback(MovePlayerArgs { x, y }, callback)
     }
 }

@@ -1,8 +1,15 @@
 {
   "dev": {
-    "run": "cargo run"
+    "run": "bevy run -p client"
   },
+  "database": "bevy-stdb-simple",
   "server": "local",
-  "module-path": "./spacetimedb",
-  "database": "simple-jls8z"
+  "module-path": "./server",
+  "generate": [
+    {
+      "language": "rust",
+      "out_dir": "./client/src/module_bindings",
+      "module_path": "./server"
+    }
+  ]
 }
