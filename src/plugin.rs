@@ -7,16 +7,16 @@ use crate::{
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
-        register_event_table, register_table, register_table_without_pk, register_view,
         EventTableBinder, StdbTablePlugin, TableBindCallback, TableBinder,
-        TableRegistrationCallback, TableWithoutPkBinder, ViewBinder,
+        TableRegistrationCallback, TableWithoutPkBinder, ViewBinder, register_event_table,
+        register_table, register_table_without_pk, register_view,
     },
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use spacetimedb_sdk::{
-    Compression, DbContext, SubscriptionHandle,
     __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
+    Compression, DbContext, SubscriptionHandle,
 };
 use std::{hash::Hash, sync::Arc};
 
@@ -65,10 +65,8 @@ pub struct StdbPlugin<
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
 
-impl<
-        C: DbConnection<Module = M> + DbContext + Send + Sync,
-        M: SpacetimeModule<DbConnection = C>,
-    > Default for StdbPlugin<C, M>
+impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
+    Default for StdbPlugin<C, M>
 {
     fn default() -> Self {
         Self {
@@ -85,10 +83,8 @@ impl<
     }
 }
 
-impl<
-        C: DbConnection<Module = M> + DbContext + Send + Sync,
-        M: SpacetimeModule<DbConnection = C>,
-    > StdbPlugin<C, M>
+impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
+    StdbPlugin<C, M>
 {
     /// Sets the function used to drive the connection from the Bevy schedule.
     ///
@@ -403,9 +399,9 @@ impl<
 }
 
 impl<
-        C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-        M: SpacetimeModule<DbConnection = C> + 'static,
-    > Plugin for StdbPlugin<C, M>
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+> Plugin for StdbPlugin<C, M>
 {
     /// Installs the configured `bevy_stdb` plugins and resources.
     ///

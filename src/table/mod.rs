@@ -11,7 +11,7 @@ mod register;
 use crate::{connection::StdbConnection, set::StdbSet};
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::{
-    prelude::{resource_added, Resource, World},
+    prelude::{Resource, World, resource_added},
     schedule::IntoScheduleConfigs,
 };
 pub(crate) use bind::{EventTableBinder, TableBinder, TableWithoutPkBinder, ViewBinder};

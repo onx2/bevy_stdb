@@ -1412,10 +1412,13 @@ version = "0.8.0"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
+ "bevy_log",
  "bevy_tasks",
  "bevy_time",
  "crossbeam-channel",
+ "js-sys",
  "spacetimedb-sdk",
+ "web-sys",
 ]
 
 [[package]]
