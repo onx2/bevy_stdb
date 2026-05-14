@@ -364,7 +364,10 @@ version = "0.8.0"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
+<<<<<<< HEAD
  "bevy_log",
+=======
+>>>>>>> origin/main
  "bevy_tasks",
  "bevy_time",
  "crossbeam-channel",
@@ -376,10 +379,13 @@ dependencies = [
  "serde",
  "serde_json",
  "spacetimedb-sdk",
+<<<<<<< HEAD
  "steamworks",
  "url",
  "web-sys",
  "webbrowser",
+=======
+>>>>>>> origin/main
 ]
 
 [[package]]

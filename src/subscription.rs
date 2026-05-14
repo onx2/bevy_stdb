@@ -2,16 +2,14 @@
 //!
 //! Manages subscription intent and active handles via Bevy systems and resources.
 use crate::{
+    alias::{ReadStdbConnectErrorMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
     connection::StdbConnection,
     message::{StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{
-    prelude::{IntoScheduleConfigs, Res, ResMut, Resource, resource_exists},
-    schedule::common_conditions::resource_exists_and_changed,
-};
+use bevy_ecs::prelude::{IntoScheduleConfigs, Res, ResMut, Resource, resource_exists};
 use crossbeam_channel::Sender;
 use spacetimedb_sdk::{
     __codegen::{__query_builder::Query, DbConnection, SpacetimeModule, SubscriptionBuilder},
@@ -251,13 +249,18 @@ where
 
         app.add_systems(
             PreUpdate,
-            (|mut subs: ResMut<StdbSubscriptions<K, M>>| {
-                for entry in subs.entries.values_mut() {
-                    entry.queued |= entry.handle.is_some();
+            (|mut disconnect_msgs: ReadStdbDisconnectedMessage,
+              mut error_msgs: ReadStdbConnectErrorMessage,
+              mut subs: ResMut<StdbSubscriptions<K, M>>| {
+                if disconnect_msgs.read().next().is_some() || error_msgs.read().next().is_some() {
+                    for entry in subs.entries.values_mut() {
+                        if entry.handle.take().is_some() {
+                            entry.queued = true;
+                        }
+                    }
                 }
             })
-            .in_set(StdbSet::Subscriptions)
-            .run_if(resource_exists_and_changed::<StdbConnection<C>>),
+            .in_set(StdbSet::Subscriptions),
         );
         app.add_systems(
             PreUpdate,

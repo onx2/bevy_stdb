@@ -1,9 +1,14 @@
 //! [`MessageReader`] type aliases for connection lifecycle and table messages.
+
 use crate::message::{
-    DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-    StdbDisconnectedMessage, StdbLoginFailedMessage, StdbLoginSucceededMessage,
-    StdbLogoutFailedMessage, StdbLogoutSucceededMessage, StdbSubscriptionAppliedMessage,
+    DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
+    StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
     StdbSubscriptionErrorMessage, UpdateMessage,
+};
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+use crate::message::{
+    StdbLoginFailedMessage, StdbLoginSucceededMessage, StdbLogoutFailedMessage,
+    StdbLogoutSucceededMessage,
 };
 use bevy_ecs::prelude::MessageReader;
 
@@ -25,11 +30,8 @@ pub type ReadStdbConnectedMessage<'w, 's> = MessageReader<'w, 's, StdbConnectedM
 /// A [`MessageReader`] for [`StdbDisconnectedMessage`].
 pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconnectedMessage>;
 
-/// A [`MessageReader`] for [`StdbLoginSucceededMessage`].
-pub type ReadStdbLoginSucceededMessage<'w, 's> = MessageReader<'w, 's, StdbLoginSucceededMessage>;
-
-/// A [`MessageReader`] for [`StdbLoginFailedMessage`].
-pub type ReadStdbLoginFailedMessage<'w, 's> = MessageReader<'w, 's, StdbLoginFailedMessage>;
+/// A [`MessageReader`] for [`StdbConnectErrorMessage`].
+pub type ReadStdbConnectErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectErrorMessage>;
 
 /// A [`MessageReader`] for [`StdbSubscriptionAppliedMessage<K>`].
 pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
@@ -39,8 +41,18 @@ pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
 pub type ReadStdbSubscriptionErrorMessage<'w, 's, K> =
     MessageReader<'w, 's, StdbSubscriptionErrorMessage<K>>;
 
+/// A [`MessageReader`] for [`StdbLoginSucceededMessage`].
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub type ReadStdbLoginSucceededMessage<'w, 's> = MessageReader<'w, 's, StdbLoginSucceededMessage>;
+
+/// A [`MessageReader`] for [`StdbLoginFailedMessage`].
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
+pub type ReadStdbLoginFailedMessage<'w, 's> = MessageReader<'w, 's, StdbLoginFailedMessage>;
+
 /// A [`MessageReader`] for [`StdbLogoutSucceededMessage`].
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 pub type ReadStdbLogoutSucceededMessage<'w, 's> = MessageReader<'w, 's, StdbLogoutSucceededMessage>;
 
 /// A [`MessageReader`] for [`StdbLogoutFailedMessage`].
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 pub type ReadStdbLogoutFailedMessage<'w, 's> = MessageReader<'w, 's, StdbLogoutFailedMessage>;

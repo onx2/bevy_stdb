@@ -8,8 +8,9 @@
 //!
 //! The crate is organized around four lifecycle concerns:
 //!
-//! - **Connection** — Establish the initial connection eagerly or on demand,
-//!   expose the active connection as [`StdbConnection`](crate::prelude::StdbConnection).
+//! - **Connection** — Manage the connection lifecycle on demand via
+//!   [`StdbCommands`](crate::prelude::StdbCommands), and expose the active
+//!   connection as [`StdbConnection`](crate::prelude::StdbConnection).
 //! - **Tables** — Register message channels once at startup and re-bind SDK
 //!   table callbacks whenever a connection becomes active. Row changes are
 //!   forwarded as Bevy [`Message`](bevy_ecs::prelude::Message)s
@@ -94,7 +95,6 @@ mod auth;
 mod channel_bridge;
 mod commands;
 mod connection;
-
 mod message;
 mod plugin;
 mod set;
@@ -106,18 +106,18 @@ pub mod prelude {
     pub use crate::{
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadStdbConnectedMessage, ReadStdbDisconnectedMessage, ReadStdbLoginFailedMessage,
-            ReadStdbLoginSucceededMessage, ReadStdbLogoutFailedMessage,
+            ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
+            ReadStdbLoginFailedMessage, ReadStdbLoginSucceededMessage, ReadStdbLogoutFailedMessage,
             ReadStdbLogoutSucceededMessage, ReadStdbSubscriptionAppliedMessage,
             ReadStdbSubscriptionErrorMessage, ReadUpdateMessage,
         },
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
         message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectedMessage,
-            StdbDisconnectedMessage, StdbLoginFailedMessage, StdbLoginSucceededMessage,
-            StdbLogoutFailedMessage, StdbLogoutSucceededMessage, StdbSubscriptionAppliedMessage,
-            StdbSubscriptionErrorMessage, UpdateMessage,
+            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
+            StdbConnectedMessage, StdbDisconnectedMessage, StdbLoginFailedMessage,
+            StdbLoginSucceededMessage, StdbLogoutFailedMessage, StdbLogoutSucceededMessage,
+            StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
         set::StdbSet,

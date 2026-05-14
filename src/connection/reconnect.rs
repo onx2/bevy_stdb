@@ -1,5 +1,6 @@
 //! Reconnect policy and runtime state for SpacetimeDB connections.
 //!
+<<<<<<< HEAD
 //! Manages reconnect timing and backoff. When a disconnect with an error or a
 //! disconnect error message is received, a reconnect timer is scheduled. When
 //! the timer fires, a connection task is spawned directly.
@@ -11,6 +12,22 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, ResMut, Resource};
+=======
+//! Manages reconnect timing and backoff. When a disconnect is received the
+//! reconnect cycle activates. Each tick the timer is advanced and, once it
+//! fires and no [`PendingConnection`] is in-flight, a new connection task is
+//! spawned. A successful connect resets the cycle.
+
+use super::{PendingConnection, StdbConnection, StdbConnectionConfig};
+use crate::{
+    alias::{ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
+    set::StdbSet,
+};
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::prelude::{
+    Commands, IntoScheduleConfigs, Res, ResMut, Resource, not, resource_exists,
+};
+>>>>>>> origin/main
 use bevy_tasks::IoTaskPool;
 use bevy_time::{Time, Timer, TimerMode};
 use spacetimedb_sdk::{
@@ -28,7 +45,11 @@ pub struct StdbReconnectOptions {
     ///
     /// `0` retries indefinitely.
     pub max_attempts: u32,
+<<<<<<< HEAD
     /// Multiplier applied after each failed reconnect attempt.
+=======
+    /// Multiplier applied to the current delay after each failed attempt.
+>>>>>>> origin/main
     ///
     /// Values below `1.0` are clamped to `1.0` to prevent the delay from
     /// shrinking between attempts.
@@ -48,7 +69,11 @@ impl Default for StdbReconnectOptions {
     }
 }
 
+<<<<<<< HEAD
 /// Runtime reconnect configuration.
+=======
+/// Runtime reconnect configuration resource.
+>>>>>>> origin/main
 #[derive(Resource, Clone)]
 struct ReconnectConfig(pub StdbReconnectOptions);
 
@@ -60,6 +85,7 @@ impl Deref for ReconnectConfig {
     }
 }
 
+<<<<<<< HEAD
 /// Runtime state for reconnect attempts.
 #[derive(Resource, Default)]
 struct ReconnectBackoff {
@@ -70,6 +96,18 @@ struct ReconnectBackoff {
     /// Current delay between reconnect attempts.
     current_delay: Duration,
     /// Timer for the next reconnect attempt.
+=======
+/// Runtime state for the active reconnect cycle.
+///
+/// The presence of `timer` signals that a reconnect cycle is active.
+#[derive(Resource, Default)]
+struct ReconnectBackoff {
+    /// Number of reconnect attempts made in the current cycle.
+    attempts: u32,
+    /// Delay that will be used for the next reconnect attempt.
+    current_delay: Duration,
+    /// Countdown timer for the next reconnect attempt.
+>>>>>>> origin/main
     timer: Option<Timer>,
 }
 
@@ -108,17 +146,28 @@ impl<
 
         app.add_systems(
             PreUpdate,
+<<<<<<< HEAD
             (
                 reset_reconnect_state,
                 update_reconnect_backoff::<C>,
                 tick_reconnect_timer::<C, M>,
             )
                 .chain()
+=======
+            (on_connect, arm_reconnect_timer).in_set(StdbSet::Connection),
+        );
+
+        app.add_systems(
+            PreUpdate,
+            tick_reconnect_timer::<C, M>
+                .run_if(not(resource_exists::<StdbConnection<C>>))
+>>>>>>> origin/main
                 .in_set(StdbSet::Connection),
         );
     }
 }
 
+<<<<<<< HEAD
 /// Starts or advances the reconnect cycle based on connection lifecycle messages.
 fn update_reconnect_backoff<C: DbContext + Send + Sync + 'static>(
     reconnect_config: Res<ReconnectConfig>,
@@ -185,18 +234,76 @@ fn tick_reconnect_timer<C, M>(
     time: Res<Time>,
     mut reconnect: ResMut<ReconnectBackoff>,
     config: Res<StdbConnectionConfig<C, M>>,
+=======
+/// Fully resets reconnect state when a connect succeeds.
+fn on_connect(
+    mut msgs: ReadStdbConnectedMessage,
+    mut backoff: ResMut<ReconnectBackoff>,
+    config: Res<ReconnectConfig>,
+) {
+    if msgs.read().next().is_some() {
+        backoff.attempts = 0;
+        backoff.current_delay = config.initial_delay;
+        backoff.timer = None;
+    }
+}
+
+/// Arms the reconnect timer on an unexpected disconnect or connection error.
+///
+/// A clean disconnect (no error) is treated as intentional and does not trigger
+/// a reconnect. Initializes [`ReconnectBackoff::current_delay`] from
+/// [`ReconnectConfig::initial_delay`] before the first attempt.
+fn arm_reconnect_timer(
+    mut disconnect_msgs: ReadStdbDisconnectedMessage,
+    mut error_msgs: ReadStdbConnectErrorMessage,
+    mut backoff: ResMut<ReconnectBackoff>,
+    config: Res<ReconnectConfig>,
+) {
+    let unexpected_disconnect = disconnect_msgs.read().any(|msg| msg.err.is_some());
+    let connect_error = error_msgs.read().next().is_some();
+
+    if !(unexpected_disconnect || connect_error) {
+        return;
+    }
+
+    if backoff.current_delay.is_zero() {
+        backoff.current_delay = config.initial_delay;
+    }
+    backoff.timer = Some(Timer::new(backoff.current_delay, TimerMode::Once));
+}
+
+/// Ticks the reconnect timer and spawns a new connection attempt when it fires.
+///
+/// Pauses while a [`PendingConnection`] is already in-flight. Respects
+/// [`ReconnectConfig::max_attempts`], and advances the delay by
+/// [`ReconnectConfig::backoff_factor`] after each attempt.
+fn tick_reconnect_timer<C, M>(
+    time: Res<Time>,
+    mut backoff: ResMut<ReconnectBackoff>,
+    config: Res<ReconnectConfig>,
+    conn_config: Res<StdbConnectionConfig<C, M>>,
+>>>>>>> origin/main
     pending: Option<Res<PendingConnection<C>>>,
     mut commands: Commands,
 ) where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
+<<<<<<< HEAD
     let Some(timer) = reconnect.timer.as_mut() else {
+=======
+    if backoff.timer.is_none() || pending.is_some() {
+        return;
+    }
+
+    let Some(timer) = backoff.timer.as_mut() else {
+>>>>>>> origin/main
         return;
     };
 
     timer.tick(time.delta());
 
+<<<<<<< HEAD
     if timer.just_finished() {
         reconnect.timer = None;
         if pending.is_none() {
@@ -205,4 +312,25 @@ fn tick_reconnect_timer<C, M>(
             commands.insert_resource(PendingConnection::<C>(task));
         }
     }
+=======
+    if !timer.just_finished() {
+        return;
+    }
+
+    backoff.timer = None;
+    backoff.attempts += 1;
+
+    if config.max_attempts > 0 && backoff.attempts > config.max_attempts {
+        return;
+    }
+
+    let next_delay = backoff
+        .current_delay
+        .mul_f32(config.backoff_factor.max(1.0));
+    backoff.current_delay = next_delay.min(config.max_delay);
+
+    let conn_config = conn_config.clone();
+    let task = IoTaskPool::get().spawn(async move { conn_config.build_connection().await });
+    commands.insert_resource(PendingConnection::<C>(task));
+>>>>>>> origin/main
 }

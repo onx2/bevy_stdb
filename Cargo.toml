@@ -12,6 +12,7 @@ documentation = "https://docs.rs/bevy_stdb"
 keywords = ["bevy", "spacetimedb", "spacetime", "database", "multiplayer", "ecs"]
 categories = ["game-development", "network-programming", "database"]
 exclude = [
+    "examples/",
     ".github/",
 ]
 
@@ -20,6 +21,8 @@ bevy_app = "0.18"
 bevy_ecs = "0.18"
 bevy_time = "0.18"
 bevy_tasks = "0.18"
+bevy_time = "0.18"
+spacetimedb-sdk = "2.1"
 crossbeam-channel = "0.5"
 spacetimedb-sdk = { version = "2.1" }
 

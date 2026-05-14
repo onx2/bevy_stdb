@@ -26,6 +26,13 @@ pub struct StdbDisconnectedMessage {
     pub err: Option<Error>,
 }
 
+/// A [`Message`] sent when a SpacetimeDB connection fails to connect.
+#[derive(Message, Debug)]
+pub struct StdbConnectErrorMessage {
+    /// The error that caused the connection attempt to fail.
+    pub err: Error,
+}
+
 /// A [`Message`] sent when a subscription is applied.
 #[derive(Message, Clone, Debug)]
 pub struct StdbSubscriptionAppliedMessage<K> {
@@ -111,10 +118,12 @@ where
 }
 
 /// A [`Message`] sent when SpacetimeDB authentication succeeds.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[derive(Message, Clone, Debug, Default)]
 pub struct StdbLoginSucceededMessage;
 
 /// A [`Message`] sent when SpacetimeDB authentication fails.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[derive(Message, Clone, Debug)]
 pub struct StdbLoginFailedMessage {
     /// The failure message.
@@ -122,12 +131,14 @@ pub struct StdbLoginFailedMessage {
 }
 
 /// A [`Message`] sent when SpacetimeDB logout succeeds.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[derive(Message, Clone, Debug, Default)]
 pub struct StdbLogoutSucceededMessage;
 
 /// A [`Message`] sent when SpacetimeDB logout fails.
 ///
 /// Local auth state is always cleared regardless of this message being sent.
+#[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 #[derive(Message, Clone, Debug)]
 pub struct StdbLogoutFailedMessage {
     /// The failure message.

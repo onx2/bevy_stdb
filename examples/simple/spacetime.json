@@ -1,0 +1,15 @@
+{
+  "dev": {
+    "run": "bevy run -p client"
+  },
+  "database": "bevy-stdb-simple",
+  "server": "local",
+  "module-path": "./server",
+  "generate": [
+    {
+      "language": "rust",
+      "out_dir": "./client/src/module_bindings",
+      "module_path": "./server"
+    }
+  ]
+}

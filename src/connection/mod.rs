@@ -2,17 +2,28 @@
 //!
 //! Manages the active connection, lifecycle states, and related resources.
 
+<<<<<<< HEAD
 pub(crate) mod reconnect;
+=======
+pub mod reconnect;
+>>>>>>> origin/main
 
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
+<<<<<<< HEAD
     message::{StdbConnectedMessage, StdbDisconnectedMessage},
+=======
+    message::{StdbConnectErrorMessage, StdbConnectedMessage, StdbDisconnectedMessage},
+>>>>>>> origin/main
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, Resource, World, resource_exists};
+<<<<<<< HEAD
 use bevy_log::error;
+=======
+>>>>>>> origin/main
 use bevy_tasks::{Task, block_on, poll_once};
 use crossbeam_channel::Sender;
 pub(crate) use reconnect::ReconnectPlugin;
@@ -61,10 +72,13 @@ pub(crate) struct StdbConnectionConfig<
     pub(crate) uri: String,
     /// Optional authentication token.
     pub(crate) token: Option<String>,
+<<<<<<< HEAD
     /// Optional client ID for authentication.
     client_id: Option<String>,
     /// Optional ID token returned by the OIDC provider.
     id_token: Option<String>,
+=======
+>>>>>>> origin/main
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -73,6 +87,11 @@ pub(crate) struct StdbConnectionConfig<
     connected_tx: Sender<StdbConnectedMessage>,
     /// Sender used by the SpacetimeDB on-disconnect callback.
     disconnected_tx: Sender<StdbDisconnectedMessage>,
+<<<<<<< HEAD
+=======
+    /// Sender used by the SpacetimeDB on-connection error callback.
+    connect_error_tx: Sender<StdbConnectErrorMessage>,
+>>>>>>> origin/main
 }
 
 impl<C, M> Clone for StdbConnectionConfig<C, M>
@@ -91,6 +110,10 @@ where
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
             disconnected_tx: self.disconnected_tx.clone(),
+<<<<<<< HEAD
+=======
+            connect_error_tx: self.connect_error_tx.clone(),
+>>>>>>> origin/main
         }
     }
 }
@@ -104,7 +127,11 @@ where
     fn connection_builder(&self) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
+<<<<<<< HEAD
         let connect_error_tx = self.disconnected_tx.clone();
+=======
+        let connect_error_tx = self.connect_error_tx.clone();
+>>>>>>> origin/main
 
         DbConnectionBuilder::<M>::new()
             .with_database_name(self.module_name.clone())
@@ -121,6 +148,7 @@ where
                 let _ = disconnected_tx.send(StdbDisconnectedMessage { err });
             })
             .on_connect_error(move |_ctx, err| {
+<<<<<<< HEAD
                 let _ = connect_error_tx.send(StdbDisconnectedMessage { err: Some(err) });
             })
     }
@@ -163,6 +191,13 @@ where
         self.id_token.as_deref()
     }
 
+=======
+                // TODO: waiting for STDB release with fix for this to function properly.
+                let _ = connect_error_tx.send(StdbConnectErrorMessage { err });
+            })
+    }
+
+>>>>>>> origin/main
     /// Builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
@@ -270,6 +305,10 @@ impl<
     fn build(&self, app: &mut App) {
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
+<<<<<<< HEAD
+=======
+        register_channel::<StdbConnectErrorMessage>(app);
+>>>>>>> origin/main
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
@@ -282,6 +321,10 @@ impl<
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),
             disconnected_tx: channel_sender::<StdbDisconnectedMessage>(world),
+<<<<<<< HEAD
+=======
+            connect_error_tx: channel_sender::<StdbConnectErrorMessage>(world),
+>>>>>>> origin/main
         });
 
         app.add_systems(
@@ -347,7 +390,13 @@ fn poll_pending_connection<
                     world.insert_resource(StdbConnection::new(conn));
                 }
                 Err(err) => {
+<<<<<<< HEAD
                     error!("failed to build SpacetimeDB connection: {err}");
+=======
+                    world.write_message(StdbConnectErrorMessage { err });
+                    // TODO log or send message for the error
+                    // error!("failed to build SpacetimeDB connection: {err}");
+>>>>>>> origin/main
                 }
             }
         }
@@ -362,7 +411,14 @@ fn sync_connection_resource<C: DbContext + Send + Sync + 'static>(
     mut commands: Commands,
 ) {
     if (connected_msgs.read().next().is_some() || disconnected_msgs.read().next().is_some())
+<<<<<<< HEAD
         && conn.as_ref().is_some_and(|conn| !conn.is_active()) {
             commands.remove_resource::<StdbConnection<C>>();
         }
+=======
+        && conn.as_ref().is_some_and(|conn| !conn.is_active())
+    {
+        commands.remove_resource::<StdbConnection<C>>();
+    }
+>>>>>>> origin/main
 }

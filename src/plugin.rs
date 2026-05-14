@@ -197,6 +197,23 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
+    /// Sets the authentication token used for the initial connection.
+    ///
+    /// If a token is provided at runtime, the most recently provided token becomes the
+    /// stored token used for subsequent reconnect attempts.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
+    pub fn with_token(mut self, token: impl Into<String>) -> Self {
+        assert!(
+            self.token.is_none(),
+            "`with_token()` may only be called once"
+        );
+        self.token = Some(token.into());
+        self
+    }
+
     /// Sets the connection compression mode.
     ///
     /// # Panics
