@@ -107,17 +107,15 @@ pub mod prelude {
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
             ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
-            ReadStdbLoginFailedMessage, ReadStdbLoginSucceededMessage, ReadStdbLogoutFailedMessage,
-            ReadStdbLogoutSucceededMessage, ReadStdbSubscriptionAppliedMessage,
-            ReadStdbSubscriptionErrorMessage, ReadUpdateMessage,
+            ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
+            ReadUpdateMessage,
         },
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
         message::{
             DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
-            StdbConnectedMessage, StdbDisconnectedMessage, StdbLoginFailedMessage,
-            StdbLoginSucceededMessage, StdbLogoutFailedMessage, StdbLogoutSucceededMessage,
-            StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
+            StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+            StdbSubscriptionErrorMessage, UpdateMessage,
         },
         plugin::StdbPlugin,
         set::StdbSet,
@@ -126,8 +124,16 @@ pub mod prelude {
 
     #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
     pub use crate::{
+        alias::{
+            ReadStdbLoginFailedMessage, ReadStdbLoginSucceededMessage, ReadStdbLogoutFailedMessage,
+            ReadStdbLogoutSucceededMessage,
+        },
         auth::StdbAuthSource,
         commands::{StdbLoginOptions, StdbLogoutOptions},
+        message::{
+            StdbLoginFailedMessage, StdbLoginSucceededMessage, StdbLogoutFailedMessage,
+            StdbLogoutSucceededMessage,
+        },
     };
 
     #[cfg(feature = "auth-steam")]

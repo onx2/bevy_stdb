@@ -7,16 +7,16 @@ use crate::{
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
+        register_event_table, register_table, register_table_without_pk, register_view,
         EventTableBinder, StdbTablePlugin, TableBindCallback, TableBinder,
-        TableRegistrationCallback, TableWithoutPkBinder, ViewBinder, register_event_table,
-        register_table, register_table_without_pk, register_view,
+        TableRegistrationCallback, TableWithoutPkBinder, ViewBinder,
     },
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use spacetimedb_sdk::{
-    __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
     Compression, DbContext, SubscriptionHandle,
+    __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
 };
 use std::{hash::Hash, sync::Arc};
 
@@ -56,6 +56,7 @@ pub struct StdbPlugin<
 > {
     module_name: Option<String>,
     uri: Option<String>,
+    token: Option<String>,
     compression: Option<Compression>,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
@@ -64,13 +65,16 @@ pub struct StdbPlugin<
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
 }
 
-impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
-    Default for StdbPlugin<C, M>
+impl<
+        C: DbConnection<Module = M> + DbContext + Send + Sync,
+        M: SpacetimeModule<DbConnection = C>,
+    > Default for StdbPlugin<C, M>
 {
     fn default() -> Self {
         Self {
             module_name: None,
             uri: None,
+            token: None,
             compression: None,
             driver: None,
             reconnect_options: None,
@@ -81,8 +85,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 }
 
-impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
-    StdbPlugin<C, M>
+impl<
+        C: DbConnection<Module = M> + DbContext + Send + Sync,
+        M: SpacetimeModule<DbConnection = C>,
+    > StdbPlugin<C, M>
 {
     /// Sets the function used to drive the connection from the Bevy schedule.
     ///
@@ -397,9 +403,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 }
 
 impl<
-    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
-    M: SpacetimeModule<DbConnection = C> + 'static,
-> Plugin for StdbPlugin<C, M>
+        C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+        M: SpacetimeModule<DbConnection = C> + 'static,
+    > Plugin for StdbPlugin<C, M>
 {
     /// Installs the configured `bevy_stdb` plugins and resources.
     ///
@@ -446,6 +452,7 @@ impl<
                 .clone()
                 .expect("No module name set. Use with_module_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
+            token: self.token.clone(),
             driver: self.driver.clone().or_else(|| {
                 panic!(
                     "No connection driver set. Use with_background_driver() or with_frame_driver()"

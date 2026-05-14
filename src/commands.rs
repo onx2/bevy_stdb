@@ -168,6 +168,8 @@ where
 {
     /// Spawns a login task immediately using [`StdbLoginOptions`].
     ///
+    /// A successful login updates [`StdbConnectionConfig`] with the new access token.
+    ///
     /// No-op if a login attempt is already pending.
     pub fn login(&mut self, options: StdbLoginOptions) {
         if self.pending_auth.is_some() {
