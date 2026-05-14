@@ -6,13 +6,10 @@ use bevy_stdb::prelude::*;
 use module_bindings::*;
 use stdb::*;
 
-const MOVE_SPEED: f32 = 500.0;
-const INTERP_SPEED: f32 = 8.0;
+const MOVE_SPEED: f32 = 200.0;
 
 #[derive(Component, Debug, Default)]
-pub struct PlayerMarker {
-    pub server_pos: Vec2,
-}
+pub struct PlayerMarker;
 
 fn main() -> AppExit {
     App::new().add_plugins(AppPlugin).run()
@@ -46,13 +43,7 @@ impl Plugin for AppPlugin {
         app.add_systems(Startup, (spawn_camera, request_connect));
         app.add_systems(
             Update,
-            (
-                subscribe_on_connect,
-                spawn_player,
-                sync_position,
-                interpolate_position,
-            )
-                .chain(),
+            (subscribe_on_connect, spawn_player, sync_position).chain(),
         );
         app.add_systems(
             Update,
@@ -86,29 +77,22 @@ fn spawn_player(
     for msg in msgs.read() {
         commands.spawn((
             Name::new("Player"),
+            PlayerMarker,
             Mesh2d(meshes.add(Circle::new(20.0))),
             MeshMaterial2d(materials.add(Color::srgb(0.2, 0.4, 1.0))),
             Transform::from_xyz(msg.row.x, msg.row.y, 0.0),
-            PlayerMarker {
-                server_pos: Vec2::new(msg.row.x, msg.row.y),
-            },
         ));
     }
 }
 
-fn sync_position(mut player: Single<&mut PlayerMarker>, mut msgs: ReadUpdateMessage<Player>) {
+fn sync_position(
+    mut player: Single<&mut Transform, With<PlayerMarker>>,
+    mut msgs: ReadUpdateMessage<Player>,
+) {
     for msg in msgs.read() {
-        player.server_pos = Vec2::new(msg.new.x, msg.new.y);
+        player.translation.x = msg.new.x;
+        player.translation.y = msg.new.y;
     }
-}
-
-fn interpolate_position(player: Single<(&mut Transform, &PlayerMarker)>, time: Res<Time>) {
-    let (mut transform, marker) = player.into_inner();
-    transform.translation.smooth_nudge(
-        &marker.server_pos.extend(0.0),
-        INTERP_SPEED,
-        time.delta_secs(),
-    );
 }
 
 fn handle_move_request(
