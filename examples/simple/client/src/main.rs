@@ -1,23 +1,18 @@
 mod module_bindings;
+mod stdb;
 
-use crate::module_bindings::RemoteModule;
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use bevy_stdb::prelude::*;
 use module_bindings::*;
+use stdb::*;
 
-const MOVE_SPEED: f32 = 200.0;
-
-#[derive(Clone, Eq, Hash, PartialEq, Debug)]
-pub enum SubKey {
-    Player,
-}
-
-pub type StdbConn = StdbConnection<DbConnection>;
-pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
-pub type StdbSubs = StdbSubscriptions<SubKey, RemoteModule>;
+const MOVE_SPEED: f32 = 500.0;
+const INTERP_SPEED: f32 = 8.0;
 
 #[derive(Component, Debug, Default)]
-pub struct PlayerMarker;
+pub struct PlayerMarker {
+    pub server_pos: Vec2,
+}
 
 fn main() -> AppExit {
     App::new().add_plugins(AppPlugin).run()
@@ -46,30 +41,28 @@ impl Plugin for AppPlugin {
                 }),
         );
 
-        #[cfg(target_arch = "wasm32")]
-        let driver = DbConnection::run_background_task;
-        #[cfg(not(target_arch = "wasm32"))]
-        let driver = DbConnection::run_threaded;
+        app.add_plugins(MyStdbPlugin);
 
-        app.add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_uri(String::from("http://localhost:3000"))
-                .with_module_name(String::from("bevy-stdb-simple"))
-                .with_subscriptions::<SubKey>()
-                .add_table::<Player>(|reg, db| reg.bind(db.player()))
-                .with_background_driver(driver),
-        );
-
-        app.add_systems(Startup, |mut commands: Commands| {
-            commands.spawn((Name::new("Camera"), Camera2d));
-        });
-        app.add_systems(Update, (spawn_player, subscribe_on_connect));
+        app.add_systems(Startup, (spawn_camera, request_connect));
         app.add_systems(
             Update,
-            (sync_position, handle_move_request).run_if(resource_exists::<StdbConn>),
+            (
+                subscribe_on_connect,
+                spawn_player,
+                sync_position,
+                interpolate_position,
+            )
+                .chain(),
         );
-        app.add_systems(Startup, request_connect);
+        app.add_systems(
+            Update,
+            handle_move_request.run_if(resource_exists::<StdbConn>),
+        );
     }
+}
+
+fn spawn_camera(mut commands: Commands) {
+    commands.spawn((Name::new("Camera"), Camera2d));
 }
 
 fn request_connect(mut stdb_cmds: StdbCmds) {
@@ -78,7 +71,6 @@ fn request_connect(mut stdb_cmds: StdbCmds) {
 
 fn subscribe_on_connect(mut msgs: ReadStdbConnectedMessage, mut subs: ResMut<StdbSubs>) {
     for msg in msgs.read() {
-        info!("Subscribing to player table");
         subs.subscribe_query(SubKey::Player, |q| {
             q.from.player().r#where(|p| p.identity.eq(msg.identity))
         });
@@ -92,26 +84,31 @@ fn spawn_player(
     mut msgs: ReadInsertMessage<Player>,
 ) {
     for msg in msgs.read() {
-        info!("Spawning in player");
         commands.spawn((
             Name::new("Player"),
-            PlayerMarker,
             Mesh2d(meshes.add(Circle::new(20.0))),
             MeshMaterial2d(materials.add(Color::srgb(0.2, 0.4, 1.0))),
             Transform::from_xyz(msg.row.x, msg.row.y, 0.0),
+            PlayerMarker {
+                server_pos: Vec2::new(msg.row.x, msg.row.y),
+            },
         ));
     }
 }
 
-fn sync_position(
-    mut player: Single<&mut Transform, With<PlayerMarker>>,
-    mut msgs: ReadUpdateMessage<Player>,
-) {
+fn sync_position(mut player: Single<&mut PlayerMarker>, mut msgs: ReadUpdateMessage<Player>) {
     for msg in msgs.read() {
-        info!("Updating player position");
-        player.translation.x = msg.new.x;
-        player.translation.y = msg.new.y;
+        player.server_pos = Vec2::new(msg.new.x, msg.new.y);
     }
+}
+
+fn interpolate_position(player: Single<(&mut Transform, &PlayerMarker)>, time: Res<Time>) {
+    let (mut transform, marker) = player.into_inner();
+    transform.translation.smooth_nudge(
+        &marker.server_pos.extend(0.0),
+        INTERP_SPEED,
+        time.delta_secs(),
+    );
 }
 
 fn handle_move_request(
@@ -144,9 +141,8 @@ fn handle_move_request(
     let half_w = window.width() / 2.0;
     let half_h = window.height() / 2.0;
 
-    // rem_euclid wraps negative values correctly
-    let new_x = (player.translation.x + step.x + half_w).rem_euclid(window.width()) - half_w;
-    let new_y = (player.translation.y + step.y + half_h).rem_euclid(window.height()) - half_h;
-
-    let _ = conn.reducers().move_player(new_x, new_y);
+    let _ = conn.reducers().move_player(
+        (player.translation.x + step.x + half_w).rem_euclid(window.width()) - half_w,
+        (player.translation.y + step.y + half_h).rem_euclid(window.height()) - half_h,
+    );
 }
