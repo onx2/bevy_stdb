@@ -111,5 +111,11 @@ jobs:
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
 
+      # Install keyring dep for linux, used in OIDC auth
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
       - name: Check crate on MSRV
         run: cargo check --all-targets --all-features --locked
