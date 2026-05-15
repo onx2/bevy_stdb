@@ -54,7 +54,7 @@ pub struct StdbPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 > {
-    module_name: Option<String>,
+    database_name: Option<String>,
     uri: Option<String>,
     token: Option<String>,
     compression: Option<Compression>,
@@ -71,7 +71,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 {
     fn default() -> Self {
         Self {
-            module_name: None,
+            database_name: None,
             uri: None,
             token: None,
             compression: None,
@@ -185,17 +185,17 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Sets the remote module name.
+    /// Sets the remote database name.
     ///
     /// # Panics
     ///
     /// Panics if called more than once.
-    pub fn with_module_name(mut self, name: impl Into<String>) -> Self {
+    pub fn with_database_name(mut self, name: impl Into<String>) -> Self {
         assert!(
-            self.module_name.is_none(),
-            "`with_module_name()` may only be called once"
+            self.database_name.is_none(),
+            "`with_database_name()` may only be called once"
         );
-        self.module_name = Some(name.into());
+        self.database_name = Some(name.into());
         self
     }
 
@@ -454,10 +454,10 @@ impl<
         }
 
         app.add_plugins(StdbConnectionPlugin::<C, M> {
-            module_name: self
-                .module_name
+            database_name: self
+                .database_name
                 .clone()
-                .expect("No module name set. Use with_module_name()"),
+                .expect("No database name set. Use with_database_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
             driver: self.driver.clone().or_else(|| {

@@ -8,9 +8,8 @@ use crate::{
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{
-    prelude::{IntoScheduleConfigs, Resource, World, not, resource_exists},
-    schedule::common_conditions::resource_added,
+use bevy_ecs::prelude::{
+    IntoScheduleConfigs, Resource, World, not, resource_added, resource_exists,
 };
 use bevy_log::{error, info};
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};

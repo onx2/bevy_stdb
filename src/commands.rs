@@ -47,20 +47,20 @@ impl StdbConnectOptions {
     }
 
     /// Creates [`StdbConnectOptions`] with a module name.
-    pub fn from_module_name(module_name: impl Into<String>) -> Self {
+    pub fn from_database_name(database_name: impl Into<String>) -> Self {
         Self {
             token: None,
             uri: None,
-            database_name: Some(module_name.into()),
+            database_name: Some(database_name.into()),
         }
     }
 
     /// Creates [`StdbConnectOptions`] with a URI and module name.
-    pub fn from_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
+    pub fn from_target(uri: impl Into<String>, database_name: impl Into<String>) -> Self {
         Self {
             token: None,
             uri: Some(uri.into()),
-            database_name: Some(module_name.into()),
+            database_name: Some(database_name.into()),
         }
     }
 }

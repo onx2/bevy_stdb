@@ -218,7 +218,7 @@ pub(crate) struct StdbConnectionPlugin<
     M: SpacetimeModule<DbConnection = C>,
 > {
     /// The remote module/database name.
-    pub module_name: String,
+    pub database_name: String,
     /// The URI of the SpacetimeDB host.
     pub uri: String,
     /// The authentication token for the connection.
@@ -244,7 +244,7 @@ impl<
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
-            database_name: self.module_name.clone(),
+            database_name: self.database_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
             client_id: None,

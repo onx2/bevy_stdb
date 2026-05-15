@@ -1,26 +1,17 @@
-// curl -X POST https://auth.spacetimedb.com/oidc/token \
-//   -H "content-type: application/x-www-form-urlencoded" \
-//   -d "grant_type=refresh_token" \
-//   -d "refresh_token=<REFRESH_TOKEN>" \
-//   -d "client_id=<CLIENT_ID>"
-
 pub(crate) mod error;
-pub(crate) mod plugin;
-
 #[cfg(feature = "auth-oidc")]
 pub(crate) mod oidc;
+pub(crate) mod plugin;
 #[cfg(feature = "auth-steam")]
 pub(crate) mod steam;
 
+use bevy_ecs::prelude::Resource;
 pub(crate) use error::StdbAuthError;
-pub use plugin::StdbAuthPlugin;
-
 #[cfg(feature = "auth-oidc")]
 pub use oidc::{StdbOidcAuthOptions, StdbOidcPrompt};
+pub use plugin::StdbAuthPlugin;
 #[cfg(feature = "auth-steam")]
 pub use steam::StdbSteamAuthOptions;
-
-use bevy_ecs::prelude::Resource;
 
 pub(crate) const AUTH_URI_BASE: &str = "https://auth.spacetimedb.com/oidc";
 

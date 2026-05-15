@@ -1,14 +1,12 @@
-mod common;
-#[cfg(not(feature = "browser"))]
-pub(crate) mod keyring;
-
 #[cfg(feature = "browser")]
 #[path = "web.rs"]
 mod auth_imp;
-
 #[cfg(not(feature = "browser"))]
 #[path = "native.rs"]
 mod auth_imp;
+mod common;
+#[cfg(not(feature = "browser"))]
+pub(crate) mod keyring;
 
 use super::{StdbAuthError, StdbTokenResponse};
 

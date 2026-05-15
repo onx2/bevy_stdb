@@ -1,5 +1,7 @@
 use super::StdbTokenResponse;
-use oauth2::{Scope, TokenResponse as _};
+use oauth2::{
+    ExtraTokenFields, Scope, StandardTokenResponse, TokenResponse as _, basic::BasicTokenType,
+};
 use url::Url;
 
 /// Extra OIDC fields returned by the token endpoint.
@@ -10,11 +12,10 @@ pub(crate) struct OidcExtraFields {
     pub id_token: Option<String>,
 }
 
-impl oauth2::ExtraTokenFields for OidcExtraFields {}
+impl ExtraTokenFields for OidcExtraFields {}
 
 /// A SpacetimeDB OIDC token response including the [`OidcExtraFields`] `id_token` field.
-pub(crate) type OidcTokenResponse =
-    oauth2::StandardTokenResponse<OidcExtraFields, oauth2::basic::BasicTokenType>;
+pub(crate) type OidcTokenResponse = StandardTokenResponse<OidcExtraFields, BasicTokenType>;
 
 pub(crate) struct AuthorizationRedirect {
     pub code: String,
@@ -49,9 +50,7 @@ impl From<&OidcTokenResponse> for StdbTokenResponse {
             access_token: token.access_token().secret().to_string(),
             token_type: format!("{:?}", token.token_type()),
             expires_in: token.expires_in().map(|duration| duration.as_secs()),
-            refresh_token: token
-                .refresh_token()
-                .map(|refresh_token| refresh_token.secret().to_string()),
+            refresh_token: token.refresh_token().map(|t| t.secret().to_string()),
             scope: token.scopes().and_then(|scopes| scopes_param(scopes)),
             id_token: token.extra_fields().id_token.clone(),
         }

@@ -1,10 +1,11 @@
 use bevy_log::{error, info};
+use keyring::Entry;
 
 pub(crate) const KEYRING_SERVICE: &str = "bevy_stdb";
 
 /// Returns the stored OIDC refresh token for the given `client_id`, if any.
 pub(crate) fn stored_refresh_token(client_id: &str) -> Option<String> {
-    let entry = match keyring::Entry::new(KEYRING_SERVICE, client_id) {
+    let entry = match Entry::new(KEYRING_SERVICE, client_id) {
         Ok(entry) => entry,
         Err(error) => {
             error!(
