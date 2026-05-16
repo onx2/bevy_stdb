@@ -7,139 +7,9 @@ use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
     EventTable, Table, TableWithPrimaryKey,
 };
-use std::marker::PhantomData;
 
-/// Binds callbacks for a table with a primary key.
-///
-/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
-/// them as Bevy messages for insert, delete, update, and insert-or-update
-/// changes.
-pub struct TableBinder<'w, TRow> {
-    world: &'w World,
-    _marker: PhantomData<fn() -> TRow>,
-}
-impl<'w, TRow> TableBinder<'w, TRow> {
-    pub(crate) fn new(world: &'w World) -> Self {
-        Self {
-            world,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
-    /// Bevy messages.
-    pub fn bind<TTable>(self, table: TTable)
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-        TTable: Table<
-                Row = TRow,
-                EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-            > + TableWithPrimaryKey<Row = TRow>,
-    {
-        bind_insert::<TRow, TTable>(self.world, &table);
-        bind_delete::<TRow, TTable>(self.world, &table);
-        bind_update::<TRow, TTable>(self.world, &table);
-        bind_insert_update::<TRow, TTable>(self.world, &table);
-    }
-}
-
-/// Binds callbacks for a table without a primary key.
-///
-/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
-/// insert and delete changes as Bevy messages.
-pub struct TableWithoutPkBinder<'w, TRow> {
-    world: &'w World,
-    _marker: PhantomData<fn() -> TRow>,
-}
-impl<'w, TRow> TableWithoutPkBinder<'w, TRow> {
-    pub(crate) fn new(world: &'w World) -> Self {
-        Self {
-            world,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
-    /// Bevy messages.
-    pub fn bind<TTable>(self, table: TTable)
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-        TTable: Table<
-                Row = TRow,
-                EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-            >,
-    {
-        bind_insert::<TRow, TTable>(self.world, &table);
-        bind_delete::<TRow, TTable>(self.world, &table);
-    }
-}
-
-/// Binds callbacks for a view.
-///
-/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
-/// insert and delete changes as Bevy messages.
-pub struct ViewBinder<'w, TRow> {
-    world: &'w World,
-    _marker: PhantomData<fn() -> TRow>,
-}
-impl<'w, TRow> ViewBinder<'w, TRow> {
-    pub(crate) fn new(world: &'w World) -> Self {
-        Self {
-            world,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
-    /// Bevy messages.
-    pub fn bind<TTable>(self, table: TTable)
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-        TTable: Table<
-                Row = TRow,
-                EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-            >,
-    {
-        bind_insert::<TRow, TTable>(self.world, &table);
-        bind_delete::<TRow, TTable>(self.world, &table);
-    }
-}
-
-/// Binds callbacks for an event table.
-///
-/// Calling [`Self::bind`] attaches SpacetimeDB table callbacks and forwards
-/// insert changes as Bevy messages.
-pub struct EventTableBinder<'w, TRow> {
-    world: &'w World,
-    _marker: PhantomData<fn() -> TRow>,
-}
-impl<'w, TRow> EventTableBinder<'w, TRow> {
-    pub(crate) fn new(world: &'w World) -> Self {
-        Self {
-            world,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Binds the default SpacetimeDB callbacks for `table` and forwards them as
-    /// Bevy messages.
-    pub fn bind<TTable>(self, table: TTable)
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-        TTable: Table<
-                Row = TRow,
-                EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-            > + EventTable,
-    {
-        bind_insert::<TRow, TTable>(self.world, &table);
-    }
-}
-
-fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
+/// Binds insert callbacks for a table or view.
+pub(crate) fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
@@ -158,7 +28,28 @@ where
     });
 }
 
-fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
+/// Binds insert callbacks for an event table.
+pub(crate) fn bind_event_insert<TRow, TTable>(world: &World, table: &TTable)
+where
+    TRow: Send + Sync + Clone + InModule + 'static,
+    RowEvent<TRow>: Send + Sync,
+    TTable: EventTable<
+            Row = TRow,
+            EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
+        >,
+    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
+{
+    let sender = channel_sender::<InsertMessage<TRow>>(world);
+    table.on_insert(move |ctx, row| {
+        let _ = sender.send(InsertMessage {
+            event: ctx.event().clone(),
+            row: row.clone(),
+        });
+    });
+}
+
+/// Binds delete callbacks for a table or view.
+pub(crate) fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
@@ -177,7 +68,8 @@ where
     });
 }
 
-fn bind_update<TRow, TTable>(world: &World, table: &TTable)
+/// Binds update callbacks for a table with a primary key.
+pub(crate) fn bind_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
@@ -197,7 +89,8 @@ where
     });
 }
 
-fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
+/// Binds insert-or-update callbacks for a table with a primary key.
+pub(crate) fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,

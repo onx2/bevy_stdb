@@ -7,8 +7,8 @@ use crate::{
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
-        EventTableBinder, StdbTablePlugin, TableBindCallback, TableBinder,
-        TableRegistrationCallback, TableWithoutPkBinder, ViewBinder, register_event_table,
+        StdbTablePlugin, TableBindCallback, TableRegistrationCallback, bind_delete,
+        bind_event_insert, bind_insert, bind_insert_update, bind_update, register_event_table,
         register_table, register_table_without_pk, register_view,
     },
 };
@@ -311,38 +311,14 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Registers a table with a primary key.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// .add_table::<PlayerRow>(|reg, db| reg.bind(db.player_info()))
-    /// ```
-    pub fn add_table<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(TableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-    {
-        self.table_registrations
-            .push(Arc::new(register_table::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = TableBinder::<TRow>::new(world);
-            bind(reg, db);
-        }));
-        self
-    }
-
     /// Registers a table with a primary key through a generated [`TableAccessor`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// .add_table_v2::<PlayerInfoTableAccessor>()
+    /// .add_table::<PlayerInfoTableAccessor>()
     /// ```
-    pub fn add_table_v2<TAccessor>(mut self) -> Self
+    pub fn add_table<TAccessor>(mut self) -> Self
     where
         TAccessor: TableAccessor<C::DbView> + Send + Sync + 'static,
         TAccessor::Row: Send + Sync + Clone + InModule + 'static,
@@ -355,34 +331,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_table::<TAccessor::Row>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = TableBinder::<TAccessor::Row>::new(world);
-            reg.bind(TAccessor::get(db));
-        }));
-        self
-    }
-
-    /// Registers a table without a primary key.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// .add_table_without_pk::<NearbyMonsterRow>(|reg, db| {
-    ///     reg.bind(db.nearby_monsters())
-    /// })
-    /// ```
-    pub fn add_table_without_pk<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(TableWithoutPkBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-    {
-        self.table_registrations
-            .push(Arc::new(register_table_without_pk::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = TableWithoutPkBinder::<TRow>::new(world);
-            bind(reg, db);
+            let table = TAccessor::get(db);
+            bind_insert::<TAccessor::Row, _>(world, &table);
+            bind_delete::<TAccessor::Row, _>(world, &table);
+            bind_update::<TAccessor::Row, _>(world, &table);
+            bind_insert_update::<TAccessor::Row, _>(world, &table);
         }));
         self
     }
@@ -392,9 +345,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Example
     ///
     /// ```ignore
-    /// .add_table_without_pk_v2::<WorldClockTableAccessor>()
+    /// .add_table_without_pk::<WorldClockTableAccessor>()
     /// ```
-    pub fn add_table_without_pk_v2<TAccessor>(mut self) -> Self
+    pub fn add_table_without_pk<TAccessor>(mut self) -> Self
     where
         TAccessor: TableAccessor<C::DbView> + Send + Sync + 'static,
         TAccessor::Row: Send + Sync + Clone + InModule + 'static,
@@ -407,32 +360,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_table_without_pk::<TAccessor::Row>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = TableWithoutPkBinder::<TAccessor::Row>::new(world);
-            reg.bind(TAccessor::get(db));
-        }));
-        self
-    }
-
-    /// Registers a view.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// .add_view::<CharacterRow>(|reg, db| reg.bind(db.character_selection_screen_view()))
-    /// ```
-    pub fn add_view<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(ViewBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-    {
-        self.table_registrations
-            .push(Arc::new(register_view::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = ViewBinder::<TRow>::new(world);
-            bind(reg, db);
+            let table = TAccessor::get(db);
+            bind_insert::<TAccessor::Row, _>(world, &table);
+            bind_delete::<TAccessor::Row, _>(world, &table);
         }));
         self
     }
@@ -442,9 +372,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Example
     ///
     /// ```ignore
-    /// .add_view_v2::<NearbyMonsterTableAccessor>()
+    /// .add_view::<NearbyMonsterTableAccessor>()
     /// ```
-    pub fn add_view_v2<TAccessor>(mut self) -> Self
+    pub fn add_view<TAccessor>(mut self) -> Self
     where
         TAccessor: TableAccessor<C::DbView> + Send + Sync + 'static,
         TAccessor::Row: Send + Sync + Clone + InModule + 'static,
@@ -457,32 +387,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_view::<TAccessor::Row>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = ViewBinder::<TAccessor::Row>::new(world);
-            reg.bind(TAccessor::get(db));
-        }));
-        self
-    }
-
-    /// Registers an event table.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// .add_event_table::<LogEvent>(|reg, db| reg.bind(db.log_events()))
-    /// ```
-    pub fn add_event_table<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(EventTableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
-    where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
-    {
-        self.table_registrations
-            .push(Arc::new(register_event_table::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = EventTableBinder::<TRow>::new(world);
-            bind(reg, db);
+            let table = TAccessor::get(db);
+            bind_insert::<TAccessor::Row, _>(world, &table);
+            bind_delete::<TAccessor::Row, _>(world, &table);
         }));
         self
     }
@@ -492,23 +399,23 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Example
     ///
     /// ```ignore
-    /// .add_event_table_v2::<DamageEventTableAccessor>()
+    /// .add_event_table::<DamageEventTableAccessor>()
     /// ```
-    pub fn add_event_table_v2<TAccessor>(mut self) -> Self
+    pub fn add_event_table<TAccessor>(mut self) -> Self
     where
         TAccessor: TableAccessor<C::DbView> + Send + Sync + 'static,
         TAccessor::Row: Send + Sync + Clone + InModule + 'static,
         RowEvent<TAccessor::Row>: Send + Sync,
-        for<'db> TAccessor::Handle<'db>: Table<
-                Row = TAccessor::Row,
-                EventContext = <<TAccessor::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + EventTable<Row = TAccessor::Row>,
+        for<'db> TAccessor::Handle<'db>: EventTable<
+            Row = TAccessor::Row,
+            EventContext = <<TAccessor::Row as InModule>::Module as SpacetimeModule>::EventContext,
+        >,
     {
         self.table_registrations
             .push(Arc::new(register_event_table::<TAccessor::Row>));
         self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = EventTableBinder::<TAccessor::Row>::new(world);
-            reg.bind(TAccessor::get(db));
+            let table = TAccessor::get(db);
+            bind_event_insert::<TAccessor::Row, _>(world, &table);
         }));
         self
     }
