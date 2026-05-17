@@ -319,21 +319,23 @@ fn my_system_option_res(conn: Option<Res<StdbConn>>) {
 
 ## Subscriptions
 
-`StdbSubscriptions` stores desired subscription intent separately from the live connection. Subscriptions are keyed by a type you define, so you can refer to them by domain-specific identifiers for dynamic resubscription or unsubscription.
+Subscriptions are required to tell Spacetime which table data you want to sync to the client. You can directly subscribe using the SDK's standard `subscription_builder` exposed on the connection; however this crate offers a lightweight wrapper to manage them, `StdbSubscriptions`. It stores your desired subscription intent separately from the live connection so they can be reapplied when connections change.
 
-Enable it during plugin setup with `with_subscriptions`, then queue subscriptions from any Bevy system — typically in response to `StdbConnectedMessage`. Queued intent is automatically re-applied after a reconnect.
+That means you can:
 
-There are two ways to subscribe:
+- enable subscription management during plugin setup using `with_subscriptions`
+- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
+- automatically re-apply queued subscription intent after reconnect
 
-- `subscribe_sql(key, "SELECT * FROM my_table")` — raw SQL string
-- `subscribe_query(key, |q| q.from.my_table())` — generated query builder
+Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
 
-`ReadStdbSubscriptionAppliedMessage` and `ReadStdbSubscriptionErrorMessage` are emitted for the `on_applied` and `on_error` callbacks per subscription.
+There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
 
 ```rust
+// Check the client cache once a particular subscription has been applied.
 fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
-  for msg in applied_msgs.read() {
-    if msg.is(&SubKey::MyCharacters) {
+  for message in applied_messages.read() {
+    if message.is(&SubKey::MyCharacters) {
       println!("You have {} characters.", conn.db().my_characters().count());
     }
   }
