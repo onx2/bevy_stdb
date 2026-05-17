@@ -88,8 +88,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 {
     /// Starts the initial connection when the plugin is built.
     ///
-    /// Without this option, start connections from a system with
-    /// [`StdbCommands::connect`](crate::prelude::StdbCommands::connect).
+    /// Without this option, start connections from a system with [`StdbCommands::connect`](crate::prelude::StdbCommands::connect).
     pub fn with_eager_connection(mut self) -> Self {
         self.eager_connection = true;
         self
@@ -118,7 +117,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     pub fn with_frame_driver(mut self, frame_tick: fn(&C) -> spacetimedb_sdk::Result<()>) -> Self {
         assert!(
             self.driver.is_none(),
-            "`with_frame_driver()` may only be called once"
+            "only one connection driver may be configured"
         );
         self.driver = Some(ConnectionDriver::FrameTick(frame_tick));
         self
@@ -175,7 +174,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     {
         assert!(
             self.driver.is_none(),
-            "`with_background_driver()` may only be called once"
+            "only one connection driver may be configured"
         );
         self.driver = Some(ConnectionDriver::Background(Arc::new(move |conn: &C| {
             let _ = background_driver(conn);
