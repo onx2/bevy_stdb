@@ -2,7 +2,7 @@
 //!
 //! Manages the active connection, lifecycle states, and related resources.
 
-pub mod reconnect;
+mod reconnect;
 
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
@@ -12,7 +12,7 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{Commands, IntoScheduleConfigs, Res, Resource, World, resource_exists};
-use bevy_tasks::{Task, block_on, poll_once};
+use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use crossbeam_channel::Sender;
 pub(crate) use reconnect::ReconnectPlugin;
 pub use reconnect::StdbReconnectOptions;
@@ -214,8 +214,10 @@ pub(crate) struct StdbConnectionPlugin<
     pub database_name: String,
     /// The URI of the SpacetimeDB host.
     pub uri: String,
-    /// Optional authentication token.
+    /// The authentication token for the connection.
     pub token: Option<String>,
+    /// Starts the initial connection when the plugin is built.
+    pub eager_connection: bool,
     /// The configured connection driver.
     pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -268,6 +270,12 @@ impl<
                 .in_set(StdbSet::Connection)
                 .run_if(resource_exists::<StdbConnection<C>>),
             );
+        }
+
+        if self.eager_connection {
+            let config = app.world().resource::<StdbConnectionConfig<C, M>>().clone();
+            let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
+            app.insert_resource(PendingConnection::<C>(task));
         }
     }
 }
