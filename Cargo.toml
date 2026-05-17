@@ -1,6 +1,6 @@
 [package]
 name = "bevy_stdb"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 rust-version = "1.93"
 description = "A Bevy-native integration for SpacetimeDB with table messages, subscriptions, and reconnect support."
@@ -15,6 +15,9 @@ exclude = [
     "examples/",
     ".github/",
 ]
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 bevy_app = "0.18"

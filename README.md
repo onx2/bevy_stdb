@@ -314,7 +314,7 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Using commands
 
-Use `StdbCommands<C, M>` to connect or disconnect at runtime, optionally overriding the token, URI, or module name configured on the plugin.
+Use `StdbCommands<C, M>` to connect or disconnect at runtime, optionally overriding the token, URI, or database name configured on the plugin.
 
 ```rust
 pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;

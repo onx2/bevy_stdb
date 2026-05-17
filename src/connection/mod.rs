@@ -2,7 +2,7 @@
 //!
 //! Manages the active connection, lifecycle states, and related resources.
 
-pub mod reconnect;
+mod reconnect;
 
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
@@ -223,10 +223,10 @@ pub(crate) struct StdbConnectionPlugin<
     pub uri: String,
     /// The authentication token for the connection.
     pub token: Option<String>,
-    /// The configured connection driver.
-    pub driver: Option<ConnectionDriver<C>>,
     /// Starts the initial connection when the plugin is built.
     pub eager_connection: bool,
+    /// The configured connection driver.
+    pub driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
     pub compression: Compression,
 }
