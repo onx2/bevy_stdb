@@ -21,6 +21,7 @@ _Please enjoy this useless AI generated image based on the README contents of th
 
 - **Builder-style setup** via `StdbPlugin`
 - **Connection resource** access through `StdbConnection`
+- **Command interface** for sending SpacetimeDB commands through `StdbCmds`
 - **Table event bridging** into normal Bevy `Message`s
 - **Managed subscription intent** through `StdbSubscriptions`
 - **SpacetimeAuth support** through feature flags (`auth-oidc`, `auth-steam`, `auth` for both)
@@ -104,6 +105,10 @@ bevy_stdb = { version = "*", features = ["browser"] }
 On native targets, the typical choice is `run_threaded`:
 
 ```rust
+use bevy::prelude::*;
+use bevy_stdb::prelude::*;
+use crate::module_bindings::{DbConnection, RemoteModule};
+
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
         .with_database_name("my_module")
@@ -117,6 +122,10 @@ fn main() {
 On browser targets, use the generated background task helper instead:
 
 ```rust
+use bevy::prelude::*;
+use bevy_stdb::prelude::*;
+use crate::module_bindings::{DbConnection, RemoteModule};
+
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
         .with_database_name("my_module")
@@ -129,15 +138,16 @@ If you target both native and browser, I recommend selecting the background driv
 
 ```rust
 fn main() {
+    let mut stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_database_name("my_module")
+        .with_uri("http://localhost:3000");
+
     #[cfg(target_arch = "wasm32")]
     let driver = DbConnection::run_background_task;
     #[cfg(not(target_arch = "wasm32"))]
     let driver = DbConnection::run_threaded;
     
-    let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_database_name("my_module")
-        .with_uri("http://localhost:3000")
-        .with_background_driver(driver);
+    stdb_plugin = stdb_plugin.with_background_driver(driver);
 }
 ```
 
@@ -180,31 +190,6 @@ Each method eagerly registers the Bevy message channels for the row type you spe
 
 Table message registration happens eagerly at startup; callback binding is deferred until a connection is active.
 
-## Subscriptions
-
-Subscriptions are required to tell Spacetime which table data you want to sync to the client. You can directly subscribe using the SDK's standard `subscription_builder` exposed on the connection; however this crate offers a lightweight wrapper to manage them, `StdbSubscriptions`. It stores your desired subscription intent separately from the live connection so they can be reapplied when connections change.
-
-That means you can:
-
-- enable subscription management during plugin setup using `with_subscriptions`
-- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
-- automatically re-apply queued subscription intent after reconnect
-
-Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
-
-There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
-
-```rust
-// Check the client cache once a particular subscription has been applied.
-fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
-  for message in applied_messages.read() {
-    if message.is(&SubKey::MyCharacters) {
-      println!("You have {} characters.", conn.db().my_characters().count());
-    }
-  }
-}
-```
-
 ## Messages
 
 Depending on the table shape, `bevy_stdb` forwards updates into Bevy messages such as:
@@ -238,31 +223,20 @@ fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
 
 By default, start a connection from a Bevy system with `StdbCommands::connect`. To start the initial connection during plugin setup, add `with_eager_connection()` to `StdbPlugin`.
 
-`StdbSubscriptions` stores desired subscription intent separately from the live connection. Subscriptions are keyed by a type you define, so you can refer to them by domain-specific identifiers for dynamic resubscription or unsubscription.
-
-Enable it during plugin setup with `with_subscriptions`, then queue subscriptions from any Bevy system — typically in response to `StdbConnectedMessage`. Queued intent is automatically re-applied after a reconnect.
-
-There are two ways to subscribe:
-
-- `subscribe_sql(key, "SELECT * FROM my_table")` — raw SQL string
-- `subscribe_query(key, |q| q.from.my_table())` — generated query builder
-
-`ReadStdbSubscriptionAppliedMessage` and `ReadStdbSubscriptionErrorMessage` are emitted for the `on_applied` and `on_error` callbacks per subscription.
-
 ```rust
-fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
-  for msg in applied_msgs.read() {
-    if msg.is(&SubKey::MyCharacters) {
-      println!("You have {} characters.", conn.db().my_characters().count());
-    }
+use bevy::prelude::*;
+use bevy_stdb::prelude::*;
+use crate::module_bindings::{DbConnection, RemoteModule};
+
+pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
+
+// main fn...
+
+// Use regular bevy system to request a connection via the `StdbCmds` command interface
+fn request_connect(mut stdb_cmds: StdbCmds) {
+    stdb_cmds.connect(StdbConnectOptions::default());
 }
 ```
-
-## Authentication
-
-This crate directly integrates with [SpacetimeAuth](https://spacetimedb.com/docs/core-concepts/authentication/spacetimeauth/) through the auth-related feature flags: `auth-oidc` for OIDC providers, `auth-steam` for Steam integration, or `auth` for both.
-
-**TODO** Docs for auth
 
 ## Reconnects
 
@@ -284,28 +258,7 @@ When a reconnect succeeds:
 - the `StdbConnection` resource is replaced
 - table callbacks are re-bound
 - subscriptions are re-applied
-
-## Type Aliases
-
-It is useful to define some type aliases of your own. I suggest making aliases for the connection, subscription, and commands:
-
-```rust
-#[derive(Clone, Eq, Hash, PartialEq, Debug)]
-pub enum SubKeys {
-    PlayerInfo,
-    TimeOfDay,
-}
-
-pub type StdbConn = StdbConnection<DbConnection>;
-pub type StdbSubs = StdbSubscriptions<SubKeys, RemoteModule>;
-pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
-
-fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
-    let my_table = conn.db().player_info().id().find(&1);
-    subs.subscribe_query(SubKeys::TimeOfDay, |q| q.from.world_clock());
-}
-```
-
+- 
 ## Using commands
 
 Use `StdbCommands<C, M>` to connect or disconnect at runtime, optionally overriding the token, URI, or database name configured on the plugin.
@@ -362,6 +315,58 @@ fn my_system_option_res(conn: Option<Res<StdbConn>>) {
     if let Some(conn) = conn {
         // Safe to access connection
     }
+}
+```
+
+## Subscriptions
+
+Subscriptions are required to tell Spacetime which table data you want to sync to the client. You can directly subscribe using the SDK's standard `subscription_builder` exposed on the connection; however this crate offers a lightweight wrapper to manage them, `StdbSubscriptions`. It stores your desired subscription intent separately from the live connection so they can be reapplied when connections change.
+
+That means you can:
+
+- enable subscription management during plugin setup using `with_subscriptions`
+- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
+- automatically re-apply queued subscription intent after reconnect
+
+Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
+
+There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
+
+```rust
+// Check the client cache once a particular subscription has been applied.
+fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
+  for message in applied_messages.read() {
+    if message.is(&SubKey::MyCharacters) {
+      println!("You have {} characters.", conn.db().my_characters().count());
+    }
+  }
+}
+```
+
+## Authentication
+
+This crate directly integrates with [SpacetimeAuth](https://spacetimedb.com/docs/core-concepts/authentication/spacetimeauth/) through the auth-related feature flags: `auth-oidc` for OIDC providers, `auth-steam` for Steam integration, or `auth` for both.
+
+**TODO** Docs for auth
+
+## Type Aliases
+
+It is useful to define some type aliases of your own. I suggest making aliases for the connection, subscription, and commands:
+
+```rust
+#[derive(Clone, Eq, Hash, PartialEq, Debug)]
+pub enum SubKeys {
+    PlayerInfo,
+    TimeOfDay,
+}
+
+pub type StdbConn = StdbConnection<DbConnection>;
+pub type StdbSubs = StdbSubscriptions<SubKeys, RemoteModule>;
+pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
+
+fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
+    let my_table = conn.db().player_info().id().find(&1);
+    subs.subscribe_query(SubKeys::TimeOfDay, |q| q.from.world_clock());
 }
 ```
 
