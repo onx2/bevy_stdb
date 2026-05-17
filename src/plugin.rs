@@ -56,6 +56,7 @@ pub struct StdbPlugin<
     uri: Option<String>,
     token: Option<String>,
     compression: Option<Compression>,
+    eager_connection: bool,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
@@ -72,6 +73,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             uri: None,
             token: None,
             compression: None,
+            eager_connection: false,
             driver: None,
             reconnect_options: None,
             subscriptions_initializer: None,
@@ -84,6 +86,15 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
     StdbPlugin<C, M>
 {
+    /// Starts the initial connection when the plugin is built.
+    ///
+    /// Without this option, start connections from a system with
+    /// [`StdbCommands::connect`](crate::prelude::StdbCommands::connect).
+    pub fn with_eager_connection(mut self) -> Self {
+        self.eager_connection = true;
+        self
+    }
+
     /// Sets the function used to drive the connection from the Bevy schedule.
     ///
     /// Use this when you want the active connection to be progressed from Bevy's
@@ -450,6 +461,7 @@ impl<
                 .expect("No database name set. Use with_database_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
+            eager_connection: self.eager_connection,
             driver: self.driver.clone().or_else(|| {
                 panic!(
                     "No connection driver set. Use with_background_driver() or with_frame_driver()"
