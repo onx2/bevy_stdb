@@ -240,75 +240,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Enables the subscription subsystem.
-    ///
-    /// This installs [`crate::subscription::StdbSubscriptions`] as a Bevy
-    /// resource so subscriptions can be queued at runtime from normal Bevy
-    /// systems, for example in response to
-    /// [`crate::prelude::StdbConnectedMessage`].
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// .with_subscriptions::<SubKey>()
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if called more than once.
-    pub fn with_subscriptions<K>(mut self) -> Self
-    where
-        K: Eq + Hash + Clone + Send + Sync + 'static,
-        M::SubscriptionHandle: SubscriptionHandle + Send + Sync + 'static,
-        C: DbConnection<Module = M>
-            + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        assert!(
-            self.subscriptions_initializer.is_none(),
-            "`with_subscriptions()` may only be called once"
-        );
-
-        self.subscriptions_initializer = Some(Arc::new(|app: &mut App| {
-            app.add_plugins(SubscriptionsPlugin::<K, C, M>::default());
-        }));
-
-        self
-    }
-
-    /// Enables automatic reconnects with the given options.
-    ///
-    /// When reconnect is enabled, reconnect attempts use the most recently
-    /// stored token from the connection configuration, including tokens set by
-    /// [`StdbCommands`](crate::prelude::StdbCommands) through
-    /// [`StdbConnectOptions`](crate::prelude::StdbConnectOptions).
-    ///
-    /// On a successful reconnect, table callbacks are re-bound and queued
-    /// subscriptions are re-applied automatically.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use std::time::Duration;
-    ///
-    /// // Use defaults (1s initial delay, 1.5x backoff, 15s max, infinite retries):
-    /// .with_reconnect(StdbReconnectOptions::default())
-    ///
-    /// // Or customize:
-    /// .with_reconnect(StdbReconnectOptions {
-    ///     initial_delay: Duration::from_secs(2),
-    ///     max_attempts: Some(5),
-    ///     backoff_factor: 2.0,
-    ///     max_delay: Duration::from_secs(30),
-    /// })
-    /// ```
-    pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
-        self.reconnect_options = Some(reconnect_config);
-        self
-    }
-
     /// Registers a table with a primary key.
     ///
     /// # Example
@@ -404,6 +335,82 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             let reg = EventTableBinder::<TRow>::new(world);
             bind(reg, db);
         }));
+        self
+    }
+
+    /// Enables the subscription subsystem.
+    ///
+    /// This installs [`crate::subscription::StdbSubscriptions`] as a Bevy
+    /// resource so subscriptions can be queued at runtime from normal Bevy
+    /// systems, for example in response to
+    /// [`crate::prelude::StdbConnectedMessage`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// .with_subscriptions::<SubKey>()
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
+    pub fn with_subscriptions<K>(mut self) -> Self
+    where
+        K: Eq + Hash + Clone + Send + Sync + 'static,
+        M::SubscriptionHandle: SubscriptionHandle + Send + Sync + 'static,
+        C: DbConnection<Module = M>
+            + DbContext<SubscriptionBuilder = SubscriptionBuilder<M>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        assert!(
+            self.subscriptions_initializer.is_none(),
+            "`with_subscriptions()` may only be called once"
+        );
+
+        self.subscriptions_initializer = Some(Arc::new(|app: &mut App| {
+            app.add_plugins(SubscriptionsPlugin::<K, C, M>::default());
+        }));
+
+        self
+    }
+
+    /// Enables automatic reconnects with the given options.
+    ///
+    /// When reconnect is enabled, reconnect attempts use the most recently
+    /// stored token. That token comes from either [`Self::with_token`] or a
+    /// later runtime token update with `token: Some(...)`.
+    ///
+    /// On a successful reconnect, table callbacks are re-bound and queued
+    /// subscriptions are re-applied automatically.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// // Use defaults (1s initial delay, 1.5x backoff, 15s max, infinite retries):
+    /// .with_reconnect(StdbReconnectOptions::default())
+    ///
+    /// // Or customize:
+    /// .with_reconnect(StdbReconnectOptions {
+    ///     initial_delay: Duration::from_secs(2),
+    ///     max_attempts: 5,
+    ///     backoff_factor: 2.0,
+    ///     max_delay: Duration::from_secs(30),
+    /// })
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
+    pub fn with_reconnect(mut self, reconnect_config: StdbReconnectOptions) -> Self {
+        assert!(
+            self.reconnect_options.is_none(),
+            "`with_reconnect()` may only be called once"
+        );
+        self.reconnect_options = Some(reconnect_config);
         self
     }
 }
