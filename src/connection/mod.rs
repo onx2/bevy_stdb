@@ -55,8 +55,8 @@ pub(crate) struct StdbConnectionConfig<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 > {
-    /// The name or identity of the remote database.
-    pub database_name: String,
+    /// The remote module/database name.
+    pub(crate) database_name: String,
     /// The URI of the SpacetimeDB host.
     pub uri: String,
     /// Optional authentication token.

@@ -128,6 +128,13 @@ If you target both native and browser, I recommend selecting the background driv
 
 ```rust
 fn main() {
+<<<<<<< feat/auth
+=======
+    let mut stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_database_name("my_module")
+        .with_uri("http://localhost:3000");
+
+>>>>>>> main
     #[cfg(target_arch = "wasm32")]
     let driver = DbConnection::run_background_task;
     #[cfg(not(target_arch = "wasm32"))]

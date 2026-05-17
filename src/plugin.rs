@@ -457,7 +457,11 @@ impl<
             database_name: self
                 .database_name
                 .clone()
+<<<<<<< feat/auth
                 .expect("No database name set. Use with_database_name()"),
+=======
+                .expect("No module name set. Use with_database_name()"),
+>>>>>>> main
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
             driver: self.driver.clone().or_else(|| {
