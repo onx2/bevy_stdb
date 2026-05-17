@@ -55,7 +55,7 @@ pub(crate) struct StdbConnectionConfig<
     M: SpacetimeModule<DbConnection = C>,
 > {
     /// The remote module/database name.
-    pub(crate) module_name: String,
+    pub(crate) database_name: String,
     /// The URI of the SpacetimeDB host.
     pub(crate) uri: String,
     /// Optional authentication token.
@@ -79,7 +79,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            module_name: self.module_name.clone(),
+            database_name: self.database_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
             driver: self.driver.clone(),
@@ -103,7 +103,7 @@ where
         let connect_error_tx = self.connect_error_tx.clone();
 
         DbConnectionBuilder::<M>::new()
-            .with_database_name(self.module_name.clone())
+            .with_database_name(self.database_name.clone())
             .with_uri(self.uri.clone())
             .with_token(self.token.clone())
             .with_compression(self.compression)
@@ -211,7 +211,7 @@ pub(crate) struct StdbConnectionPlugin<
     M: SpacetimeModule<DbConnection = C>,
 > {
     /// The remote module/database name.
-    pub module_name: String,
+    pub database_name: String,
     /// The URI of the SpacetimeDB host.
     pub uri: String,
     /// Optional authentication token.
@@ -235,7 +235,7 @@ impl<
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
-            module_name: self.module_name.clone(),
+            database_name: self.database_name.clone(),
             uri: self.uri.clone(),
             token: self.token.clone(),
             driver: self.driver.clone(),

@@ -17,7 +17,7 @@ pub struct StdbConnectOptions {
     /// Optional URI for this connection attempt.
     pub uri: Option<String>,
     /// Optional module name for this connection attempt.
-    pub module_name: Option<String>,
+    pub database_name: Option<String>,
 }
 
 impl StdbConnectOptions {
@@ -26,7 +26,7 @@ impl StdbConnectOptions {
         Self {
             token: Some(token.into()),
             uri: None,
-            module_name: None,
+            database_name: None,
         }
     }
 
@@ -35,25 +35,25 @@ impl StdbConnectOptions {
         Self {
             token: None,
             uri: Some(uri.into()),
-            module_name: None,
+            database_name: None,
         }
     }
 
     /// Creates [`StdbConnectOptions`] with a module name.
-    pub fn from_module_name(module_name: impl Into<String>) -> Self {
+    pub fn from_database_name(database_name: impl Into<String>) -> Self {
         Self {
             token: None,
             uri: None,
-            module_name: Some(module_name.into()),
+            database_name: Some(database_name.into()),
         }
     }
 
     /// Creates [`StdbConnectOptions`] with a URI and module name.
-    pub fn from_target(uri: impl Into<String>, module_name: impl Into<String>) -> Self {
+    pub fn from_target(uri: impl Into<String>, database_name: impl Into<String>) -> Self {
         Self {
             token: None,
             uri: Some(uri.into()),
-            module_name: Some(module_name.into()),
+            database_name: Some(database_name.into()),
         }
     }
 }
@@ -96,8 +96,8 @@ where
         if let Some(uri) = options.uri {
             self.config.uri = uri;
         }
-        if let Some(module_name) = options.module_name {
-            self.config.module_name = module_name;
+        if let Some(database_name) = options.database_name {
+            self.config.database_name = database_name;
         }
         if let Some(token) = options.token {
             self.config.token = Some(token);

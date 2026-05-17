@@ -40,7 +40,7 @@
 //!         .add_plugins(DefaultPlugins)
 //!         .add_plugins(
 //!             StdbPlugin::<DbConnection, RemoteModule>::default()
-//!                 .with_module_name("my_module")
+//!                 .with_database_name("my_module")
 //!                 .with_uri("http://localhost:3000")
 //!                 .with_background_driver(DbConnection::run_threaded)
 //!                 .with_reconnect(StdbReconnectOptions::default())
