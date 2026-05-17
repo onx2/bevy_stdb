@@ -16,7 +16,7 @@ pub struct StdbConnectOptions {
     pub token: Option<String>,
     /// Optional URI for this connection attempt.
     pub uri: Option<String>,
-    /// Optional module name for this connection attempt.
+    /// Optional database name for this connection attempt.
     pub database_name: Option<String>,
 }
 
@@ -39,7 +39,7 @@ impl StdbConnectOptions {
         }
     }
 
-    /// Creates [`StdbConnectOptions`] with a module name.
+    /// Creates [`StdbConnectOptions`] with a database name.
     pub fn from_database_name(database_name: impl Into<String>) -> Self {
         Self {
             token: None,
@@ -48,7 +48,7 @@ impl StdbConnectOptions {
         }
     }
 
-    /// Creates [`StdbConnectOptions`] with a URI and module name.
+    /// Creates [`StdbConnectOptions`] with a URI and database name.
     pub fn from_target(uri: impl Into<String>, database_name: impl Into<String>) -> Self {
         Self {
             token: None,
