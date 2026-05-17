@@ -45,7 +45,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(
             StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
+                .with_database_name("my_module")
                 .with_uri("http://localhost:3000")
                 .add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
                 .with_subscriptions::<MySubKey>()
@@ -105,7 +105,7 @@ On native targets, the typical choice is `run_threaded`:
 ```rust
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000")
         .with_background_driver(DbConnection::run_threaded);
 }
@@ -118,7 +118,7 @@ On browser targets, use the generated background task helper instead:
 ```rust
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000")
         .with_background_driver(DbConnection::run_background_task)
 }
@@ -129,7 +129,7 @@ If you target both native and browser, I recommend selecting the background driv
 ```rust
 fn main() {
     let mut stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000");
 
     #[cfg(target_arch = "wasm32")]
@@ -152,7 +152,7 @@ use crate::module_bindings::{DbConnection, RemoteModule};
 
 fn main() {
     let stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_module_name("my_module")
+        .with_database_name("my_module")
         .with_uri("http://localhost:3000")
         .with_frame_driver(DbConnection::frame_tick);
 }
@@ -292,7 +292,7 @@ fn connect_with_token(mut cmds: StdbCmds) {
 }
 ```
 
-See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_module_name`, `from_target`).
+See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_database_name`, `from_target`).
 
 ### Connection-dependent resources
 
@@ -310,7 +310,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(
             StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_module_name("my_module")
+                .with_database_name("my_module")
                 .with_uri("http://localhost:3000")
                 .with_background_driver(DbConnection::run_threaded),
         )

@@ -25,7 +25,7 @@ use std::{hash::Hash, sync::Arc};
 /// ```ignore
 /// app.add_plugins(
 ///     StdbPlugin::<DbConnection, Module>::default()
-///         .with_module_name("my_module")
+///         .with_database_name("my_module")
 ///         .with_uri("http://localhost:3000")
 ///         .with_background_driver(DbConnection::run_threaded)
 ///         .with_reconnect(StdbReconnectOptions::default())
@@ -52,7 +52,7 @@ pub struct StdbPlugin<
     C: DbConnection<Module = M> + DbContext + Send + Sync,
     M: SpacetimeModule<DbConnection = C>,
 > {
-    module_name: Option<String>,
+    database_name: Option<String>,
     uri: Option<String>,
     token: Option<String>,
     compression: Option<Compression>,
@@ -68,7 +68,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 {
     fn default() -> Self {
         Self {
-            module_name: None,
+            database_name: None,
             uri: None,
             token: None,
             compression: None,
@@ -96,7 +96,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// ```ignore
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_frame_driver(DbConnection::frame_tick)
     /// ```
@@ -127,7 +127,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// ```ignore
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_background_driver(DbConnection::run_threaded)
     /// ```
@@ -136,7 +136,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// ```ignore
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_background_driver(DbConnection::run_background_task)
     /// ```
@@ -150,7 +150,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// let driver = DbConnection::run_threaded;
     ///
     /// StdbPlugin::<DbConnection, RemoteModule>::default()
-    ///     .with_module_name("my_module")
+    ///     .with_database_name("my_module")
     ///     .with_uri("http://localhost:3000")
     ///     .with_background_driver(driver)
     /// ```
@@ -177,12 +177,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Panics
     ///
     /// Panics if called more than once.
-    pub fn with_module_name(mut self, name: impl Into<String>) -> Self {
+    pub fn with_database_name(mut self, name: impl Into<String>) -> Self {
         assert!(
-            self.module_name.is_none(),
-            "`with_module_name()` may only be called once"
+            self.database_name.is_none(),
+            "`with_database_name()` may only be called once"
         );
-        self.module_name = Some(name.into());
+        self.database_name = Some(name.into());
         self
     }
 
@@ -444,10 +444,10 @@ impl<
         }
 
         app.add_plugins(StdbConnectionPlugin::<C, M> {
-            module_name: self
-                .module_name
+            database_name: self
+                .database_name
                 .clone()
-                .expect("No module name set. Use with_module_name()"),
+                .expect("No module name set. Use with_database_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
             driver: self.driver.clone().or_else(|| {
