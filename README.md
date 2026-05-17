@@ -87,13 +87,14 @@ fn on_player_info_insert(mut msgs: ReadInsertMessage<PlayerInfo>) {
 
 Exactly one driver must be configured. These modes are mutually exclusive, and in most applications you'll want `with_background_driver(...)`.
 
-If WASM support is needed, you can enable the `browser` feature flag in this crate and your `spacetimedb-sdk` crate using a target cfg.
+If WASM support is needed, you can enable the `browser` feature flag in both this crate and your `spacetimedb-sdk` crate using a target cfg:
 
 ```toml
 # Enable browser support for wasm builds.
 # Replace `*` with the versions you are using.
 [target.wasm32-unknown-unknown.dependencies]
 spacetimedb-sdk = { version = "*", features = ["browser"] }
+bevy_stdb = { version = "*", features = ["browser"] }
 ```
 
 > I recommend checking out the [bevy_cli 2d template](https://github.com/TheBevyFlock/bevy_new_2d/) for a good starter example using WASM + native with nice Bevy features configured.
@@ -128,13 +129,6 @@ If you target both native and browser, I recommend selecting the background driv
 
 ```rust
 fn main() {
-<<<<<<< feat/auth
-=======
-    let mut stdb_plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_database_name("my_module")
-        .with_uri("http://localhost:3000");
-
->>>>>>> main
     #[cfg(target_arch = "wasm32")]
     let driver = DbConnection::run_background_task;
     #[cfg(not(target_arch = "wasm32"))]
