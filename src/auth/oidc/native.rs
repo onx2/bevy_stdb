@@ -1,22 +1,9 @@
-use super::super::AUTH_URI_BASE;
 use super::{
     StdbAuthError, StdbOidcAuthOptions, StdbTokenResponse,
-    common::{OidcTokenResponse, authorization_redirect},
+    common::{authorization_redirect, authorization_request, oauth_client},
 };
 use bevy_log::{error, info};
-use oauth2::{
-    AuthUrl, AuthorizationCode, Client, ClientId, CsrfToken, HttpClientError, HttpRequest,
-    PkceCodeChallenge, RedirectUrl, Scope, StandardRevocableToken, TokenResponse as _, TokenUrl,
-    basic::{BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse},
-};
-
-type OidcClient = Client<
-    BasicErrorResponse,
-    OidcTokenResponse,
-    BasicTokenIntrospectionResponse,
-    StandardRevocableToken,
-    BasicRevocationErrorResponse,
->;
+use oauth2::{AuthorizationCode, HttpClientError, HttpRequest, TokenResponse as _};
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
@@ -40,45 +27,19 @@ pub(crate) fn acquire_token_response(
 
     let listener = bind_redirect_listener(&redirect_uri)?;
 
-    let oauth_client = OidcClient::new(ClientId::new(options.client_id.clone()))
-        .set_auth_uri(
-            AuthUrl::new(format!("{AUTH_URI_BASE}/auth")).map_err(|error| {
-                error!("invalid OIDC authorization endpoint: {error}");
-                StdbAuthError::Internal(format!("invalid OIDC authorization endpoint: {error}"))
-            })?,
-        )
-        .set_token_uri(
-            TokenUrl::new(format!("{AUTH_URI_BASE}/token")).map_err(|error| {
-                error!("invalid OIDC token endpoint: {error}");
-                StdbAuthError::Internal(format!("invalid OIDC token endpoint: {error}"))
-            })?,
-        )
-        .set_redirect_uri(
-            RedirectUrl::new(options.redirect_uri.clone()).map_err(|error| {
-                error!("invalid OIDC redirect URL: {error}");
-                StdbAuthError::Internal(format!("invalid OIDC redirect URL: {error}"))
-            })?,
-        );
-
-    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-
-    let mut authorize_request = oauth_client
-        .authorize_url(CsrfToken::new_random)
-        .set_pkce_challenge(pkce_challenge);
-
-    if let Some(prompt) = options.prompt.as_param() {
-        authorize_request = authorize_request.add_extra_param("prompt", prompt);
-    }
-
-    for scope in &options.scopes {
-        authorize_request = authorize_request.add_scope(Scope::new(scope.clone()));
-    }
-
-    let (auth_url, csrf_token) = authorize_request.url();
+    let oauth_client =
+        oauth_client(&options.client_id, &options.redirect_uri).map_err(|error| {
+            error!("failed to create OIDC client: {error:?}");
+            error
+        })?;
+    let authorization_request = authorization_request(options).map_err(|error| {
+        error!("failed to create OIDC authorization request: {error:?}");
+        error
+    })?;
 
     info!("opening OIDC authorization URL in browser");
 
-    webbrowser::open(auth_url.as_str()).map_err(|error| {
+    webbrowser::open(authorization_request.auth_url.as_str()).map_err(|error| {
         error!("failed to open OIDC authorization URL: {error}");
         StdbAuthError::Internal(format!("failed to open OIDC authorization URL: {error}"))
     })?;
@@ -92,7 +53,7 @@ pub(crate) fn acquire_token_response(
         )
     })?;
 
-    if redirect.state != *csrf_token.secret() {
+    if redirect.state != *authorization_request.csrf_token.secret() {
         error!("OIDC redirect state did not match the original CSRF token");
         return Err(StdbAuthError::Internal(
             "OIDC redirect state did not match the original CSRF token".to_string(),
@@ -113,7 +74,7 @@ pub(crate) fn acquire_token_response(
 
     let token = oauth_client
         .exchange_code(AuthorizationCode::new(redirect.code))
-        .set_pkce_verifier(pkce_verifier)
+        .set_pkce_verifier(authorization_request.pkce_verifier)
         .request(&|request: HttpRequest| {
             let mut response = http_client
                 .execute(request.try_into().map_err(Box::new)?)

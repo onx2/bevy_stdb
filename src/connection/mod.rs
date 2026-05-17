@@ -65,6 +65,8 @@ pub(crate) struct StdbConnectionConfig<
     pub client_id: Option<String>,
     /// Optional ID token returned by the OIDC provider.
     pub id_token: Option<String>,
+    /// Optional URI returned to after browser logout.
+    pub post_logout_redirect_uri: Option<String>,
     /// The configured connection driver.
     driver: Option<ConnectionDriver<C>>,
     /// Compression configuration for the connection.
@@ -89,6 +91,7 @@ where
             token: self.token.clone(),
             client_id: self.client_id.clone(),
             id_token: self.id_token.clone(),
+            post_logout_redirect_uri: self.post_logout_redirect_uri.clone(),
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: self.connected_tx.clone(),
@@ -249,6 +252,7 @@ impl<
             token: self.token.clone(),
             client_id: None,
             id_token: None,
+            post_logout_redirect_uri: None,
             driver: self.driver.clone(),
             compression: self.compression,
             connected_tx: channel_sender::<StdbConnectedMessage>(world),

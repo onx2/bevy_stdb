@@ -34,6 +34,15 @@ impl StdbAuthSource {
         }
     }
 
+    #[cfg(feature = "auth-oidc")]
+    pub(crate) fn post_logout_redirect_uri(&self) -> Option<String> {
+        match self {
+            StdbAuthSource::Oidc(opts) => opts.post_logout_redirect_uri.clone(),
+            #[cfg(feature = "auth-steam")]
+            StdbAuthSource::Steam(_) => None,
+        }
+    }
+
     pub(crate) async fn acquire_token_response(&self) -> Result<StdbTokenResponse, StdbAuthError> {
         match self {
             #[cfg(feature = "auth-oidc")]
@@ -57,8 +66,11 @@ pub(crate) struct StdbTokenResponse {
     pub refresh_token: Option<String>,
     /// The granted scopes - "openid email profile" for example
     pub scope: Option<String>,
-    /// The ID token returned by the OIDC provider.
+    /// Optional ID token returned by the OIDC provider.
     pub id_token: Option<String>,
+    /// Optional URI returned to after browser logout.
+    #[serde(skip, default)]
+    pub post_logout_redirect_uri: Option<String>,
 }
 
 // TODO:

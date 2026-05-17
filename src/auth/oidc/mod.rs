@@ -39,6 +39,8 @@ pub struct StdbOidcAuthOptions {
     pub client_id: String,
     /// The redirect URI used by the client.
     pub redirect_uri: String,
+    /// The URI returned to after browser logout.
+    pub post_logout_redirect_uri: Option<String>,
     /// The requested scopes.
     pub scopes: Vec<String>,
     /// The prompt behavior for interactive authorization.
@@ -52,4 +54,18 @@ pub async fn acquire_token_response(
     return auth_imp::acquire_token_response(options).await;
     #[cfg(not(feature = "browser"))]
     return auth_imp::acquire_token_response(options);
+}
+
+#[cfg(feature = "browser")]
+pub(crate) use auth_imp::WebOidcCallbackOutcome;
+
+#[cfg(feature = "browser")]
+pub(crate) fn browser_oidc_callback_is_present() -> Result<bool, StdbAuthError> {
+    auth_imp::browser_oidc_callback_is_present()
+}
+
+#[cfg(feature = "browser")]
+pub(crate) async fn try_resume_token_response_from_callback()
+-> Result<WebOidcCallbackOutcome, StdbAuthError> {
+    auth_imp::try_resume_token_response_from_callback().await
 }

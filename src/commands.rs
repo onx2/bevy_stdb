@@ -177,11 +177,16 @@ where
         }
         let auth_source = options.auth_source;
         let client_id = auth_source.client_id();
+        #[cfg(feature = "auth-oidc")]
+        let post_logout_redirect_uri = auth_source.post_logout_redirect_uri();
+        #[cfg(not(feature = "auth-oidc"))]
+        let post_logout_redirect_uri = None;
         let task = IoTaskPool::get().spawn(async move {
             let token_response = acquire_login_token_response(&auth_source).await?;
             Ok(LoginOutcome {
                 token_response,
                 client_id,
+                post_logout_redirect_uri,
             })
         });
         self.commands.insert_resource(PendingAuth::Login(task));
@@ -199,10 +204,17 @@ where
             return;
         };
         let id_token = self.config.id_token.clone();
+        let post_logout_redirect_uri = self.config.post_logout_redirect_uri.clone();
         let clear_refresh_token = options.clear_stored_refresh_token;
 
-        let task = IoTaskPool::get()
-            .spawn(async move { end_session(&client_id, id_token.as_deref()).await });
+        let task = IoTaskPool::get().spawn(async move {
+            end_session(
+                &client_id,
+                id_token.as_deref(),
+                post_logout_redirect_uri.as_deref(),
+            )
+            .await
+        });
 
         self.commands.insert_resource(PendingAuth::Logout {
             task,
