@@ -79,23 +79,6 @@
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
 
-#[cfg(all(
-    feature = "browser",
-    feature = "auth-steam",
-    target_arch = "wasm32",
-    target_os = "unknown",
-    not(docsrs),
-))]
-compile_error!("`auth-steam` is not supported with the `browser` feature.");
-
-#[cfg(all(
-    target_arch = "wasm32",
-    target_os = "unknown",
-    not(feature = "browser"),
-    not(docsrs),
-))]
-compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-unknown`.");
-
 mod alias;
 #[cfg(any(feature = "auth-oidc", feature = "auth-steam"))]
 mod auth;

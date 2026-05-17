@@ -33,6 +33,18 @@ serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 url = { version = "2.5", optional = true }
 oauth2 = { version = "5.0", optional = true, default-features = false }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["blocking", "json", "form"] }
+js-sys = { version = "0.3", optional = true, default-features = false }
+web-sys = { version = "0.3", optional = true, default-features = false, features = [
+    "Window",
+    "Location",
+    "History",
+    "Storage",
+] }
+keyring = { version = "3.6", optional = true, features = ["linux-native-sync-persistent", "apple-native", "windows-native"] }
+webbrowser = { version = "1", optional = true }
+steamworks = { version = "0.13", optional = true }
+hex = { version = "0.4", optional = true }
 
 [features]
 default = []
@@ -60,29 +72,6 @@ auth-steam = [
     "dep:hex",
     "dep:steamworks"
 ]
-
-# -----------------------------------------------------------------------------
-# Native-specific target crates
-# -----------------------------------------------------------------------------
-[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
-reqwest = { version = "0.13", optional = true, features = ["blocking", "json", "form"] }
-keyring = { version = "3.6", optional = true, features = ["linux-native-sync-persistent", "apple-native", "windows-native"] }
-webbrowser = { version = "1", optional = true }
-steamworks = { version = "0.13", optional = true }
-hex = { version = "0.4", optional = true }
-
-# -----------------------------------------------------------------------------
-# Wasm32-specific (Browser) target crates
-# -----------------------------------------------------------------------------
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-reqwest = { version = "0.13", optional = true, features = ["json", "form"] }
-js-sys = { version = "0.3", optional = true, default-features = false }
-web-sys = { version = "0.3", optional = true, default-features = false, features = [
-    "Window",
-    "Location",
-    "History",
-    "Storage",
-] }
 
 
 [package.metadata.docs.rs]
