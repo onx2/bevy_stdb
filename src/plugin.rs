@@ -172,7 +172,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Sets the remote module name.
+    /// Sets the remote database name.
     ///
     /// # Panics
     ///
@@ -417,7 +417,7 @@ impl<
     ///
     /// Panics if any required configuration is missing:
     ///
-    /// - module name
+    /// - database name
     /// - URI
     /// - connection driver
     fn build(&self, app: &mut App) {
@@ -447,7 +447,7 @@ impl<
             database_name: self
                 .database_name
                 .clone()
-                .expect("No module name set. Use with_database_name()"),
+                .expect("No database name set. Use with_database_name()"),
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
             driver: self.driver.clone().or_else(|| {
