@@ -118,6 +118,8 @@ impl<
             PreUpdate,
             tick_reconnect_timer::<C, M>
                 .run_if(not(resource_exists::<StdbConnection<C>>))
+                .run_if(|backoff: Res<ReconnectBackoff>| backoff.timer.is_some())
+                .run_if(not(resource_exists::<PendingConnection<C>>))
                 .in_set(StdbSet::Connection),
         );
     }
@@ -162,22 +164,16 @@ fn arm_reconnect_timer(
 
 /// Ticks the reconnect timer and requests a connection attempt when it fires.
 ///
-/// Pauses while a [`PendingConnection`] is already in-flight. Respects
-/// [`ReconnectConfig::max_attempts`] and [`ReconnectConfig::backoff_factor`].
+/// Respects [`ReconnectConfig::max_attempts`] and [`ReconnectConfig::backoff_factor`].
 fn tick_reconnect_timer<C, M>(
     time: Res<Time>,
     mut backoff: ResMut<ReconnectBackoff>,
     config: Res<ReconnectConfig>,
-    pending: Option<Res<PendingConnection<C>>>,
     mut commands: Commands,
 ) where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    if backoff.timer.is_none() || pending.is_some() {
-        return;
-    }
-
     let Some(timer) = backoff.timer.as_mut() else {
         return;
     };

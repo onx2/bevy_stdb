@@ -74,6 +74,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy --lib --tests --locked -- -D warnings
 
+      - name: Run all-features clippy
+        run: cargo clippy --lib --tests --all-features --locked -- -D warnings
+
   test:
     name: Native tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -149,13 +152,13 @@ jobs:
           cache-on-failure: true
 
       - name: Check browser feature on wasm
-        run: cargo check --target wasm32-unknown-unknown --lib --features browser --locked
+        run: cargo check --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked
 
       - name: Run clippy for browser feature on wasm
-        run: cargo clippy --target wasm32-unknown-unknown --lib --features browser --locked -- -D warnings
+        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked -- -D warnings
 
       - name: Build browser docs on wasm
-        run: cargo doc --target wasm32-unknown-unknown --no-deps --features browser --locked
+        run: cargo doc --target wasm32-unknown-unknown --no-deps --no-default-features --features browser --locked
 
   msrv:
     name: MSRV check
@@ -175,7 +178,7 @@ jobs:
           cache-on-failure: true
 
       - name: Check crate on MSRV
-        run: cargo check --lib --tests --locked
+        run: cargo check --lib --tests --all-features --locked
 
   package:
     name: Package verification
