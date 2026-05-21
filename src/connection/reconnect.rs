@@ -2,19 +2,19 @@
 //!
 //! Manages reconnect timing and backoff. When a disconnect is received the
 //! reconnect cycle activates. Each tick the timer is advanced and, once it
-//! fires and no [`PendingConnection`] is in-flight, a new connection task is
-//! spawned. A successful connect resets the cycle.
+//! fires and no [`PendingConnection`] is in-flight, a new connection attempt is
+//! requested. A successful connect resets the cycle.
 
-use super::{PendingConnection, StdbConnection, StdbConnectionConfig};
+use super::{PendingConnection, StdbConnection};
 use crate::{
     alias::{ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
+    commands::{StartConnectCommand, StdbConnectOptions},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
     Commands, IntoScheduleConfigs, Res, ResMut, Resource, not, resource_exists,
 };
-use bevy_tasks::IoTaskPool;
 use bevy_time::{Time, Timer, TimerMode};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
@@ -160,16 +160,14 @@ fn arm_reconnect_timer(
     backoff.timer = Some(Timer::new(backoff.current_delay, TimerMode::Once));
 }
 
-/// Ticks the reconnect timer and spawns a new connection attempt when it fires.
+/// Ticks the reconnect timer and requests a connection attempt when it fires.
 ///
 /// Pauses while a [`PendingConnection`] is already in-flight. Respects
-/// [`ReconnectConfig::max_attempts`], and advances the delay by
-/// [`ReconnectConfig::backoff_factor`] after each attempt.
+/// [`ReconnectConfig::max_attempts`] and [`ReconnectConfig::backoff_factor`].
 fn tick_reconnect_timer<C, M>(
     time: Res<Time>,
     mut backoff: ResMut<ReconnectBackoff>,
     config: Res<ReconnectConfig>,
-    conn_config: Res<StdbConnectionConfig<C, M>>,
     pending: Option<Res<PendingConnection<C>>>,
     mut commands: Commands,
 ) where
@@ -202,7 +200,7 @@ fn tick_reconnect_timer<C, M>(
         .mul_f32(config.backoff_factor.max(1.0));
     backoff.current_delay = next_delay.min(config.max_delay);
 
-    let conn_config = conn_config.clone();
-    let task = IoTaskPool::get().spawn(async move { conn_config.build_connection().await });
-    commands.insert_resource(PendingConnection::<C>(task));
+    commands.queue(StartConnectCommand::<C, M>::new(
+        StdbConnectOptions::default(),
+    ));
 }
