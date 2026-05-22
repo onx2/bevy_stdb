@@ -40,6 +40,7 @@ pub enum MySubKey {
 
 pub type StdbConn = StdbConnection<DbConnection>;
 pub type StdbSubs = StdbSubscriptions<MySubKey, RemoteModule>;
+pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
 
 fn main() {
     App::new()
