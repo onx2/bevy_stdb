@@ -1,13 +1,14 @@
 use crate::connection::{PendingConnection, StdbConnection, StdbConnectionConfig};
 use bevy_ecs::{
-    prelude::{Commands, Res, ResMut},
-    system::SystemParam,
+    prelude::{Commands, Res, World},
+    system::{Command, SystemParam},
 };
 use bevy_tasks::IoTaskPool;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
 };
+use std::marker::PhantomData;
 
 /// Options for starting a SpacetimeDB connection attempt.
 #[derive(Clone, Debug, Default)]
@@ -65,9 +66,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    config: ResMut<'w, StdbConnectionConfig<C, M>>,
-    connection: Option<Res<'w, StdbConnection<C>>>,
-    pending_connection: Option<Res<'w, PendingConnection<C>>>,
+    _config: Res<'w, StdbConnectionConfig<C, M>>,
     commands: Commands<'w, 's>,
 }
 
@@ -76,44 +75,136 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    /// Spawns a connection task using [`StdbConnectOptions`].
+    /// Requests a SpacetimeDB connection attempt using [`StdbConnectOptions`].
     ///
     /// No-op if a [`StdbConnection`] exists or a connection attempt is already in flight.
     pub fn connect(&mut self, options: StdbConnectOptions) {
-        if self.connection.is_some() || self.pending_connection.is_some() {
+        self.commands
+            .queue(StartConnectCommand::<C, M>::new(options));
+    }
+
+    /// Requests a new connection after closing the active or pending connection.
+    pub fn reconnect(&mut self, options: StdbConnectOptions) {
+        self.commands.queue(ReconnectCommand::<C, M>::new(options));
+    }
+
+    /// Requests disconnection from the active SpacetimeDB connection.
+    pub fn disconnect(&mut self) {
+        self.commands.queue(DisconnectCommand::<C>::new());
+    }
+}
+
+/// A command that starts a SpacetimeDB connection attempt.
+pub(crate) struct StartConnectCommand<C, M> {
+    options: StdbConnectOptions,
+    _marker: PhantomData<fn() -> (C, M)>,
+}
+
+impl<C, M> StartConnectCommand<C, M> {
+    /// Creates [`StartConnectCommand`] with [`StdbConnectOptions`].
+    pub(crate) fn new(options: StdbConnectOptions) -> Self {
+        Self {
+            options,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C, M> Command for StartConnectCommand<C, M>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    fn apply(self, world: &mut World) {
+        if world.contains_resource::<StdbConnection<C>>()
+            || world.contains_resource::<PendingConnection<C>>()
+        {
             return;
         }
-        self.connect_impl(options);
-    }
 
-    /// Disconnects any active or pending connection, then spawns a new connection task.
-    pub fn reconnect(&mut self, options: StdbConnectOptions) {
-        self.disconnect();
-        self.connect_impl(options);
+        spawn_connection_task::<C, M>(world, self.options);
     }
+}
 
-    fn connect_impl(&mut self, options: StdbConnectOptions) {
+struct ReconnectCommand<C, M> {
+    options: StdbConnectOptions,
+    _marker: PhantomData<fn() -> (C, M)>,
+}
+
+impl<C, M> ReconnectCommand<C, M> {
+    fn new(options: StdbConnectOptions) -> Self {
+        Self {
+            options,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C, M> Command for ReconnectCommand<C, M>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    fn apply(self, world: &mut World) {
+        disconnect_connection::<C>(world);
+        spawn_connection_task::<C, M>(world, self.options);
+    }
+}
+
+struct DisconnectCommand<C> {
+    _marker: PhantomData<fn() -> C>,
+}
+
+impl<C> DisconnectCommand<C> {
+    fn new() -> Self {
+        Self {
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<C> Command for DisconnectCommand<C>
+where
+    C: DbContext + Send + Sync + 'static,
+{
+    fn apply(self, world: &mut World) {
+        disconnect_connection::<C>(world);
+    }
+}
+
+fn spawn_connection_task<C, M>(world: &mut World, options: StdbConnectOptions)
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    let config = {
+        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
+
         if let Some(uri) = options.uri {
-            self.config.uri = uri;
+            config.uri = uri;
         }
         if let Some(database_name) = options.database_name {
-            self.config.database_name = database_name;
+            config.database_name = database_name;
         }
         if let Some(token) = options.token {
-            self.config.token = Some(token);
+            config.token = Some(token);
         }
 
-        let config = self.config.clone();
-        let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
-        self.commands.insert_resource(PendingConnection::<C>(task));
+        config.clone()
+    };
+
+    let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
+    world.insert_resource(PendingConnection::<C>(task));
+}
+
+fn disconnect_connection<C>(world: &mut World)
+where
+    C: DbContext + Send + Sync + 'static,
+{
+    if let Some(conn) = world.get_resource::<StdbConnection<C>>() {
+        let _ = conn.disconnect();
     }
 
-    /// Disconnects from the active SpacetimeDB connection.
-    pub fn disconnect(&mut self) {
-        if let Some(conn) = &self.connection {
-            let _ = conn.disconnect();
-        }
-        self.commands.remove_resource::<StdbConnection<C>>();
-        self.commands.remove_resource::<PendingConnection<C>>();
-    }
+    world.remove_resource::<StdbConnection<C>>();
+    world.remove_resource::<PendingConnection<C>>();
 }

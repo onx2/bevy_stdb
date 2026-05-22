@@ -5,17 +5,26 @@ on:
   push:
     branches:
       - main
+  merge_group:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
+  CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
 
 jobs:
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
@@ -28,22 +37,16 @@ jobs:
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Check formatting
         run: cargo fmt --all --check
 
-  native:
-    name: Native default (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
-    env:
-      RUSTDOCFLAGS: -D warnings
+  lint:
+    name: Lint and feature checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -56,22 +59,80 @@ jobs:
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
-      - name: Run cargo check
-        run: cargo check --all-targets --locked
+      - name: Check default features
+        run: cargo check --lib --tests --locked
+
+      - name: Check no default features
+        run: cargo check --lib --tests --no-default-features --locked
+
+      - name: Check all features
+        run: cargo check --lib --tests --all-features --locked
 
       - name: Run clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --lib --tests --locked -- -D warnings
 
-      - name: Run tests
-        run: cargo test --all-targets --locked
+      - name: Run all-features clippy
+        run: cargo clippy --lib --tests --all-features --locked -- -D warnings
 
-      - name: Build docs
-        run: cargo doc --no-deps --locked
+  test:
+    name: Native tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run unit and integration tests
+        run: cargo test --lib --tests --locked
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUSTDOCFLAGS: -D warnings
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run doc tests
+        run: cargo test --doc --locked
+
+      - name: Build docs with all features
+        run: cargo doc --no-deps --all-features --locked
 
   browser:
     name: Browser wasm
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       RUSTDOCFLAGS: -D warnings
 
@@ -87,19 +148,22 @@ jobs:
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
-      - name: Run cargo check
-        run: cargo check --target wasm32-unknown-unknown --features browser --locked
+      - name: Check browser feature on wasm
+        run: cargo check --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked
 
-      - name: Run clippy
-        run: cargo clippy --target wasm32-unknown-unknown --features browser --locked -- -D warnings
+      - name: Run clippy for browser feature on wasm
+        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked -- -D warnings
 
-      - name: Build docs
-        run: cargo doc --target wasm32-unknown-unknown --no-deps --features browser --locked
+      - name: Build browser docs on wasm
+        run: cargo doc --target wasm32-unknown-unknown --no-deps --no-default-features --features browser --locked
 
   msrv:
     name: MSRV check
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -110,6 +174,28 @@ jobs:
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Check crate on MSRV
-        run: cargo check --all-targets --all-features --locked
+        run: cargo check --lib --tests --all-features --locked
+
+  package:
+    name: Package verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Verify crates.io package
+        run: cargo package --locked
