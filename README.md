@@ -20,7 +20,7 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 - **Builder-style setup** via `StdbPlugin`
 - **Connection resource** access through `StdbConnection`
 - **Command interface** for sending SpacetimeDB commands through `StdbCmds`
-- **Table event bridging** into normal Bevy `Message`s
+- **Table event bridging** through Bevy `MessageReader` aliases
 - **Managed subscription intent** through `StdbSubscriptions`
 - **Optional reconnect support** through `StdbReconnectOptions`
 
@@ -170,14 +170,14 @@ fn main() {
 
 Use the `StdbPlugin` builder methods to register table bindings during app setup.
 
-Each method eagerly registers the Bevy message channels for the row type you specify and stores a deferred binding callback that runs whenever a connection becomes active.
+Each method eagerly registers the internal Bevy message channels for the row type you specify and stores a deferred binding callback that runs whenever a connection becomes active.
 
 | Method | Use when |
 |---|---|
-| `add_table` | Table has a primary key — emits insert, update, and delete messages |
-| `add_table_without_pk` | Table has no primary key — emits insert and delete messages only |
-| `add_event_table` | Append-only log table — emits insert messages only |
-| `add_view` | Server-computed virtual table — emits insert and delete messages |
+| `add_table` | Table has a primary key — exposes insert, update, delete, and insert-or-update message readers |
+| `add_table_without_pk` | Table has no primary key — exposes insert and delete message readers |
+| `add_event_table` | Append-only log table — exposes insert message readers |
+| `add_view` | Server-computed virtual table — exposes insert and delete message readers |
 
 ```rust
 .add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
@@ -186,18 +186,18 @@ Each method eagerly registers the Bevy message channels for the row type you spe
 .add_view::<NearbyMonster>(|reg, db| reg.bind(db.nearby_monsters()))
 ```
 
-Table message registration happens eagerly at startup; callback binding is deferred until a connection is active.
+Table event channel registration happens eagerly at startup; callback binding is deferred until a connection is active.
 
-## Messages
+## Reading table events
 
-Depending on the table shape, `bevy_stdb` forwards updates into Bevy messages such as:
+Depending on the table shape, systems consume database changes through MessageReader aliases:
 
-- `InsertMessage<T>`
-- `DeleteMessage<T>`
-- `UpdateMessage<T>`
-- `InsertUpdateMessage<T>`
+- `ReadInsertMessage<T>`
+- `ReadDeleteMessage<T>`
+- `ReadUpdateMessage<T>`
+- `ReadInsertUpdateMessage<T>`
 
-This lets normal Bevy systems react to database changes using message readers. These messages include both the affected row data and the SpacetimeDB event that triggered the change.
+These aliases are `MessageReader`s backed by internal message channels. The message types themselves are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
 
 ```rust
 use crate::module_bindings::Reducer;
@@ -256,7 +256,7 @@ When a reconnect succeeds:
 - the `StdbConnection` resource is replaced
 - table callbacks are re-bound
 - subscriptions are re-applied
-- 
+
 ## Using commands
 
 Use `StdbCommands<C, M>` to connect or disconnect at runtime, optionally overriding the token, URI, or database name configured on the plugin.
@@ -323,16 +323,16 @@ Subscriptions are required to tell Spacetime which table data you want to sync t
 That means you can:
 
 - enable subscription management during plugin setup using `with_subscriptions`
-- queue subscriptions later from normal Bevy systems, typically in response to `StdbConnectedMessage`
+- queue subscriptions later from normal Bevy systems, typically by reading `ReadStdbConnectedMessage`
 - automatically re-apply queued subscription intent after reconnect
 
 Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
 
-There are also messages that are emitted for the `on_applied` and `on_error` callbacks for each subscription. 
+Subscription callbacks are exposed through `ReadStdbSubscriptionAppliedMessage<K>` and `ReadStdbSubscriptionErrorMessage<K>`.
 
 ```rust
 // Check the client cache once a particular subscription has been applied.
-fn on_applied(mut applied_msgs: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
+fn on_applied(mut applied_messages: ReadStdbSubscriptionAppliedMessage<SubKey>, conn: Res<StdbConn>) {
   for message in applied_messages.read() {
     if message.is(&SubKey::MyCharacters) {
       println!("You have {} characters.", conn.db().my_characters().count());
@@ -372,6 +372,6 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Notes
 
-This crate focuses on table-driven client workflows. Reducer and procedure access still exist through the active `StdbConnection`, but the primary Bevy-facing event flow is table/message based.
+This crate focuses on table-driven client workflows. Reducer and procedure access still exist through the active `StdbConnection`, but the primary Bevy-facing flow uses message readers for table events.
 
 Special thanks to [`bevy_spacetimedb`](https://docs.rs/bevy_spacetimedb/) for the inspiration!

@@ -1,4 +1,4 @@
-//! [`MessageReader`] type aliases for connection lifecycle and table messages.
+//! Read-only [`MessageReader`] aliases for connection lifecycle and table events.
 use crate::message::{
     DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
     StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
@@ -6,31 +6,31 @@ use crate::message::{
 };
 use bevy_ecs::prelude::MessageReader;
 
-/// A [`MessageReader`] for [`InsertMessage<T>`].
+/// Reads insert events for rows of `T`.
 pub type ReadInsertMessage<'w, 's, T> = MessageReader<'w, 's, InsertMessage<T>>;
 
-/// A [`MessageReader`] for [`UpdateMessage<T>`].
+/// Reads update events for rows of `T`.
 pub type ReadUpdateMessage<'w, 's, T> = MessageReader<'w, 's, UpdateMessage<T>>;
 
-/// A [`MessageReader`] for [`DeleteMessage<T>`].
+/// Reads delete events for rows of `T`.
 pub type ReadDeleteMessage<'w, 's, T> = MessageReader<'w, 's, DeleteMessage<T>>;
 
-/// A [`MessageReader`] for [`InsertUpdateMessage<T>`].
+/// Reads insert-or-update events for rows of `T`.
 pub type ReadInsertUpdateMessage<'w, 's, T> = MessageReader<'w, 's, InsertUpdateMessage<T>>;
 
-/// A [`MessageReader`] for [`StdbConnectedMessage`].
+/// Reads successful SpacetimeDB connections.
 pub type ReadStdbConnectedMessage<'w, 's> = MessageReader<'w, 's, StdbConnectedMessage>;
 
-/// A [`MessageReader`] for [`StdbDisconnectedMessage`].
+/// Reads closed or lost SpacetimeDB connections.
 pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconnectedMessage>;
 
-/// A [`MessageReader`] for [`StdbConnectErrorMessage`].
+/// Reads failed SpacetimeDB connection attempts.
 pub type ReadStdbConnectErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectErrorMessage>;
 
-/// A [`MessageReader`] for [`StdbSubscriptionAppliedMessage<K>`].
+/// Reads successful subscription applications keyed by `K`.
 pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
     MessageReader<'w, 's, StdbSubscriptionAppliedMessage<K>>;
 
-/// A [`MessageReader`] for [`StdbSubscriptionErrorMessage<K>`].
+/// Reads failed subscription applications keyed by `K`.
 pub type ReadStdbSubscriptionErrorMessage<'w, 's, K> =
     MessageReader<'w, 's, StdbSubscriptionErrorMessage<K>>;
