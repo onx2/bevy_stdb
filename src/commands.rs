@@ -1,7 +1,7 @@
 use crate::connection::{PendingConnection, StdbConnection, StdbConnectionConfig};
 use bevy_ecs::{
-    prelude::{Commands, Res, World},
-    system::{Command, SystemParam},
+    prelude::{Command, Commands, ResMut, World},
+    system::SystemParam,
 };
 use bevy_tasks::IoTaskPool;
 use spacetimedb_sdk::{
@@ -66,7 +66,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    _config: Res<'w, StdbConnectionConfig<C, M>>,
+    config: ResMut<'w, StdbConnectionConfig<C, M>>,
     commands: Commands<'w, 's>,
 }
 
@@ -91,6 +91,14 @@ where
     /// Requests disconnection from the active SpacetimeDB connection.
     pub fn disconnect(&mut self) {
         self.commands.queue(DisconnectCommand::<C>::new());
+    }
+
+    /// Sets the authentication token in the SpacetimeDB connection config.
+    ///
+    /// This does not immediately reconnect with the new token but instead
+    /// will be used for future connection attempts.
+    pub fn set_token(&mut self, token: impl Into<String>) {
+        self.config.token = Some(token.into());
     }
 }
 
