@@ -175,8 +175,8 @@ Each method eagerly registers the internal Bevy message channels for the row typ
 | Method | Use when |
 |---|---|
 | `add_table` | Table has a primary key — exposes insert, update, delete, and insert-or-update message readers |
-| `add_table_without_pk` | Table has no primary key — exposes insert and delete readers only |
-| `add_event_table` | Append-only log table — exposes insert message readers only |
+| `add_table_without_pk` | Table has no primary key — exposes insert and delete message readers |
+| `add_event_table` | Append-only log table — exposes insert message readers |
 | `add_view` | Server-computed virtual table — exposes insert and delete message readers |
 
 ```rust
@@ -190,14 +190,14 @@ Table event channel registration happens eagerly at startup; callback binding is
 
 ## Reading table events
 
-Depending on the table shape, systems consume database changes through read-only reader aliases:
+Depending on the table shape, systems consume database changes through MessageReader aliases:
 
 - `ReadInsertMessage<T>`
 - `ReadDeleteMessage<T>`
 - `ReadUpdateMessage<T>`
 - `ReadInsertUpdateMessage<T>`
 
-These aliases are `MessageReader`s backed by internal message channels. The message types themselves are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` still expose the affected row data and the SpacetimeDB event that triggered the change.
+These aliases are `MessageReader`s backed by internal message channels. The message types themselves are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
 
 ```rust
 use crate::module_bindings::Reducer;
