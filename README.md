@@ -1,4 +1,4 @@
-![Bevy SpacetimeDB Integration](https://github.com/user-attachments/assets/83eca7e1-13c4-4869-9c23-2c46e9389644)
+# bevy_stdb
 
 A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.com).
 
