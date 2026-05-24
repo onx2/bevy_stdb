@@ -8,8 +8,6 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 [![CI](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml/badge.svg)](https://github.com/onx2/bevy_stdb/actions/workflows/ci.yml?query=branch%3Amain)
 [![CodeQL](https://github.com/onx2/bevy_stdb/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/onx2/bevy_stdb/actions/workflows/github-code-scanning/codeql)
 
-![Useless AI generated image that kind of looks cool](https://github.com/user-attachments/assets/b6cf0408-0c0d-4997-bf9c-e2e0989ab5f3)
-_Please enjoy this useless AI generated image based on the README contents of this repo._
 
 
 
