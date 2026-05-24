@@ -1,8 +1,8 @@
 //! Bevy integration for [SpacetimeDB](https://spacetimedb.com).
 //!
 //! `bevy_stdb` adapts SpacetimeDB's connection and callback model into
-//! Bevy-style resources, systems, and messages. Everything is configured
-//! through [`StdbPlugin`](crate::prelude::StdbPlugin).
+//! Bevy-style resources, systems, and read-only message readers. Everything is
+//! configured through [`StdbPlugin`](crate::prelude::StdbPlugin).
 //!
 //! # Architecture
 //!
@@ -11,13 +11,14 @@
 //! - **Connection** — Manage the connection lifecycle on demand via
 //!   [`StdbCommands`](crate::prelude::StdbCommands), and expose the active
 //!   connection as [`StdbConnection`](crate::prelude::StdbConnection).
-//! - **Tables** — Register message channels once at startup and re-bind SDK
-//!   table callbacks whenever a connection becomes active. Row changes are
-//!   forwarded as Bevy [`Message`](bevy_ecs::prelude::Message)s
-//!   ([`InsertMessage`](crate::prelude::InsertMessage),
-//!   [`DeleteMessage`](crate::prelude::DeleteMessage),
-//!   [`UpdateMessage`](crate::prelude::UpdateMessage),
-//!   [`InsertUpdateMessage`](crate::prelude::InsertUpdateMessage)).
+//! - **Tables** — Register internal channels for Bevy
+//!   [`Message`](bevy_ecs::prelude::Message) values once at startup and
+//!   re-bind SDK table callbacks whenever a connection becomes active. Row
+//!   changes are consumed through read-only reader aliases such as
+//!   [`ReadInsertMessage`](crate::prelude::ReadInsertMessage),
+//!   [`ReadDeleteMessage`](crate::prelude::ReadDeleteMessage),
+//!   [`ReadUpdateMessage`](crate::prelude::ReadUpdateMessage), and
+//!   [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage).
 //! - **Subscriptions** — Store subscription intent separately from the live
 //!   connection via [`StdbSubscriptions`](crate::prelude::StdbSubscriptions)
 //!   so queries are automatically re-applied after reconnects.
@@ -102,11 +103,6 @@ pub mod prelude {
         },
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
-        message::{
-            DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
-            StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
-            StdbSubscriptionErrorMessage, UpdateMessage,
-        },
         plugin::StdbPlugin,
         set::StdbSet,
         subscription::StdbSubscriptions,

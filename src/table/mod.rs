@@ -1,10 +1,7 @@
 //! Table registration and message forwarding for SpacetimeDB.
 //!
-//! Registers Bevy message channels and binds SDK table callbacks to
-//! forward events as [`InsertMessage`](crate::message::InsertMessage),
-//! [`UpdateMessage`](crate::message::UpdateMessage),
-//! [`DeleteMessage`](crate::message::DeleteMessage), and
-//! [`InsertUpdateMessage`](crate::message::InsertUpdateMessage).
+//! Registers internal Bevy [`Message`](bevy_ecs::prelude::Message) channels
+//! and binds SDK table callbacks for row event readers.
 mod bind;
 mod register;
 
