@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_stdb"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
