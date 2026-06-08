@@ -40,7 +40,7 @@ impl Plugin for AppPlugin {
 
         app.add_plugins(MyStdbPlugin);
 
-        app.add_systems(Startup, (spawn_camera, request_connect));
+        app.add_systems(Startup, (spawn_camera, spawn_helper_text, request_connect));
         app.add_systems(
             Update,
             (subscribe_on_connect, spawn_player, sync_position).chain(),
@@ -50,6 +50,18 @@ impl Plugin for AppPlugin {
             handle_move_request.run_if(resource_exists::<StdbConn>),
         );
     }
+}
+
+fn spawn_helper_text(mut commands: Commands) {
+    commands.spawn((
+        Text::new("Use WASD to move."),
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(16),
+            left: px(16),
+            ..default()
+        },
+    ));
 }
 
 fn spawn_camera(mut commands: Commands) {
