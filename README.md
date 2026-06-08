@@ -370,6 +370,7 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 | 0.1 - 0.2 | 0.18   | 2.0             |
 | 0.3 - 0.8 | 0.18   | 2.1             |
 |       0.9 | 0.18   | 2.2             |
+|      0.10 | 0.18   | 2.3             |
 
 ## Notes
 

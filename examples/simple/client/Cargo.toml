@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-spacetimedb-sdk = { version = "2.2", features = [] }
+spacetimedb-sdk = { version = "2.3", features = [] }
 bevy_stdb = { path = "../../..", features = [] }
 # Use only features needed for a 2D game to improve compile time and size
 bevy = { version = "0.18", default-features = false, features = ["2d"] }
@@ -19,6 +19,6 @@ tracing = { version = "0.1", features = [
 ] }
 
 [target.wasm32-unknown-unknown.dependencies]
-spacetimedb-sdk = { version = "2.2", features = ["browser"] }
+spacetimedb-sdk = { version = "2.3", features = ["browser"] }
 bevy_stdb = { path = "../../..", features = ["browser"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
