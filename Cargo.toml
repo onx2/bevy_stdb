@@ -1,8 +1,8 @@
 [package]
 name = "bevy_stdb"
-version = "0.9.1"
+version = "0.12.0"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.95.0"
 description = "A Bevy-native integration for SpacetimeDB with table messages, subscriptions, and reconnect support."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -20,11 +20,11 @@ exclude = [
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-bevy_app = "0.18"
-bevy_ecs = "0.18"
-bevy_tasks = "0.18"
-bevy_time = "0.18"
-spacetimedb-sdk = "2.2"
+bevy_app = "0.19"
+bevy_ecs = "0.19"
+bevy_tasks = "0.19"
+bevy_time = "0.19"
+spacetimedb-sdk = "2"
 crossbeam-channel = "0.5"
 
 [features]

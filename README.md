@@ -365,11 +365,11 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Compatibility
 
-| bevy_stdb | bevy   | spacetimedb_sdk |
-| --------- | ------ | --------------- |
-| 0.1 - 0.2 | 0.18   | 2.0             |
-| 0.3 - 0.8 | 0.18   | 2.1             |
-|       0.9 | 0.18   | 2.2             |
+| bevy_stdb  | bevy   | spacetimedb_sdk |
+| ---------- | ------ | --------------- |
+| <  0.12    | 0.18   | 2               |
+| >= 0.12    | 0.19   | 2               |
+
 
 ## Notes
 

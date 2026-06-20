@@ -10,5 +10,5 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-spacetimedb = { version = "2.1.0" }
+spacetimedb = { version = "2" }
 log = "0.4"

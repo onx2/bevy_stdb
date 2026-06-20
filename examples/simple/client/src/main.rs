@@ -6,10 +6,16 @@ use bevy_stdb::prelude::*;
 use module_bindings::*;
 use stdb::*;
 
-const MOVE_SPEED: f32 = 200.0;
+const MOVE_SPEED: f32 = 1_000.0;
 
 #[derive(Component, Debug, Default)]
 pub struct PlayerMarker;
+
+#[derive(Component, Debug, Default)]
+pub struct NetTransform {
+    x: f32,
+    y: f32,
+}
 
 fn main() -> AppExit {
     App::new().add_plugins(AppPlugin).run()
@@ -40,16 +46,34 @@ impl Plugin for AppPlugin {
 
         app.add_plugins(MyStdbPlugin);
 
-        app.add_systems(Startup, (spawn_camera, request_connect));
+        app.add_systems(Startup, (spawn_camera, spawn_helper_text, request_connect));
         app.add_systems(
             Update,
-            (subscribe_on_connect, spawn_player, sync_position).chain(),
+            (
+                subscribe_on_connect,
+                spawn_player,
+                sync_position,
+                interpolate,
+            )
+                .chain(),
         );
         app.add_systems(
             Update,
             handle_move_request.run_if(resource_exists::<StdbConn>),
         );
     }
+}
+
+fn spawn_helper_text(mut commands: Commands) {
+    commands.spawn((
+        Text::new("Use WASD to move."),
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(16),
+            left: px(16),
+            ..default()
+        },
+    ));
 }
 
 fn spawn_camera(mut commands: Commands) {
@@ -76,22 +100,52 @@ fn spawn_player(
 ) {
     for msg in msgs.read() {
         commands.spawn((
-            Name::new("Player"),
             PlayerMarker,
             Mesh2d(meshes.add(Circle::new(20.0))),
             MeshMaterial2d(materials.add(Color::srgb(0.2, 0.4, 1.0))),
             Transform::from_xyz(msg.row.x, msg.row.y, 0.0),
+            NetTransform {
+                x: msg.row.x,
+                y: msg.row.y,
+            },
         ));
     }
 }
 
+/// Interpolate the rendered position of the player toward the server authority's position
+fn interpolate(
+    time: Res<Time>,
+    mut player: Single<(&mut Transform, &NetTransform), With<PlayerMarker>>,
+    window: Single<&Window>, // Added window to check screen bounds
+) {
+    let dt = time.delta_secs();
+    let (mut transform, net_transform) = player.into_inner();
+    let target = Vec3::new(net_transform.x, net_transform.y, transform.translation.z);
+
+    // Calculate how far the target is from our current visual position
+    let distance = transform.translation.distance(target);
+
+    // If the distance is larger than half the screen width, we assume the player
+    // wrapped around the screen edge (teleported).
+    let wrap_threshold = window.width() / 2.0;
+
+    if distance > wrap_threshold {
+        // Snap instantly to the new position
+        transform.translation = target;
+    } else {
+        // Otherwise, smoothly interpolate normal movement
+        transform.translation.smooth_nudge(&target, 18.0, dt);
+    }
+}
+
+/// Store the server authority position on the player
 fn sync_position(
-    mut player: Single<&mut Transform, With<PlayerMarker>>,
+    mut player: Single<&mut NetTransform, With<PlayerMarker>>,
     mut msgs: ReadUpdateMessage<Player>,
 ) {
     for msg in msgs.read() {
-        player.translation.x = msg.new.x;
-        player.translation.y = msg.new.y;
+        player.x = msg.new.x;
+        player.y = msg.new.y;
     }
 }
 

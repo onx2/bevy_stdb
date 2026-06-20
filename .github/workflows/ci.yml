@@ -21,181 +21,114 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
+  # 1. Style Check (Only needs to run once on latest stable)
   fmt:
     name: Format
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 # v4
 
+      # It is highly recommended to pin this action to a commit SHA as well!
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: rustfmt
 
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 # v2
+      - run: cargo fmt --all --check
 
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-  lint:
-    name: Lint and feature checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+  # 2. Main Verification Matrix (Runs on BOTH MSRV and Stable)
+  verify:
+    name: Verify (${{ matrix.toolchain }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        toolchain: ["1.95.0", "stable"]
+        include:
+          - os: windows-latest
+            toolchain: "stable"
+          - os: macos-latest
+            toolchain: "stable"
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 # v4
 
-      - name: Install stable Rust
+      - name: Install Rust (${{ matrix.toolchain }})
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ matrix.toolchain }}
           components: clippy
 
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 # v2
         with:
-          cache-on-failure: true
+          key: ${{ matrix.os }}-${{ matrix.toolchain }}
 
-      - name: Check default features
-        run: cargo check --lib --tests --locked
-
-      - name: Check no default features
-        run: cargo check --lib --tests --no-default-features --locked
-
-      - name: Check all features
-        run: cargo check --lib --tests --all-features --locked
-
-      - name: Run clippy
+      - name: Lint default features
         run: cargo clippy --lib --tests --locked -- -D warnings
 
-      - name: Run all-features clippy
+      - name: Lint no-default features
+        run: cargo clippy --lib --tests --no-default-features --locked -- -D warnings
+
+      - name: Lint all features
         run: cargo clippy --lib --tests --all-features --locked -- -D warnings
 
-  test:
-    name: Native tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+      - name: Run unit and integration tests
+        run: cargo test --lib --tests --all-features --locked
+
+  # 3. Target-Specific Verification (WASM browser check on both MSRV and Stable)
+  browser-wasm:
+    name: Browser WASM (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+        toolchain: ["1.95.0", "stable"]
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 # v4
 
-      - name: Install stable Rust
+      - name: Install Rust (${{ matrix.toolchain }}) with WASM target
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
         with:
-          cache-on-failure: true
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy
+          targets: wasm32-unknown-unknown
 
-      - name: Run unit and integration tests
-        run: cargo test --lib --tests --locked
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 # v2
+        with:
+          key: wasm-${{ matrix.toolchain }}
 
-  docs:
-    name: Documentation
+      - name: Run clippy for browser feature on Wasm
+        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked -- -D warnings
+
+  # 4. Documentation & Packaging Safety (Only needs to run once on stable)
+  release-sanity:
+    name: Docs & Package Sanity
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       RUSTDOCFLAGS: -D warnings
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
         with:
-          cache-on-failure: true
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Run doc tests
         run: cargo test --doc --locked
 
       - name: Build docs with all features
         run: cargo doc --no-deps --all-features --locked
-
-  browser:
-    name: Browser wasm
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      RUSTDOCFLAGS: -D warnings
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Install stable Rust with wasm target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      - name: Check browser feature on wasm
-        run: cargo check --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked
-
-      - name: Run clippy for browser feature on wasm
-        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked -- -D warnings
-
-      - name: Build browser docs on wasm
-        run: cargo doc --target wasm32-unknown-unknown --no-deps --no-default-features --features browser --locked
-
-  msrv:
-    name: MSRV check
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Install MSRV Rust
-        uses: dtolnay/rust-toolchain@1.93.0
-
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      - name: Check crate on MSRV
-        run: cargo check --lib --tests --all-features --locked
-
-  package:
-    name: Package verification
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
 
       - name: Verify crates.io package
         run: cargo package --locked
