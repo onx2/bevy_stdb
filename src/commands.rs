@@ -123,6 +123,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
+    type Out = ();
     fn apply(self, world: &mut World) {
         if world.contains_resource::<StdbConnection<C>>()
             || world.contains_resource::<PendingConnection<C>>()
@@ -153,6 +154,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
+    type Out = ();
     fn apply(self, world: &mut World) {
         disconnect_connection::<C>(world);
         spawn_connection_task::<C, M>(world, self.options);
@@ -175,6 +177,7 @@ impl<C> Command for DisconnectCommand<C>
 where
     C: DbContext + Send + Sync + 'static,
 {
+    type Out = ();
     fn apply(self, world: &mut World) {
         disconnect_connection::<C>(world);
     }

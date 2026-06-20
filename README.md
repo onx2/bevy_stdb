@@ -367,7 +367,8 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 | bevy_stdb  | bevy   | spacetimedb_sdk |
 | ---------- | ------ | --------------- |
-| <= 0.12    | 0.18   | 2               |
+| <  0.12    | 0.18   | 2               |
+| >= 0.12    | 0.19   | 2               |
 
 
 ## Notes
