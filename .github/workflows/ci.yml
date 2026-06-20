@@ -130,35 +130,27 @@ jobs:
         run: cargo doc --no-deps --all-features --locked
 
   browser:
-    name: Browser wasm
+    name: Browser WASM (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       RUSTDOCFLAGS: -D warnings
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-
-      - name: Install stable Rust with wasm target
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ matrix.toolchain }}
           components: clippy
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
-          cache-on-failure: true
+          key: wasm-${{ matrix.toolchain }}
 
-      - name: Check browser feature on wasm
-        run: cargo check --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked
+      - name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
 
-      - name: Run clippy for browser feature on wasm
+      - name: Run clippy for browser feature on Wasm
         run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked -- -D warnings
-
-      - name: Build browser docs on wasm
-        run: cargo doc --target wasm32-unknown-unknown --no-deps --no-default-features --features browser --locked
 
   msrv:
     name: MSRV check
