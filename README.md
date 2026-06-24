@@ -186,8 +186,6 @@ Each method eagerly registers the internal Bevy message channels for the row typ
 .add_view::<NearbyMonster>(|reg, db| reg.bind(db.nearby_monsters()))
 ```
 
-Table event channel registration happens eagerly at startup; callback binding is deferred until a connection is active.
-
 ## Reading table events
 
 Depending on the table shape, systems consume database changes through MessageReader aliases:
