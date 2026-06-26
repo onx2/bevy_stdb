@@ -42,8 +42,7 @@ impl StdbChannels {
     /// Returns a clone of the registered [`Sender<T>`] for message type `T`.
     ///
     /// Move the returned sender into a callback or task and forward with
-    /// `tx.send(message)`. Only the cloned sender is captured; the resource
-    /// itself stays in the [`World`].
+    /// `tx.send(message)`.
     ///
     /// # Panics
     ///
@@ -59,8 +58,6 @@ impl StdbChannels {
     }
 }
 
-/// Initializes the channel registry, installs the per-frame drain system, and
-/// runs the deferred consumer channel registrations.
 pub(crate) struct ChannelBridgePlugin {
     pub(crate) channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
 }
