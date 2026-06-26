@@ -1,5 +1,5 @@
 use crate::{
-    channel_bridge::{ChannelBridgePlugin, register_bridged_channel},
+    channel_bridge::{ChannelBridgePlugin, register_channel},
     connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
     message::{RowEvent, StdbCustomMessage},
     set::StdbSet,
@@ -369,7 +369,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// Panics during [`Plugin::build`] if `T` is registered more than once.
     pub fn add_custom_message<T: Send + Sync + 'static>(mut self) -> Self {
         self.channel_registrations
-            .push(Arc::new(register_bridged_channel::<StdbCustomMessage<T>>));
+            .push(Arc::new(register_channel::<StdbCustomMessage<T>>));
         self
     }
 
