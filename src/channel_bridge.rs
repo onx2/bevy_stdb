@@ -3,7 +3,6 @@
 //! Registers per-type channels and forwards messages from those
 //! channels into Bevy [`Messages<T>`](bevy_ecs::prelude::Messages), such as SpacetimeDB table events
 //! or connection lifecycle messages.
-use crate::message::StdbCustomMessage;
 use crate::set::StdbSet;
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Message, Messages, Mut, Resource, World};
@@ -26,43 +25,34 @@ struct ChannelEntry {
 ///
 /// Internal channels (connection lifecycle, table events, subscriptions) and
 /// consumer channels registered with
-/// [`StdbPlugin::add_custom_message`](crate::prelude::StdbPlugin::add_custom_message)
-/// all live here. Consumers obtain a sender for their payload type with
-/// [`Self::sender`] and move it into a callback or thread running off the Bevy
-/// schedule (a SpacetimeDB reducer/procedure `_then` handler, an HTTP response
-/// handler, a background task, ...) to forward a value into Bevy; read it back
-/// with [`ReadStdbCustomMessage<T>`](crate::prelude::ReadStdbCustomMessage).
+/// [`StdbPlugin::add_channel_message`](crate::prelude::StdbPlugin::add_channel_message)
+/// all live here. Consumers obtain a sender for their message type with [`Self::sender`]
+/// and move it into a callback or task running off the Bevy schedule (a
+/// SpacetimeDB reducer/procedure `_then` handler, an HTTP response handler, an
+/// `IoTaskPool` task, ...) to forward a value into Bevy; read it back with
+/// `MessageReader<T>`.
 #[derive(Resource, Default)]
 pub struct StdbChannels {
     channels: Vec<ChannelEntry>,
 }
 
 impl StdbChannels {
-    /// Returns a clone of the sender for the channel carrying payload `T`.
+    /// Returns a clone of the registered [`Sender<T>`] for message type `T`.
     ///
-    /// Move the returned sender into a callback and forward with
-    /// `tx.send(StdbCustomMessage(value))`. Only the cloned sender is captured;
-    /// the resource itself stays in the [`World`].
+    /// Move the returned sender into a callback or task and forward with
+    /// `tx.send(message)`. Only the cloned sender is captured; the resource
+    /// itself stays in the [`World`].
     ///
     /// # Panics
     ///
     /// Panics if no channel for `T` was registered via
-    /// [`StdbPlugin::add_custom_message`](crate::prelude::StdbPlugin::add_custom_message).
-    pub fn sender<T: Send + Sync + 'static>(&self) -> Sender<StdbCustomMessage<T>> {
-        self.find_sender::<StdbCustomMessage<T>>()
-    }
-
-    /// Looks up and clones the registered `Sender<M>` by message type.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the channel for `M` has not been registered.
-    fn find_sender<M: Message>(&self) -> Sender<M> {
+    /// [`StdbPlugin::add_channel_message`](crate::prelude::StdbPlugin::add_channel_message).
+    pub fn sender<T: Message>(&self) -> Sender<T> {
         self.channels
             .iter()
-            .find(|entry| entry.type_id == TypeId::of::<M>())
-            .and_then(|entry| entry.sender.downcast_ref::<Sender<M>>())
-            .unwrap_or_else(|| panic!("unregistered channel for `{}`", type_name::<M>()))
+            .find(|entry| entry.type_id == TypeId::of::<T>())
+            .and_then(|entry| entry.sender.downcast_ref::<Sender<T>>())
+            .unwrap_or_else(|| panic!("unregistered channel for `{}`", type_name::<T>()))
             .clone()
     }
 }
@@ -133,5 +123,5 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) {
 /// Panics if [`StdbChannels`] has not been initialized, or if the channel for
 /// `T` has not been registered.
 pub(crate) fn channel_sender<T: Message>(world: &World) -> Sender<T> {
-    world.resource::<StdbChannels>().find_sender::<T>()
+    world.resource::<StdbChannels>().sender::<T>()
 }

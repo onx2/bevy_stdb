@@ -16,8 +16,9 @@ pub type StdbConn = StdbConnection<DbConnection>;
 pub type StdbCmds<'w, 's> = StdbCommands<'w, 's, DbConnection, RemoteModule>;
 pub type StdbSubs = StdbSubscriptions<SubKey, RemoteModule>;
 
-/// Payload for `move_player` reducer completions — a plain struct, bridged into
-/// Bevy as `StdbCustomMessage<MovePlayerDone>`.
+/// Message for `move_player` reducer completions, bridged into Bevy from the
+/// reducer `_then` callback.
+#[derive(Message)]
 pub struct MovePlayerDone {
     pub result: ReducerResult,
 }
@@ -36,7 +37,7 @@ impl Plugin for MyStdbPlugin {
                 .with_database_name(String::from("bevy-stdb-simple"))
                 .with_subscriptions::<SubKey>()
                 .add_table::<Player>(|reg, db| reg.bind(db.player()))
-                .add_custom_message::<MovePlayerDone>()
+                .add_channel_message::<MovePlayerDone>()
                 .with_background_driver(driver),
         );
     }

@@ -1,7 +1,7 @@
 use crate::{
     channel_bridge::{ChannelBridgePlugin, register_channel},
     connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
-    message::{RowEvent, StdbCustomMessage},
+    message::RowEvent,
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
@@ -11,7 +11,7 @@ use crate::{
     },
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
-use bevy_ecs::prelude::IntoScheduleConfigs;
+use bevy_ecs::prelude::{IntoScheduleConfigs, Message};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
     Compression, DbContext, SubscriptionHandle,
@@ -338,38 +338,36 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
-    /// Registers a framework-owned bridged channel for payload `T`.
+    /// Registers a bridged message channel for `T`.
     ///
-    /// Installs `Messages<StdbCustomMessage<T>>` and stores a sender retrievable
-    /// from [`StdbChannels`](crate::prelude::StdbChannels). Move that sender into
-    /// any callback or thread running off the Bevy schedule — a reducer or
-    /// procedure `_then` handler, an HTTP response handler, a background task —
-    /// and forward with `tx.send(StdbCustomMessage(value))`. Read with
-    /// [`ReadStdbCustomMessage<T>`](crate::prelude::ReadStdbCustomMessage).
-    ///
-    /// `T` is a plain payload type and needs no Bevy derives.
+    /// Installs `Messages<T>` and stores a `Sender<T>` retrievable from
+    /// [`StdbChannels`](crate::prelude::StdbChannels). Move that sender into any
+    /// callback or task running off the Bevy schedule — a reducer or procedure
+    /// `_then` handler, an HTTP response handler, an `IoTaskPool` task — and
+    /// forward with `tx.send(message)`. Read with `MessageReader<T>`.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// struct CharacterCreated { req: Entity, result: ReducerCbResult }
+    /// #[derive(Message)]
+    /// struct CharacterCreated { result: ReducerResult }
     ///
     /// // setup:
-    /// .add_custom_message::<CharacterCreated>()
+    /// .add_channel_message::<CharacterCreated>()
     ///
     /// // in a system:
     /// let tx = channels.sender::<CharacterCreated>();
     /// conn.reducers().create_character_then(name, move |_ctx, result| {
-    ///     let _ = tx.send(StdbCustomMessage(CharacterCreated { req, result }));
+    ///     let _ = tx.send(CharacterCreated { result });
     /// });
     /// ```
     ///
     /// # Panics
     ///
     /// Panics during [`Plugin::build`] if `T` is registered more than once.
-    pub fn add_custom_message<T: Send + Sync + 'static>(mut self) -> Self {
+    pub fn add_channel_message<T: Message>(mut self) -> Self {
         self.channel_registrations
-            .push(Arc::new(register_channel::<StdbCustomMessage<T>>));
+            .push(Arc::new(register_channel::<T>));
         self
     }
 

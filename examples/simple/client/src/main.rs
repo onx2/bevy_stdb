@@ -190,12 +190,12 @@ fn handle_move_request(
     let _ = conn
         .reducers()
         .move_player_then(new_x, new_y, move |_ctx, result| {
-            let _ = tx.send(StdbCustomMessage(MovePlayerDone { result }));
+            let _ = tx.send(MovePlayerDone { result });
         });
 }
 
-fn on_move_player_done(mut msgs: ReadStdbCustomMessage<MovePlayerDone>) {
-    for StdbCustomMessage(done) in msgs.read() {
+fn on_move_player_done(mut msgs: MessageReader<MovePlayerDone>) {
+    for done in msgs.read() {
         match &done.result {
             Ok(Ok(())) => {}
             Ok(Err(reason)) => warn!("move_player rejected: {reason}"),

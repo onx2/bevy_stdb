@@ -21,6 +21,7 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 - **Connection resource** access through `StdbConnection`
 - **Command interface** for sending SpacetimeDB commands through `StdbCmds`
 - **Table event bridging** through Bevy `MessageReader` aliases
+- **Callback bridging** for reducer/procedure completions through `StdbChannels` and `add_channel_message`
 - **Managed subscription intent** through `StdbSubscriptions`
 - **Optional reconnect support** through `StdbReconnectOptions`
 
@@ -339,6 +340,48 @@ fn on_applied(mut applied_messages: ReadStdbSubscriptionAppliedMessage<SubKey>, 
 }
 ```
 
+## Reducer and procedure callbacks
+
+SpacetimeDB's `<reducer>_then(...)` (and procedure) callbacks run off the Bevy schedule, so you can't use `SystemParam`s or move a resource into them. Bridge the result back into the ECS with a channel: forward a message from the callback, then read it in a normal system.
+
+1. `#[derive(Message)]` on your payload and register it with `add_channel_message::<T>()`.
+2. In a system, clone a sender with `channels.sender::<T>()` and move it into the callback (a `Sender` is `Clone + Send`; the resource itself can't be captured).
+3. Read it with `MessageReader<T>`, where `SystemParam`s work again.
+
+```rust
+use bevy_stdb::prelude::*;
+use spacetimedb_sdk::__codegen::InternalError;
+
+// The reducer result type isn't part of bevy_stdb — spell it yourself.
+type ReducerResult = Result<Result<(), String>, InternalError>;
+
+#[derive(Message)]
+pub struct CharacterCreated {
+    pub result: ReducerResult,
+}
+
+// setup: .add_channel_message::<CharacterCreated>()
+
+fn create_character(conn: Res<StdbConn>, channels: Res<StdbChannels>) {
+    let tx = channels.sender::<CharacterCreated>();
+    let _ = conn.reducers().create_character_then("Bob".into(), move |_ctx, result| {
+        let _ = tx.send(CharacterCreated { result });
+    });
+}
+
+fn on_character_created(mut messages: MessageReader<CharacterCreated>, mut commands: Commands) {
+    for created in messages.read() {
+        match &created.result {
+            Ok(Ok(())) => { /* commands.spawn(...), query, mutate, ... */ }
+            Ok(Err(reason)) => warn!("rejected: {reason}"),
+            Err(err) => error!("internal error: {err}"),
+        }
+    }
+}
+```
+
+The bridge is generic — `add_channel_message` accepts any `Message`, so the same pattern lands the result of anything that finishes off the Bevy schedule (procedures, `IoTaskPool` tasks, HTTP responses) back in the ECS.
+
 ## Type Aliases
 
 It is useful to define some type aliases of your own. I suggest making aliases for the connection, subscription, and commands:
@@ -371,6 +414,6 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Notes
 
-This crate focuses on table-driven client workflows. Reducer and procedure access still exist through the active `StdbConnection`, but the primary Bevy-facing flow uses message readers for table events.
+This crate focuses on table-driven client workflows. Reducer and procedure access still exist through the active `StdbConnection`, but the primary Bevy-facing flow uses message readers for table events. When you need a reducer/procedure completion (or any off-schedule callback) back in the ECS, bridge it with `add_custom_message` / `StdbChannels` as shown in [Local callbacks](#local-callbacks-reducers-procedures-and-more).
 
 Special thanks to [`bevy_spacetimedb`](https://docs.rs/bevy_spacetimedb/) for the inspiration!

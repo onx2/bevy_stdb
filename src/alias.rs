@@ -1,8 +1,8 @@
 //! Read-only [`MessageReader`] aliases for connection lifecycle and table events.
 use crate::message::{
     DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
-    StdbConnectedMessage, StdbCustomMessage, StdbDisconnectedMessage,
-    StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, UpdateMessage,
+    StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
+    StdbSubscriptionErrorMessage, UpdateMessage,
 };
 use bevy_ecs::prelude::MessageReader;
 
@@ -34,7 +34,3 @@ pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =
 /// Reads failed subscription applications keyed by `K`.
 pub type ReadStdbSubscriptionErrorMessage<'w, 's, K> =
     MessageReader<'w, 's, StdbSubscriptionErrorMessage<K>>;
-
-/// Reads bridged values carrying payload `T`, delivered via
-/// [`StdbCustomMessage`](crate::prelude::StdbCustomMessage).
-pub type ReadStdbCustomMessage<'w, 's, T> = MessageReader<'w, 's, StdbCustomMessage<T>>;
