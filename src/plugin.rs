@@ -1,7 +1,7 @@
 use crate::{
-    channel_bridge::ChannelBridgePlugin,
+    channel_bridge::{ChannelBridgePlugin, register_bridged_channel},
     connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
-    message::RowEvent,
+    message::{RowEvent, StdbCustomMessage},
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
@@ -62,6 +62,7 @@ pub struct StdbPlugin<
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
+    channel_registrations: Vec<Arc<dyn Fn(&mut App) + Send + Sync>>,
 }
 
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
@@ -79,6 +80,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
+            channel_registrations: Vec::new(),
         }
     }
 }
@@ -336,6 +338,41 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
+    /// Registers a framework-owned bridged channel for payload `T`.
+    ///
+    /// Installs `Messages<StdbCustomMessage<T>>` and stores a sender retrievable
+    /// from [`StdbChannels`](crate::prelude::StdbChannels). Move that sender into
+    /// any callback or thread running off the Bevy schedule — a reducer or
+    /// procedure `_then` handler, an HTTP response handler, a background task —
+    /// and forward with `tx.send(StdbCustomMessage(value))`. Read with
+    /// [`ReadStdbCustomMessage<T>`](crate::prelude::ReadStdbCustomMessage).
+    ///
+    /// `T` is a plain payload type and needs no Bevy derives.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// struct CharacterCreated { req: Entity, result: ReducerCbResult }
+    ///
+    /// // setup:
+    /// .add_custom_message::<CharacterCreated>()
+    ///
+    /// // in a system:
+    /// let tx = channels.sender::<CharacterCreated>();
+    /// conn.reducers().create_character_then(name, move |_ctx, result| {
+    ///     let _ = tx.send(StdbCustomMessage(CharacterCreated { req, result }));
+    /// });
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics during [`Plugin::build`] if `T` is registered more than once.
+    pub fn add_custom_message<T: Send + Sync + 'static>(mut self) -> Self {
+        self.channel_registrations
+            .push(Arc::new(register_bridged_channel::<StdbCustomMessage<T>>));
+        self
+    }
+
     /// Enables the subscription subsystem.
     ///
     /// This installs [`crate::subscription::StdbSubscriptions`] as a Bevy
@@ -432,6 +469,10 @@ impl<
     /// - connection driver
     fn build(&self, app: &mut App) {
         app.add_plugins(ChannelBridgePlugin);
+
+        for register in &self.channel_registrations {
+            register(app);
+        }
 
         app.configure_sets(PreStartup, StdbSet::Connection);
         app.configure_sets(

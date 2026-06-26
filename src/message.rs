@@ -6,6 +6,22 @@ use spacetimedb_sdk::{
     Error, Identity,
 };
 
+/// Framework-owned envelope that bridges a value into Bevy from any callback or
+/// thread running off the Bevy schedule — a reducer or procedure `_then`
+/// handler, an HTTP response handler, a background task, and so on.
+///
+/// `T` is whatever you want to deliver, including the call result and any
+/// correlation data. Owning the envelope here keeps your payload a plain
+/// `struct`/`enum` with no Bevy derives.
+///
+/// Register with
+/// [`StdbPlugin::add_custom_message`](crate::prelude::StdbPlugin::add_custom_message),
+/// forward with `tx.send(StdbCustomMessage(value))` from a sender obtained via
+/// [`StdbChannels::sender`](crate::prelude::StdbChannels::sender), and read with
+/// [`ReadStdbCustomMessage<T>`](crate::prelude::ReadStdbCustomMessage).
+#[derive(Message)]
+pub struct StdbCustomMessage<T: Send + Sync + 'static>(pub T);
+
 /// Event metadata associated with row callbacks for a SpacetimeDB row type.
 pub type RowEvent<T> =
     <<<T as InModule>::Module as SpacetimeModule>::EventContext as AbstractEventContext>::Event;

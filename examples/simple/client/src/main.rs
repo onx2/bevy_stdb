@@ -61,6 +61,7 @@ impl Plugin for AppPlugin {
             Update,
             handle_move_request.run_if(resource_exists::<StdbConn>),
         );
+        app.add_systems(Update, on_move_player_done);
     }
 }
 
@@ -151,6 +152,7 @@ fn sync_position(
 
 fn handle_move_request(
     conn: Res<StdbConn>,
+    channels: Res<StdbChannels>,
     player: Single<&Transform, With<PlayerMarker>>,
     window: Single<&Window>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -179,8 +181,25 @@ fn handle_move_request(
     let half_w = window.width() / 2.0;
     let half_h = window.height() / 2.0;
 
-    let _ = conn.reducers().move_player(
-        (player.translation.x + step.x + half_w).rem_euclid(window.width()) - half_w,
-        (player.translation.y + step.y + half_h).rem_euclid(window.height()) - half_h,
-    );
+    let new_x = (player.translation.x + step.x + half_w).rem_euclid(window.width()) - half_w;
+    let new_y = (player.translation.y + step.y + half_h).rem_euclid(window.height()) - half_h;
+
+    // Pull a cloned sender out of the resource, then move *that* into the
+    // reducer callback (the resource itself can't be captured).
+    let tx = channels.sender::<MovePlayerDone>();
+    let _ = conn
+        .reducers()
+        .move_player_then(new_x, new_y, move |_ctx, result| {
+            let _ = tx.send(StdbCustomMessage(MovePlayerDone { result }));
+        });
+}
+
+fn on_move_player_done(mut msgs: ReadStdbCustomMessage<MovePlayerDone>) {
+    for StdbCustomMessage(done) in msgs.read() {
+        match &done.result {
+            Ok(Ok(())) => {}
+            Ok(Err(reason)) => warn!("move_player rejected: {reason}"),
+            Err(internal) => error!("move_player internal error: {internal}"),
+        }
+    }
 }
