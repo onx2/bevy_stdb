@@ -62,7 +62,7 @@ impl StdbChannels {
 /// Initializes the channel registry, installs the per-frame drain system, and
 /// runs the deferred consumer channel registrations.
 pub(crate) struct ChannelBridgePlugin {
-    pub(crate) channel_registrations: Vec<Arc<dyn Fn(&mut App) + Send + Sync>>,
+    pub(crate) channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
 }
 impl Plugin for ChannelBridgePlugin {
     fn build(&self, app: &mut App) {
