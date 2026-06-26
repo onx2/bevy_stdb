@@ -1,5 +1,5 @@
 use crate::{
-    channel_bridge::{ChannelBridgePlugin, register_channel},
+    channel_bridge::{ChannelBridgePlugin, ChannelRegistrationCallback, register_channel},
     connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
     message::RowEvent,
     set::StdbSet,
@@ -62,7 +62,7 @@ pub struct StdbPlugin<
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
-    channel_registrations: Vec<Arc<dyn Fn(&mut App) + Send + Sync>>,
+    channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
 }
 
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>

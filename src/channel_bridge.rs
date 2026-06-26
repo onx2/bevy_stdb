@@ -10,6 +10,8 @@ use crossbeam_channel::{Sender, unbounded};
 use std::any::{Any, TypeId, type_name};
 use std::sync::Arc;
 
+pub type ChannelRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
+
 /// Stores one registered message channel.
 struct ChannelEntry {
     /// The registered message type.
