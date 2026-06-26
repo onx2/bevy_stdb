@@ -468,11 +468,9 @@ impl<
     /// - URI
     /// - connection driver
     fn build(&self, app: &mut App) {
-        app.add_plugins(ChannelBridgePlugin);
-
-        for register in &self.channel_registrations {
-            register(app);
-        }
+        app.add_plugins(ChannelBridgePlugin {
+            channel_registrations: self.channel_registrations.clone(),
+        });
 
         app.configure_sets(PreStartup, StdbSet::Connection);
         app.configure_sets(

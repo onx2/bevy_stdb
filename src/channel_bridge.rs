@@ -10,6 +10,7 @@ use bevy_ecs::prelude::{IntoScheduleConfigs, Message, Messages, Mut, Resource, W
 use crossbeam_channel::{Sender, unbounded};
 use std::any::{Any, TypeId, type_name};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Stores the registered message channels.
 struct ChannelEntry {
@@ -27,13 +28,20 @@ struct ChannelRegistry {
     channels: Vec<ChannelEntry>,
 }
 
-/// Initializes the channel registry and installs the per-frame drain system.
-pub(crate) struct ChannelBridgePlugin;
+/// Initializes the channel registry, installs the per-frame drain system, and
+/// runs the deferred consumer channel registrations.
+pub(crate) struct ChannelBridgePlugin {
+    pub(crate) channel_registrations: Vec<Arc<dyn Fn(&mut App) + Send + Sync>>,
+}
 impl Plugin for ChannelBridgePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChannelRegistry>();
         app.init_resource::<StdbChannels>();
         app.add_systems(PreUpdate, drain_channels.in_set(StdbSet::Flush));
+
+        for register in &self.channel_registrations {
+            register(app);
+        }
     }
 }
 
