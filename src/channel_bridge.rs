@@ -8,8 +8,11 @@ use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Message, Messages, Mut, Resource, World};
 use crossbeam_channel::{Sender, unbounded};
 use std::any::{Any, TypeId, type_name};
+use std::sync::Arc;
 
-/// Stores the registered message channels.
+pub type ChannelRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
+
+/// Stores one registered message channel.
 struct ChannelEntry {
     /// The registered message type.
     type_id: TypeId,
@@ -19,24 +22,59 @@ struct ChannelEntry {
     sender: Box<dyn Any + Send + Sync>,
 }
 
-/// Registry of per-type message channels.
+/// Registry of per-type message channels that bridge crossbeam senders into
+/// Bevy [`Messages<T>`](bevy_ecs::prelude::Messages).
+///
+/// Internal channels (connection lifecycle, table events, subscriptions) and
+/// consumer channels registered with
+/// [`StdbPlugin::add_channel_message`](crate::prelude::StdbPlugin::add_channel_message)
+/// all live here. Consumers obtain a sender for their message type with [`Self::sender`]
+/// and move it into a callback or task running off the Bevy schedule (a
+/// SpacetimeDB reducer/procedure `_then` handler, an HTTP response handler, an
+/// `IoTaskPool` task, ...) to forward a value into Bevy; read it back with
+/// `MessageReader<T>`.
 #[derive(Resource, Default)]
-struct ChannelRegistry {
+pub struct StdbChannels {
     channels: Vec<ChannelEntry>,
 }
 
-/// Initializes the channel registry and installs the per-frame drain system.
-pub(crate) struct ChannelBridgePlugin;
+impl StdbChannels {
+    /// Returns a clone of the registered [`Sender<T>`] for message type `T`.
+    ///
+    /// Move the returned sender into a callback or task and forward with
+    /// `tx.send(message)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no channel for `T` was registered via
+    /// [`StdbPlugin::add_channel_message`](crate::prelude::StdbPlugin::add_channel_message).
+    pub fn sender<T: Message>(&self) -> Sender<T> {
+        self.channels
+            .iter()
+            .find(|entry| entry.type_id == TypeId::of::<T>())
+            .and_then(|entry| entry.sender.downcast_ref::<Sender<T>>())
+            .unwrap_or_else(|| panic!("unregistered channel for `{}`", type_name::<T>()))
+            .clone()
+    }
+}
+
+pub(crate) struct ChannelBridgePlugin {
+    pub(crate) channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
+}
 impl Plugin for ChannelBridgePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ChannelRegistry>();
+        app.init_resource::<StdbChannels>();
         app.add_systems(PreUpdate, drain_channels.in_set(StdbSet::Flush));
+
+        for register in &self.channel_registrations {
+            register(app);
+        }
     }
 }
 
 /// Drains all registered channels once per frame.
 fn drain_channels(world: &mut World) {
-    world.resource_scope(|world, registry: Mut<ChannelRegistry>| {
+    world.resource_scope(|world, registry: Mut<StdbChannels>| {
         for entry in &registry.channels {
             (entry.drain)(world);
         }
@@ -47,12 +85,12 @@ fn drain_channels(world: &mut World) {
 ///
 /// # Panics
 ///
-/// Panics if [`ChannelRegistry`] has not been initialized or if the
-/// channel for `T` has already been registered.
+/// Panics if [`StdbChannels`] has not been initialized or if the channel for
+/// `T` has already been registered.
 pub(crate) fn register_channel<T: Message>(app: &mut App) {
     assert!(
         !app.world()
-            .resource::<ChannelRegistry>()
+            .resource::<StdbChannels>()
             .channels
             .iter()
             .any(|entry| entry.type_id == TypeId::of::<T>()),
@@ -64,7 +102,7 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) {
     app.add_message::<T>();
 
     app.world_mut()
-        .resource_mut::<ChannelRegistry>()
+        .resource_mut::<StdbChannels>()
         .channels
         .push(ChannelEntry {
             type_id: TypeId::of::<T>(),
@@ -77,26 +115,12 @@ pub(crate) fn register_channel<T: Message>(app: &mut App) {
         });
 }
 
-/// Returns the registered `Sender<T>`.
+/// Returns the registered `Sender<T>` from the world.
 ///
 /// # Panics
 ///
-/// Panics if [`ChannelRegistry`] has not been initialized, if the
-/// channel for `T` has not been registered, or if the stored sender
-/// has an unexpected concrete type.
+/// Panics if [`StdbChannels`] has not been initialized, or if the channel for
+/// `T` has not been registered.
 pub(crate) fn channel_sender<T: Message>(world: &World) -> Sender<T> {
-    let registry = world.resource::<ChannelRegistry>();
-
-    let entry = registry
-        .channels
-        .iter()
-        .find(|entry| entry.type_id == TypeId::of::<T>())
-        .unwrap_or_else(|| panic!("unregistered channel for `{}`", type_name::<T>()));
-
-    entry
-        .sender
-        .as_ref()
-        .downcast_ref::<Sender<T>>()
-        .unwrap_or_else(|| panic!("unexpected type for sender `{}`", type_name::<T>(),))
-        .clone()
+    world.resource::<StdbChannels>().sender::<T>()
 }

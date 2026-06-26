@@ -97,10 +97,11 @@ pub mod prelude {
     pub use crate::{
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
+            ReadStdbConnectErrorMessage, ReadStdbConnectedMessage,
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage,
         },
+        channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
         plugin::StdbPlugin,

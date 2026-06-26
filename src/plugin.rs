@@ -1,5 +1,5 @@
 use crate::{
-    channel_bridge::ChannelBridgePlugin,
+    channel_bridge::{ChannelBridgePlugin, ChannelRegistrationCallback, register_channel},
     connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
     message::RowEvent,
     set::StdbSet,
@@ -11,7 +11,7 @@ use crate::{
     },
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
-use bevy_ecs::prelude::IntoScheduleConfigs;
+use bevy_ecs::prelude::{IntoScheduleConfigs, Message};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
     Compression, DbContext, SubscriptionHandle,
@@ -62,6 +62,7 @@ pub struct StdbPlugin<
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
+    channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
 }
 
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
@@ -79,6 +80,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             subscriptions_initializer: None,
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
+            channel_registrations: Vec::new(),
         }
     }
 }
@@ -336,6 +338,39 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self
     }
 
+    /// Registers a bridged message channel for `T`.
+    ///
+    /// Installs `Messages<T>` and stores a `Sender<T>` retrievable from
+    /// [`StdbChannels`](crate::prelude::StdbChannels). Move that sender into any
+    /// callback or task running off the Bevy schedule — a reducer or procedure
+    /// `_then` handler, an HTTP response handler, an `IoTaskPool` task — and
+    /// forward with `tx.send(message)`. Read with `MessageReader<T>`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// #[derive(Message)]
+    /// struct CharacterCreated { result: ReducerResult }
+    ///
+    /// // setup:
+    /// .add_channel_message::<CharacterCreated>()
+    ///
+    /// // in a system:
+    /// let tx = channels.sender::<CharacterCreated>();
+    /// conn.reducers().create_character_then(name, move |_ctx, result| {
+    ///     let _ = tx.send(CharacterCreated { result });
+    /// });
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics during [`Plugin::build`] if `T` is registered more than once.
+    pub fn add_channel_message<T: Message>(mut self) -> Self {
+        self.channel_registrations
+            .push(Arc::new(register_channel::<T>));
+        self
+    }
+
     /// Enables the subscription subsystem.
     ///
     /// This installs [`crate::subscription::StdbSubscriptions`] as a Bevy
@@ -431,7 +466,9 @@ impl<
     /// - URI
     /// - connection driver
     fn build(&self, app: &mut App) {
-        app.add_plugins(ChannelBridgePlugin);
+        app.add_plugins(ChannelBridgePlugin {
+            channel_registrations: self.channel_registrations.clone(),
+        });
 
         app.configure_sets(PreStartup, StdbSet::Connection);
         app.configure_sets(

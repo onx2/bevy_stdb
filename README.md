@@ -21,6 +21,7 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 - **Connection resource** access through `StdbConnection`
 - **Command interface** for sending SpacetimeDB commands through `StdbCmds`
 - **Table event bridging** through Bevy `MessageReader` aliases
+- **Callback bridging** for reducer/procedure completions through `StdbChannels` and `add_channel_message`
 - **Managed subscription intent** through `StdbSubscriptions`
 - **Optional reconnect support** through `StdbReconnectOptions`
 
@@ -339,6 +340,52 @@ fn on_applied(mut applied_messages: ReadStdbSubscriptionAppliedMessage<SubKey>, 
 }
 ```
 
+## Reducer and procedure callbacks
+
+SpacetimeDB's `<reducer>_then(...)` _(and procedure)_ callbacks run outside of the Bevy world, so you can't use `SystemParam`s in them. If you need other clients to hear about the result of a reducer or procedure call, you should use `EventTable`s; however, sometimes there are local-only changes that need a guaranteed response from the bevy world. This is where custom channel messages come in handy: `.add_channel_message::<T>()` lets you define a message type that can be sent from outside the Bevy world and read in a normal system.
+
+1. `#[derive(Message)]` on your payload and register it with `add_channel_message::<T>()`
+2. In a system, clone a sender using `channels.sender::<T>()`, then move it into the callback
+3. Read it with `MessageReader<T>`, allowing `SystemParam`s to be used in response to that callback
+
+```rust
+use bevy_stdb::prelude::*;
+use spacetimedb_sdk::__codegen::InternalError;
+
+// The reducer result type isn't part of bevy_stdb, but comes in handy to define in your project
+type ReducerResult = Result<Result<(), String>, InternalError>;
+
+// The custom message you want to send from the reducer or procedure callback
+#[derive(Message)]
+pub struct CharacterCreated {
+    pub result: ReducerResult,
+}
+
+// During plugin setup, register the message type with .add_channel_message::<CharacterCreated>()
+// .add_channel_message::<CharacterCreated>()
+
+// A system that listens for some UI action for example, and sends your message when the SpacetimeDB callback finishes
+fn create_character(conn: Res<StdbConn>, channels: Res<StdbChannels>) {
+    let tx = channels.sender::<CharacterCreated>();
+    let _ = conn.reducers().create_character_then("Bob".into(), move |_ctx, result| {
+        let _ = tx.send(CharacterCreated { result });
+    });
+}
+
+// Now we can use a regular system to handle the message, update UI, navigate to a new state, etc.
+fn on_character_created(mut messages: MessageReader<CharacterCreated>, mut commands: Commands) {
+    for created in messages.read() {
+        match &created.result {
+            Ok(Ok(())) => { /* commands.spawn(...), next_state.set_state(...), etc... */ }
+            Ok(Err(reason)) => warn!("rejected: {reason}"),
+            Err(err) => error!("internal error: {err}"),
+        }
+    }
+}
+```
+
+Using this for reducers and procedures is the typical approach, but this bridge is actually completely generic. The `add_channel_message` method accepts any `Message`, so the same pattern lands the result of anything that finishes elsewhere (procedures, `IoTaskPool` tasks, HTTP responses) back in the Bevy world.
+
 ## Type Aliases
 
 It is useful to define some type aliases of your own. I suggest making aliases for the connection, subscription, and commands:
@@ -371,6 +418,6 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Notes
 
-This crate focuses on table-driven client workflows. Reducer and procedure access still exist through the active `StdbConnection`, but the primary Bevy-facing flow uses message readers for table events.
+This crate focuses on table-driven client workflows. Reducer and procedure access still exist through the active `StdbConnection`, but the primary Bevy-facing flow uses message readers for table events. When you need a reducer/procedure completion (or any off-schedule callback) back in the ECS, bridge it with `add_channel_message` / `StdbChannels` as shown in [Reducer and procedure callbacks](#reducer-and-procedure-callbacks).
 
 Special thanks to [`bevy_spacetimedb`](https://docs.rs/bevy_spacetimedb/) for the inspiration!

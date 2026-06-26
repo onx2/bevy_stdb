@@ -1,6 +1,6 @@
 use crate::connection::{PendingConnection, StdbConnection, StdbConnectionConfig};
 use bevy_ecs::{
-    prelude::{Command, Commands, ResMut, World},
+    prelude::{Command, Commands, World},
     system::SystemParam,
 };
 use bevy_tasks::IoTaskPool;
@@ -66,8 +66,8 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    config: ResMut<'w, StdbConnectionConfig<C, M>>,
     commands: Commands<'w, 's>,
+    _marker: PhantomData<fn() -> (C, M)>,
 }
 
 impl<C, M> StdbCommands<'_, '_, C, M>
@@ -98,7 +98,12 @@ where
     /// This does not immediately reconnect with the new token but instead
     /// will be used for future connection attempts.
     pub fn set_token(&mut self, token: impl Into<String>) {
-        self.config.token = Some(token.into());
+        let token = token.into();
+        self.commands.queue(move |world: &mut World| {
+            if let Some(mut config) = world.get_resource_mut::<StdbConnectionConfig<C, M>>() {
+                config.token = Some(token);
+            }
+        });
     }
 }
 
