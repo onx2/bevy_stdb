@@ -5,15 +5,18 @@ use crate::{
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
-        EventTableBinder, StdbTablePlugin, TableBindCallback, TableBinder,
-        TableRegistrationCallback, TableWithoutPkBinder, ViewBinder, register_event_table,
-        register_table, register_table_without_pk, register_view,
+        StdbTablePlugin, TableBindCallback, TableRegistrationCallback, bind_insert, bind_table,
+        bind_table_without_pk, register_event_table, register_table, register_table_without_pk,
+        register_view,
     },
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Message};
 use spacetimedb_sdk::{
-    __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder},
+    __codegen::{
+        DbConnection, InModule, SpacetimeModule, SubscriptionBuilder, TableAccessor, TableLike,
+        WithDelete, WithInsert, WithUpdate,
+    },
     Compression, DbContext, SubscriptionHandle,
 };
 use std::{hash::Hash, sync::Arc};
@@ -30,7 +33,7 @@ use std::{hash::Hash, sync::Arc};
 ///         .with_background_driver(DbConnection::run_threaded)
 ///         .with_reconnect(StdbReconnectOptions::default())
 ///         .with_subscriptions::<SubKey>()
-///         .add_table::<ChatMessageRow>(|reg, db| reg.bind(db.chat_message()))
+///         .add_table::<ChatMessageTableAccessor>()
 /// )
 /// .add_systems(Update, subscribe_on_connected);
 ///
@@ -245,21 +248,24 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Example
     ///
     /// ```ignore
-    /// .add_table::<PlayerRow>(|reg, db| reg.bind(db.player_info()))
+    /// .add_table::<PlayerTableAccessor>()
     /// ```
-    pub fn add_table<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(TableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
+    pub fn add_table<TTable>(mut self) -> Self
     where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
+        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
+        TTable::Row: Send + Sync + Clone + InModule + 'static,
+        RowEvent<TTable::Row>: Send + Sync,
+        for<'db> TTable::Handle<'db>: TableLike<
+                Row = TTable::Row,
+                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
+            > + WithInsert
+            + WithDelete
+            + WithUpdate,
     {
         self.table_registrations
-            .push(Arc::new(register_table::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = TableBinder::<TRow>::new(world);
-            bind(reg, db);
+            .push(Arc::new(register_table::<TTable::Row>));
+        self.table_bindings.push(Arc::new(|world, db| {
+            bind_table::<TTable::Row, _>(world, TTable::get(db));
         }));
         self
     }
@@ -269,23 +275,23 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Example
     ///
     /// ```ignore
-    /// .add_table_without_pk::<NearbyMonsterRow>(|reg, db| {
-    ///     reg.bind(db.nearby_monsters())
-    /// })
+    /// .add_table_without_pk::<NearbyMonstersTableAccessor>()
     /// ```
-    pub fn add_table_without_pk<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(TableWithoutPkBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
+    pub fn add_table_without_pk<TTable>(mut self) -> Self
     where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
+        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
+        TTable::Row: Send + Sync + Clone + InModule + 'static,
+        RowEvent<TTable::Row>: Send + Sync,
+        for<'db> TTable::Handle<'db>: TableLike<
+                Row = TTable::Row,
+                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
+            > + WithInsert
+            + WithDelete,
     {
         self.table_registrations
-            .push(Arc::new(register_table_without_pk::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = TableWithoutPkBinder::<TRow>::new(world);
-            bind(reg, db);
+            .push(Arc::new(register_table_without_pk::<TTable::Row>));
+        self.table_bindings.push(Arc::new(|world, db| {
+            bind_table_without_pk::<TTable::Row, _>(world, TTable::get(db));
         }));
         self
     }
@@ -295,21 +301,23 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Example
     ///
     /// ```ignore
-    /// .add_view::<CharacterRow>(|reg, db| reg.bind(db.character_selection_screen_view()))
+    /// .add_view::<CharacterSelectionScreenViewTableAccessor>()
     /// ```
-    pub fn add_view<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(ViewBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
+    pub fn add_view<TTable>(mut self) -> Self
     where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
+        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
+        TTable::Row: Send + Sync + Clone + InModule + 'static,
+        RowEvent<TTable::Row>: Send + Sync,
+        for<'db> TTable::Handle<'db>: TableLike<
+                Row = TTable::Row,
+                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
+            > + WithInsert
+            + WithDelete,
     {
         self.table_registrations
-            .push(Arc::new(register_view::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = ViewBinder::<TRow>::new(world);
-            bind(reg, db);
+            .push(Arc::new(register_view::<TTable::Row>));
+        self.table_bindings.push(Arc::new(|world, db| {
+            bind_table_without_pk::<TTable::Row, _>(world, TTable::get(db));
         }));
         self
     }
@@ -319,21 +327,22 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// # Example
     ///
     /// ```ignore
-    /// .add_event_table::<LogEvent>(|reg, db| reg.bind(db.log_events()))
+    /// .add_event_table::<LogEventsTableAccessor>()
     /// ```
-    pub fn add_event_table<TRow>(
-        mut self,
-        bind: impl for<'db> Fn(EventTableBinder<'_, TRow>, &'db C::DbView) + Send + Sync + 'static,
-    ) -> Self
+    pub fn add_event_table<TTable>(mut self) -> Self
     where
-        TRow: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TRow>: Send + Sync,
+        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
+        TTable::Row: Send + Sync + Clone + InModule + 'static,
+        RowEvent<TTable::Row>: Send + Sync,
+        for<'db> TTable::Handle<'db>: TableLike<
+                Row = TTable::Row,
+                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
+            > + WithInsert,
     {
         self.table_registrations
-            .push(Arc::new(register_event_table::<TRow>));
-        self.table_bindings.push(Arc::new(move |world, db| {
-            let reg = EventTableBinder::<TRow>::new(world);
-            bind(reg, db);
+            .push(Arc::new(register_event_table::<TTable::Row>));
+        self.table_bindings.push(Arc::new(|world, db| {
+            bind_insert::<TTable::Row, _>(world, &TTable::get(db));
         }));
         self
     }

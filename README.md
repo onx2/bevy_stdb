@@ -30,7 +30,7 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 ```rust
 use bevy::prelude::*;
 use bevy_stdb::prelude::*;
-use crate::module_bindings::{DbConnection, PlayerInfo, RemoteModule};
+use crate::module_bindings::{DbConnection, PlayerInfo, PlayerInfoTableAccessor, RemoteModule};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum MySubKey {
@@ -48,7 +48,7 @@ fn main() {
             StdbPlugin::<DbConnection, RemoteModule>::default()
                 .with_database_name("my_module")
                 .with_uri("http://localhost:3000")
-                .add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
+                .add_table::<PlayerInfoTableAccessor>()
                 .with_subscriptions::<MySubKey>()
                 .with_reconnect(StdbReconnectOptions::default())
                 .with_background_driver(DbConnection::run_threaded),
@@ -171,7 +171,7 @@ fn main() {
 
 Use the `StdbPlugin` builder methods to register table bindings during app setup.
 
-Each method eagerly registers the internal Bevy message channels for the row type you specify and stores a deferred binding callback that runs whenever a connection becomes active.
+Each method eagerly registers the internal Bevy message channels for the row type and stores a deferred binding that runs whenever a connection becomes active.
 
 | Method | Use when |
 |---|---|
@@ -181,10 +181,10 @@ Each method eagerly registers the internal Bevy message channels for the row typ
 | `add_view` | Server-computed virtual table — exposes insert and delete message readers |
 
 ```rust
-.add_table::<PlayerInfo>(|reg, db| reg.bind(db.player_info()))
-.add_table_without_pk::<WorldClock>(|reg, db| reg.bind(db.world_clock()))
-.add_event_table::<DamageEvent>(|reg, db| reg.bind(db.damage_events()))
-.add_view::<NearbyMonster>(|reg, db| reg.bind(db.nearby_monsters()))
+.add_table::<PlayerInfoTableAccessor>()
+.add_table_without_pk::<WorldClockTableAccessor>()
+.add_event_table::<DamageEventsTableAccessor>()
+.add_view::<NearbyMonstersTableAccessor>()
 ```
 
 ## Reading table events
