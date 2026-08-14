@@ -141,7 +141,13 @@ where
             EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
         > + WithInsert,
 {
-    registry.bind_insert_capability::<T>();
+    registry.register_capability::<T>(
+        TableCapabilityKind::Insert,
+        register_insert::<T::Row>,
+        Arc::new(|world, db| {
+            bind_insert::<T::Row, _>(world, &T::get(db));
+        }),
+    );
 }
 
 fn register_delete_capability<C, M, T>(registry: &mut TableRegistry<C, M>)
@@ -156,7 +162,13 @@ where
             EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
         > + WithDelete,
 {
-    registry.bind_delete_capability::<T>();
+    registry.register_capability::<T>(
+        TableCapabilityKind::Delete,
+        register_delete::<T::Row>,
+        Arc::new(|world, db| {
+            bind_delete::<T::Row, _>(world, &T::get(db));
+        }),
+    );
 }
 
 fn register_update_capability<C, M, T>(registry: &mut TableRegistry<C, M>)
@@ -171,7 +183,13 @@ where
             EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
         > + WithUpdate,
 {
-    registry.bind_update_capability::<T>();
+    registry.register_capability::<T>(
+        TableCapabilityKind::Update,
+        register_update::<T::Row>,
+        Arc::new(|world, db| {
+            bind_update::<T::Row, _>(world, &T::get(db));
+        }),
+    );
 }
 
 fn register_insert_update_capability<C, M, T>(registry: &mut TableRegistry<C, M>)
@@ -187,7 +205,13 @@ where
         > + WithInsert
         + WithUpdate,
 {
-    registry.bind_insert_update_capability::<T>();
+    registry.register_capability::<T>(
+        TableCapabilityKind::InsertUpdate,
+        register_insert_update::<T::Row>,
+        Arc::new(|world, db| {
+            bind_insert_update::<T::Row, _>(world, &T::get(db));
+        }),
+    );
 }
 
 impl<C, M> TableRegistry<C, M>
@@ -239,26 +263,6 @@ where
         self.bind::<TTable>([TableCapability::insert()]);
     }
 
-    fn bind_insert_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::Insert,
-            register_insert::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_insert::<TTable::Row, _>(world, &table);
-            }),
-        );
-    }
-
     pub(crate) fn bind_delete<TTable>(&mut self)
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
@@ -270,26 +274,6 @@ where
             > + WithDelete,
     {
         self.bind::<TTable>([TableCapability::delete()]);
-    }
-
-    fn bind_delete_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithDelete,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::Delete,
-            register_delete::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_delete::<TTable::Row, _>(world, &table);
-            }),
-        );
     }
 
     pub(crate) fn bind_update<TTable>(&mut self)
@@ -305,26 +289,6 @@ where
         self.bind::<TTable>([TableCapability::update()]);
     }
 
-    fn bind_update_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithUpdate,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::Update,
-            register_update::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_update::<TTable::Row, _>(world, &table);
-            }),
-        );
-    }
-
     pub(crate) fn bind_insert_update<TTable>(&mut self)
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
@@ -337,26 +301,5 @@ where
             + WithUpdate,
     {
         self.bind::<TTable>([TableCapability::insert_update()]);
-    }
-
-    fn bind_insert_update_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert
-            + WithUpdate,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::InsertUpdate,
-            register_insert_update::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_insert_update::<TTable::Row, _>(world, &table);
-            }),
-        );
     }
 }
