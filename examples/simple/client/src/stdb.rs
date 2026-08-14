@@ -24,16 +24,7 @@ impl Plugin for MyStdbPlugin {
                 .with_uri(String::from("http://localhost:3000"))
                 .with_database_name(String::from("bevy-stdb-simple"))
                 .with_subscriptions::<SubKey>()
-<<<<<<< HEAD
-                .bind::<PlayerTableAccessor>([
-                    TableCapability::insert(),
-                    TableCapability::delete(),
-                    TableCapability::update(),
-                    TableCapability::insert_update(),
-                ])
-=======
                 .add_table::<PlayerTableAccessor>()
->>>>>>> origin/main
                 .with_background_driver(driver),
         );
     }
