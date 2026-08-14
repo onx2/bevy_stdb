@@ -13,23 +13,12 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TableCapabilityKind {
     Insert,
     Delete,
     Update,
     InsertUpdate,
-}
-
-impl TableCapabilityKind {
-    const fn name(self) -> &'static str {
-        match self {
-            Self::Insert => "insert",
-            Self::Delete => "delete",
-            Self::Update => "update",
-            Self::InsertUpdate => "insert_update",
-        }
-    }
 }
 
 /// A typed table binding capability used with [`crate::prelude::StdbPlugin::bind`].
@@ -241,9 +230,9 @@ where
         let key = (TypeId::of::<TTable>(), kind);
         assert!(
             !self.registered_capabilities.contains(&key),
-            "duplicate table capability registration: accessor `{}` already has `{}` bound",
+            "duplicate table capability registration: accessor `{}` already has `{:?}` bound",
             type_name::<TTable>(),
-            kind.name(),
+            kind,
         );
         self.registered_capabilities.push(key);
         self.table_registrations.push(Arc::new(register));
