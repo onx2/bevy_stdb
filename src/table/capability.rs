@@ -1,8 +1,10 @@
 use super::{
     TableBindCallback, TableRegistry, bind_delete, bind_insert, bind_insert_update, bind_update,
-    register_delete, register_insert, register_insert_update, register_update,
 };
-use crate::message::RowEvent;
+use crate::{
+    channel_bridge::register_channel,
+    message::{DeleteMessage, InsertMessage, InsertUpdateMessage, RowEvent, UpdateMessage},
+};
 use spacetimedb_sdk::__codegen::{
     DbConnection, DbContext, InModule, SpacetimeModule, TableAccessor, TableLike, WithDelete,
     WithInsert, WithUpdate,
@@ -32,7 +34,9 @@ pub struct TableCapability<
     M: SpacetimeModule<DbConnection = C>,
     T,
 > {
-    register: fn(&mut TableRegistry<C, M>),
+    kind: TableCapabilityKind,
+    app_registration: fn(&mut bevy_app::App),
+    table_binding: Arc<TableBindCallback<C>>,
     _marker: PhantomData<fn() -> T>,
 }
 
@@ -53,7 +57,11 @@ where
             > + WithInsert,
     {
         Self {
-            register: register_insert_capability::<C, M, T>,
+            kind: TableCapabilityKind::Insert,
+            app_registration: register_channel::<InsertMessage<T::Row>>,
+            table_binding: Arc::new(|world, db| {
+                bind_insert(world, &T::get(db));
+            }),
             _marker: PhantomData,
         }
     }
@@ -70,7 +78,11 @@ where
             > + WithDelete,
     {
         Self {
-            register: register_delete_capability::<C, M, T>,
+            kind: TableCapabilityKind::Delete,
+            app_registration: register_channel::<DeleteMessage<T::Row>>,
+            table_binding: Arc::new(|world, db| {
+                bind_delete(world, &T::get(db));
+            }),
             _marker: PhantomData,
         }
     }
@@ -87,7 +99,11 @@ where
             > + WithUpdate,
     {
         Self {
-            register: register_update_capability::<C, M, T>,
+            kind: TableCapabilityKind::Update,
+            app_registration: register_channel::<UpdateMessage<T::Row>>,
+            table_binding: Arc::new(|world, db| {
+                bind_update(world, &T::get(db));
+            }),
             _marker: PhantomData,
         }
     }
@@ -108,99 +124,21 @@ where
             + WithUpdate,
     {
         Self {
-            register: register_insert_update_capability::<C, M, T>,
+            kind: TableCapabilityKind::InsertUpdate,
+            app_registration: register_channel::<InsertUpdateMessage<T::Row>>,
+            table_binding: Arc::new(|world, db| {
+                bind_insert_update(world, &T::get(db));
+            }),
             _marker: PhantomData,
         }
     }
 
-    pub(crate) fn register(self, registry: &mut TableRegistry<C, M>) {
-        (self.register)(registry);
+    pub(crate) fn register(self, registry: &mut TableRegistry<C, M>)
+    where
+        T: 'static,
+    {
+        registry.register_capability::<T>(self.kind, self.app_registration, self.table_binding);
     }
-}
-
-fn register_insert_capability<C, M, T>(registry: &mut TableRegistry<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithInsert,
-{
-    registry.register_capability::<T>(
-        TableCapabilityKind::Insert,
-        register_insert::<T::Row>,
-        Arc::new(|world, db| {
-            bind_insert::<T::Row, _>(world, &T::get(db));
-        }),
-    );
-}
-
-fn register_delete_capability<C, M, T>(registry: &mut TableRegistry<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithDelete,
-{
-    registry.register_capability::<T>(
-        TableCapabilityKind::Delete,
-        register_delete::<T::Row>,
-        Arc::new(|world, db| {
-            bind_delete::<T::Row, _>(world, &T::get(db));
-        }),
-    );
-}
-
-fn register_update_capability<C, M, T>(registry: &mut TableRegistry<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithUpdate,
-{
-    registry.register_capability::<T>(
-        TableCapabilityKind::Update,
-        register_update::<T::Row>,
-        Arc::new(|world, db| {
-            bind_update::<T::Row, _>(world, &T::get(db));
-        }),
-    );
-}
-
-fn register_insert_update_capability<C, M, T>(registry: &mut TableRegistry<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithInsert
-        + WithUpdate,
-{
-    registry.register_capability::<T>(
-        TableCapabilityKind::InsertUpdate,
-        register_insert_update::<T::Row>,
-        Arc::new(|world, db| {
-            bind_insert_update::<T::Row, _>(world, &T::get(db));
-        }),
-    );
 }
 
 impl<C, M> TableRegistry<C, M>
