@@ -342,8 +342,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.table_registrations
             .push(Arc::new(register_event_table::<TTable::Row>));
         self.table_bindings.push(Arc::new(|world, db| {
-            let table = TTable::get(db);
-            bind_insert::<TTable::Row, _>(world, &table);
+            bind_insert::<TTable::Row, _>(world, &TTable::get(db));
         }));
         self
     }
