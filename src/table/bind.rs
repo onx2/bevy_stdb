@@ -7,37 +7,6 @@ use spacetimedb_sdk::__codegen::{
     AbstractEventContext, InModule, SpacetimeModule, TableLike, WithDelete, WithInsert, WithUpdate,
 };
 
-pub(crate) fn bind_table<TRow, TTable>(world: &World, table: TTable)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-    TTable: TableLike<
-            Row = TRow,
-            EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithInsert
-        + WithDelete
-        + WithUpdate,
-{
-    bind_insert::<TRow, TTable>(world, &table);
-    bind_delete::<TRow, TTable>(world, &table);
-    bind_update::<TRow, TTable>(world, &table);
-    bind_insert_update::<TRow, TTable>(world, &table);
-}
-
-pub(crate) fn bind_table_without_pk<TRow, TTable>(world: &World, table: TTable)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-    TTable: TableLike<
-            Row = TRow,
-            EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithInsert
-        + WithDelete,
-{
-    bind_insert::<TRow, TTable>(world, &table);
-    bind_delete::<TRow, TTable>(world, &table);
-}
-
 pub(crate) fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
@@ -57,7 +26,7 @@ where
     });
 }
 
-fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
+pub(crate) fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
@@ -76,7 +45,7 @@ where
     });
 }
 
-fn bind_update<TRow, TTable>(world: &World, table: &TTable)
+pub(crate) fn bind_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
@@ -96,7 +65,7 @@ where
     });
 }
 
-fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
+pub(crate) fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
