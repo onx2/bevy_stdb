@@ -5,16 +5,19 @@ use crate::{
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
     table::{
-        StdbTablePlugin, TableBindCallback, TableRegistrationCallback, bind_event_table,
-        bind_table, bind_table_without_pk, register_event_table, register_table,
-        register_table_without_pk, register_view,
+        StdbTablePlugin, TableBindCallback, TableRegistrationCallback, bind_insert, bind_table,
+        bind_table_without_pk, register_event_table, register_table, register_table_without_pk,
+        register_view,
     },
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Message};
 use spacetimedb_sdk::{
-    __codegen::{DbConnection, InModule, SpacetimeModule, SubscriptionBuilder, TableAccessor},
-    Compression, DbContext, EventTable, SubscriptionHandle, Table, TableWithPrimaryKey,
+    __codegen::{
+        DbConnection, InModule, SpacetimeModule, SubscriptionBuilder, TableAccessor, TableLike,
+        WithDelete, WithInsert, WithUpdate,
+    },
+    Compression, DbContext, SubscriptionHandle,
 };
 use std::{hash::Hash, sync::Arc};
 
@@ -252,10 +255,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
         RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: Table<
+        for<'db> TTable::Handle<'db>: TableLike<
                 Row = TTable::Row,
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + TableWithPrimaryKey<Row = TTable::Row>,
+            > + WithInsert
+            + WithDelete
+            + WithUpdate,
     {
         self.table_registrations
             .push(Arc::new(register_table::<TTable::Row>));
@@ -277,10 +282,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
         RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: Table<
+        for<'db> TTable::Handle<'db>: TableLike<
                 Row = TTable::Row,
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            >,
+            > + WithInsert
+            + WithDelete,
     {
         self.table_registrations
             .push(Arc::new(register_table_without_pk::<TTable::Row>));
@@ -302,10 +308,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
         RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: Table<
+        for<'db> TTable::Handle<'db>: TableLike<
                 Row = TTable::Row,
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            >,
+            > + WithInsert
+            + WithDelete,
     {
         self.table_registrations
             .push(Arc::new(register_view::<TTable::Row>));
@@ -327,15 +334,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
         RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: EventTable<
+        for<'db> TTable::Handle<'db>: TableLike<
                 Row = TTable::Row,
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            >,
+            > + WithInsert,
     {
         self.table_registrations
             .push(Arc::new(register_event_table::<TTable::Row>));
         self.table_bindings.push(Arc::new(|world, db| {
-            bind_event_table::<TTable::Row, _>(world, TTable::get(db));
+            let table = TTable::get(db);
+            bind_insert::<TTable::Row, _>(world, &table);
         }));
         self
     }

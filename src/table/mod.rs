@@ -11,7 +11,7 @@ use bevy_ecs::{
     prelude::{Resource, World, resource_added},
     schedule::IntoScheduleConfigs,
 };
-pub(crate) use bind::{bind_event_table, bind_table, bind_table_without_pk};
+pub(crate) use bind::{bind_insert, bind_table, bind_table_without_pk};
 pub(crate) use register::*;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};
 use std::sync::Arc;

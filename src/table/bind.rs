@@ -3,19 +3,20 @@ use crate::{
     message::{DeleteMessage, InsertMessage, InsertUpdateMessage, RowEvent, UpdateMessage},
 };
 use bevy_ecs::prelude::World;
-use spacetimedb_sdk::{
-    __codegen::{AbstractEventContext, InModule, SpacetimeModule},
-    EventTable, Table, TableWithPrimaryKey,
+use spacetimedb_sdk::__codegen::{
+    AbstractEventContext, InModule, SpacetimeModule, TableLike, WithDelete, WithInsert, WithUpdate,
 };
 
 pub(crate) fn bind_table<TRow, TTable>(world: &World, table: TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
-    TTable: Table<
+    TTable: TableLike<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + TableWithPrimaryKey<Row = TRow>,
+        > + WithInsert
+        + WithDelete
+        + WithUpdate,
 {
     bind_insert::<TRow, TTable>(world, &table);
     bind_delete::<TRow, TTable>(world, &table);
@@ -27,41 +28,24 @@ pub(crate) fn bind_table_without_pk<TRow, TTable>(world: &World, table: TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
-    TTable: Table<
+    TTable: TableLike<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        >,
+        > + WithInsert
+        + WithDelete,
 {
     bind_insert::<TRow, TTable>(world, &table);
     bind_delete::<TRow, TTable>(world, &table);
 }
 
-pub(crate) fn bind_event_table<TRow, TTable>(world: &World, table: TTable)
+pub(crate) fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
-    TTable: EventTable<
+    TTable: TableLike<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        >,
-{
-    let sender = channel_sender::<InsertMessage<TRow>>(world);
-    table.on_insert(move |ctx, row| {
-        let _ = sender.send(InsertMessage {
-            event: ctx.event().clone(),
-            row: row.clone(),
-        });
-    });
-}
-
-fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-    TTable: Table<
-            Row = TRow,
-            EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        >,
+        > + WithInsert,
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<InsertMessage<TRow>>(world);
@@ -77,10 +61,10 @@ fn bind_delete<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
-    TTable: Table<
+    TTable: TableLike<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        >,
+        > + WithDelete,
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<DeleteMessage<TRow>>(world);
@@ -96,10 +80,10 @@ fn bind_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
-    TTable: Table<
+    TTable: TableLike<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + TableWithPrimaryKey<Row = TRow>,
+        > + WithUpdate,
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<UpdateMessage<TRow>>(world);
@@ -116,10 +100,11 @@ fn bind_insert_update<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
     RowEvent<TRow>: Send + Sync,
-    TTable: Table<
+    TTable: TableLike<
             Row = TRow,
             EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + TableWithPrimaryKey<Row = TRow>,
+        > + WithInsert
+        + WithUpdate,
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender_insert = channel_sender::<InsertUpdateMessage<TRow>>(world);
