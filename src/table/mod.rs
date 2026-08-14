@@ -57,7 +57,7 @@ where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    pub(crate) fn table_plugin(&self) -> StdbTablePlugin<C, M> {
+    pub(crate) fn plugin(&self) -> StdbTablePlugin<C, M> {
         StdbTablePlugin::new(
             self.table_bindings.clone(),
             self.table_registrations.clone(),

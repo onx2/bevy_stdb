@@ -265,7 +265,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     }
 
     /// Binds insert messages for a generated table accessor.
-    pub fn bind_insert<TTable>(mut self) -> Self
+    pub fn bind_insert<TTable>(self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -275,12 +275,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
             > + WithInsert,
     {
-        self.table_registry.bind_insert::<TTable>();
-        self
+        self.bind([TableCapability::<C, M, TTable>::insert()])
     }
 
     /// Binds delete messages for a generated table accessor.
-    pub fn bind_delete<TTable>(mut self) -> Self
+    pub fn bind_delete<TTable>(self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -290,12 +289,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
             > + WithDelete,
     {
-        self.table_registry.bind_delete::<TTable>();
-        self
+        self.bind([TableCapability::<C, M, TTable>::delete()])
     }
 
     /// Binds update messages for a generated table accessor.
-    pub fn bind_update<TTable>(mut self) -> Self
+    pub fn bind_update<TTable>(self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -305,12 +303,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
             > + WithUpdate,
     {
-        self.table_registry.bind_update::<TTable>();
-        self
+        self.bind([TableCapability::<C, M, TTable>::update()])
     }
 
     /// Binds insert-update messages for a generated table accessor.
-    pub fn bind_insert_update<TTable>(mut self) -> Self
+    pub fn bind_insert_update<TTable>(self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -321,8 +318,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             > + WithInsert
             + WithUpdate,
     {
-        self.table_registry.bind_insert_update::<TTable>();
-        self
+        self.bind([TableCapability::<C, M, TTable>::insert_update()])
     }
 
     /// Registers a table with a primary key.
@@ -580,6 +576,6 @@ impl<
             compression: self.compression.unwrap_or_default(),
         });
 
-        app.add_plugins(self.table_registry.table_plugin());
+        app.add_plugins(self.table_registry.plugin());
     }
 }
