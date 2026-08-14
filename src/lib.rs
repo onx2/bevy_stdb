@@ -107,5 +107,6 @@ pub mod prelude {
         plugin::StdbPlugin,
         set::StdbSet,
         subscription::StdbSubscriptions,
+        table::TableCapability,
     };
 }
