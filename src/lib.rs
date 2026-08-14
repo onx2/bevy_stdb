@@ -104,8 +104,9 @@ pub mod prelude {
         channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
-        plugin::{StdbPlugin, TableCapability},
+        plugin::StdbPlugin,
         set::StdbSet,
         subscription::StdbSubscriptions,
+        table::TableCapability,
     };
 }

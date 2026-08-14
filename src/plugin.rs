@@ -4,12 +4,7 @@ use crate::{
     message::RowEvent,
     set::StdbSet,
     subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
-    table::{
-        StdbTablePlugin, TableBindCallback, TableRegistrationCallback,
-        bind_delete as bind_delete_callback, bind_insert as bind_insert_callback,
-        bind_insert_update as bind_insert_update_callback, bind_update as bind_update_callback,
-        register_delete, register_insert, register_insert_update, register_update,
-    },
+    table::{TableCapability, TableRegistry},
 };
 use bevy_app::{App, Plugin, PreStartup, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Message};
@@ -20,184 +15,7 @@ use spacetimedb_sdk::{
     },
     Compression, DbContext, SubscriptionHandle,
 };
-use std::{
-    any::{TypeId, type_name},
-    hash::Hash,
-    marker::PhantomData,
-    sync::Arc,
-};
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TableCapabilityKind {
-    Insert,
-    Delete,
-    Update,
-    InsertUpdate,
-}
-impl TableCapabilityKind {
-    const fn name(self) -> &'static str {
-        match self {
-            Self::Insert => "insert",
-            Self::Delete => "delete",
-            Self::Update => "update",
-            Self::InsertUpdate => "insert_update",
-        }
-    }
-}
-
-/// A typed table binding capability used with [`StdbPlugin::bind`].
-///
-/// Construct capabilities with [`Self::insert`], [`Self::delete`],
-/// [`Self::update`], and [`Self::insert_update`]. Each constructor requires
-/// the corresponding capability trait on the generated table handle, so
-/// unsupported bindings fail at compile time.
-pub struct TableCapability<
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T,
-> {
-    register: fn(&mut StdbPlugin<C, M>),
-    _marker: PhantomData<fn() -> T>,
-}
-
-impl<C, M, T> TableCapability<C, M, T>
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-{
-    /// Binds insert messages from `T`.
-    pub fn insert() -> Self
-    where
-        T: TableAccessor<C::DbView> + Send + Sync + 'static,
-        T::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<T::Row>: Send + Sync,
-        for<'db> T::Handle<'db>: TableLike<
-                Row = T::Row,
-                EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert,
-    {
-        Self {
-            register: register_insert_capability::<C, M, T>,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Binds delete messages from `T`.
-    pub fn delete() -> Self
-    where
-        T: TableAccessor<C::DbView> + Send + Sync + 'static,
-        T::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<T::Row>: Send + Sync,
-        for<'db> T::Handle<'db>: TableLike<
-                Row = T::Row,
-                EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithDelete,
-    {
-        Self {
-            register: register_delete_capability::<C, M, T>,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Binds update messages from `T`.
-    pub fn update() -> Self
-    where
-        T: TableAccessor<C::DbView> + Send + Sync + 'static,
-        T::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<T::Row>: Send + Sync,
-        for<'db> T::Handle<'db>: TableLike<
-                Row = T::Row,
-                EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithUpdate,
-    {
-        Self {
-            register: register_update_capability::<C, M, T>,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Binds insert-update messages from `T`.
-    ///
-    /// This derived message stream requires both insert and update
-    /// capabilities on the generated table handle.
-    pub fn insert_update() -> Self
-    where
-        T: TableAccessor<C::DbView> + Send + Sync + 'static,
-        T::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<T::Row>: Send + Sync,
-        for<'db> T::Handle<'db>: TableLike<
-                Row = T::Row,
-                EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert
-            + WithUpdate,
-    {
-        Self {
-            register: register_insert_update_capability::<C, M, T>,
-            _marker: PhantomData,
-        }
-    }
-}
-
-fn register_insert_capability<C, M, T>(plugin: &mut StdbPlugin<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithInsert,
-{
-    plugin.bind_insert_capability::<T>();
-}
-
-fn register_delete_capability<C, M, T>(plugin: &mut StdbPlugin<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithDelete,
-{
-    plugin.bind_delete_capability::<T>();
-}
-
-fn register_update_capability<C, M, T>(plugin: &mut StdbPlugin<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithUpdate,
-{
-    plugin.bind_update_capability::<T>();
-}
-
-fn register_insert_update_capability<C, M, T>(plugin: &mut StdbPlugin<C, M>)
-where
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
-    T: TableAccessor<C::DbView> + Send + Sync + 'static,
-    T::Row: Send + Sync + Clone + InModule + 'static,
-    RowEvent<T::Row>: Send + Sync,
-    for<'db> T::Handle<'db>: TableLike<
-            Row = T::Row,
-            EventContext = <<T::Row as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithInsert
-        + WithUpdate,
-{
-    plugin.bind_insert_update_capability::<T>();
-}
+use std::{hash::Hash, sync::Arc};
 
 /// Primary plugin for configuring `bevy_stdb`.
 ///
@@ -241,9 +59,7 @@ pub struct StdbPlugin<
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
     subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
-    table_registrations: Vec<Arc<TableRegistrationCallback>>,
-    table_bindings: Vec<Arc<TableBindCallback<C>>>,
-    registered_capabilities: Vec<(TypeId, TableCapabilityKind)>,
+    table_registry: TableRegistry<C, M>,
     channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
 }
 
@@ -260,9 +76,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             driver: None,
             reconnect_options: None,
             subscriptions_initializer: None,
-            table_registrations: Vec::new(),
-            table_bindings: Vec::new(),
-            registered_capabilities: Vec::new(),
+            table_registry: TableRegistry::default(),
             channel_registrations: Vec::new(),
         }
     }
@@ -446,34 +260,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     where
         TTable: 'static,
     {
-        for capability in capabilities {
-            (capability.register)(&mut self);
-        }
+        self.table_registry.bind(capabilities);
         self
     }
 
-    fn register_capability<TTable>(
-        &mut self,
-        kind: TableCapabilityKind,
-        register: fn(&mut App),
-        bind: Arc<TableBindCallback<C>>,
-    ) where
-        TTable: 'static,
-    {
-        let key = (TypeId::of::<TTable>(), kind);
-        assert!(
-            !self.registered_capabilities.contains(&key),
-            "duplicate table capability registration: accessor `{}` already has `{}` bound",
-            type_name::<TTable>(),
-            kind.name(),
-        );
-        self.registered_capabilities.push(key);
-        self.table_registrations.push(Arc::new(register));
-        self.table_bindings.push(bind);
-    }
-
     /// Binds insert messages for a generated table accessor.
-    pub fn bind_insert<TTable>(self) -> Self
+    pub fn bind_insert<TTable>(mut self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -483,31 +275,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
             > + WithInsert,
     {
-        self.bind::<TTable>([TableCapability::insert()])
-    }
-
-    fn bind_insert_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::Insert,
-            register_insert::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_insert_callback::<TTable::Row, _>(world, &table);
-            }),
-        );
+        self.table_registry.bind_insert::<TTable>();
+        self
     }
 
     /// Binds delete messages for a generated table accessor.
-    pub fn bind_delete<TTable>(self) -> Self
+    pub fn bind_delete<TTable>(mut self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -517,31 +290,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
             > + WithDelete,
     {
-        self.bind::<TTable>([TableCapability::delete()])
-    }
-
-    fn bind_delete_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithDelete,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::Delete,
-            register_delete::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_delete_callback::<TTable::Row, _>(world, &table);
-            }),
-        );
+        self.table_registry.bind_delete::<TTable>();
+        self
     }
 
     /// Binds update messages for a generated table accessor.
-    pub fn bind_update<TTable>(self) -> Self
+    pub fn bind_update<TTable>(mut self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -551,31 +305,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
             > + WithUpdate,
     {
-        self.bind::<TTable>([TableCapability::update()])
-    }
-
-    fn bind_update_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithUpdate,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::Update,
-            register_update::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_update_callback::<TTable::Row, _>(world, &table);
-            }),
-        );
+        self.table_registry.bind_update::<TTable>();
+        self
     }
 
     /// Binds insert-update messages for a generated table accessor.
-    pub fn bind_insert_update<TTable>(self) -> Self
+    pub fn bind_insert_update<TTable>(mut self) -> Self
     where
         TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
         TTable::Row: Send + Sync + Clone + InModule + 'static,
@@ -586,28 +321,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             > + WithInsert
             + WithUpdate,
     {
-        self.bind::<TTable>([TableCapability::insert_update()])
-    }
-
-    fn bind_insert_update_capability<TTable>(&mut self)
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert
-            + WithUpdate,
-    {
-        self.register_capability::<TTable>(
-            TableCapabilityKind::InsertUpdate,
-            register_insert_update::<TTable::Row>,
-            Arc::new(|world, db| {
-                let table = TTable::get(db);
-                bind_insert_update_callback::<TTable::Row, _>(world, &table);
-            }),
-        );
+        self.table_registry.bind_insert_update::<TTable>();
+        self
     }
 
     /// Registers a table with a primary key.
@@ -865,9 +580,6 @@ impl<
             compression: self.compression.unwrap_or_default(),
         });
 
-        app.add_plugins(StdbTablePlugin::<C, M>::new(
-            self.table_bindings.clone(),
-            self.table_registrations.clone(),
-        ));
+        app.add_plugins(self.table_registry.table_plugin());
     }
 }

@@ -3,6 +3,7 @@
 //! Registers internal Bevy [`Message`](bevy_ecs::prelude::Message) channels
 //! and binds SDK table callbacks for row event readers.
 mod bind;
+mod capability;
 mod register;
 
 use crate::{connection::StdbConnection, set::StdbSet};
@@ -12,9 +13,11 @@ use bevy_ecs::{
     schedule::IntoScheduleConfigs,
 };
 pub(crate) use bind::{bind_delete, bind_insert, bind_insert_update, bind_update};
+pub use capability::TableCapability;
+pub(crate) use capability::TableCapabilityKind;
 pub(crate) use register::*;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};
-use std::sync::Arc;
+use std::{any::TypeId, marker::PhantomData, sync::Arc};
 
 /// Stored callback that performs one-time Bevy app registration for a table/view.
 pub(crate) type TableRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
@@ -22,6 +25,45 @@ pub(crate) type TableRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
 /// Stored callback that binds SpacetimeDB table listeners for a concrete database view.
 pub(crate) type TableBindCallback<C> =
     dyn for<'db> Fn(&World, &'db <C as DbContext>::DbView) + Send + Sync;
+
+pub(crate) struct TableRegistry<C, M>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync,
+    M: SpacetimeModule<DbConnection = C>,
+{
+    table_registrations: Vec<Arc<TableRegistrationCallback>>,
+    table_bindings: Vec<Arc<TableBindCallback<C>>>,
+    registered_capabilities: Vec<(TypeId, TableCapabilityKind)>,
+    _module: PhantomData<fn() -> M>,
+}
+
+impl<C, M> Default for TableRegistry<C, M>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync,
+    M: SpacetimeModule<DbConnection = C>,
+{
+    fn default() -> Self {
+        Self {
+            table_registrations: Vec::new(),
+            table_bindings: Vec::new(),
+            registered_capabilities: Vec::new(),
+            _module: PhantomData,
+        }
+    }
+}
+
+impl<C, M> TableRegistry<C, M>
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
+    pub(crate) fn table_plugin(&self) -> StdbTablePlugin<C, M> {
+        StdbTablePlugin::new(
+            self.table_bindings.clone(),
+            self.table_registrations.clone(),
+        )
+    }
+}
 
 /// Runtime configuration for the SpacetimeDB tables that were registered at build time.
 #[derive(Resource)]
