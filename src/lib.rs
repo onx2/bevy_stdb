@@ -46,7 +46,7 @@
 //!                 .with_background_driver(DbConnection::run_threaded)
 //!                 .with_reconnect(StdbReconnectOptions::default())
 //!                 .with_subscriptions::<SubKey>()
-//!                 .add_table::<PlayerRow>(|reg, db| reg.bind(db.player()))
+//!                 .add_table::<PlayerTableAccessor>()
 //!         )
 //!         .add_systems(Update, (on_player_insert, subscribe_players_on_connect))
 //!         .run();
