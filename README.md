@@ -177,10 +177,11 @@ The `add_*` methods are semantic convenience APIs. For capability-based registra
 
 | Method | Use when |
 |---|---|
-| `add_table` | Table has a primary key — exposes insert, update, delete, and insert-or-update message readers |
-| `add_table_without_pk` | Table has no primary key — exposes insert and delete message readers |
-| `add_event_table` | Append-only log table — exposes insert message readers |
-| `add_view` | Server-computed virtual table — exposes insert and delete message readers |
+| `add_table::<T>` | Table has a primary key — exposes insert, update, delete, and insert-or-update message readers |
+| `add_table_without_pk::<T>` | Table has no primary key — exposes insert and delete message readers |
+| `add_event_table::<T>` | Append-only log table — exposes insert message readers |
+| `add_view::<T>` | Server-computed virtual table — exposes insert and delete message readers |
+| `bind::<T>`, `bind_*::<T>` | Explicit control — exposes specific message readers |
 
 ```rust
 // Semantic convenience APIs.
