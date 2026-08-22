@@ -19,6 +19,9 @@ pub struct StdbConnectedMessage {
     pub access_token: String,
 }
 
+#[derive(Message, Debug)]
+pub(crate) struct StdbDisconnectRequestedMessage;
+
 /// A [`Message`] sent when a SpacetimeDB connection is closed or lost.
 #[derive(Message, Debug)]
 pub struct StdbDisconnectedMessage {

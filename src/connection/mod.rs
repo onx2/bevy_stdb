@@ -7,7 +7,10 @@ mod reconnect;
 use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
-    message::{StdbConnectErrorMessage, StdbConnectedMessage, StdbDisconnectedMessage},
+    message::{
+        StdbConnectErrorMessage, StdbConnectedMessage, StdbDisconnectRequestedMessage,
+        StdbDisconnectedMessage,
+    },
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
@@ -234,6 +237,7 @@ impl<
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectErrorMessage>(app);
+        app.add_message::<StdbDisconnectRequestedMessage>();
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {

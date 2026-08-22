@@ -1,4 +1,5 @@
 use crate::connection::{PendingConnection, StdbConnection, StdbConnectionConfig};
+use crate::message::StdbDisconnectRequestedMessage;
 use bevy_ecs::{
     prelude::{Command, Commands, World},
     system::SystemParam,
@@ -184,6 +185,7 @@ where
 {
     type Out = ();
     fn apply(self, world: &mut World) {
+        world.write_message(StdbDisconnectRequestedMessage);
         disconnect_connection::<C>(world);
     }
 }
