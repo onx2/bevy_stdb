@@ -9,6 +9,7 @@ use super::{PendingConnection, StdbConnection};
 use crate::{
     alias::{ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     commands::{StartConnectCommand, StdbConnectOptions},
+    message::DisconnectIntent,
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};
@@ -111,7 +112,7 @@ impl<
 
         app.add_systems(
             PreUpdate,
-            (on_connect, arm_reconnect_timer).in_set(StdbSet::Connection),
+            (on_connect, arm_reconnect_timer::<C>).in_set(StdbSet::Connection),
         );
 
         app.add_systems(
@@ -140,19 +141,28 @@ fn on_connect(
 
 /// Arms the reconnect timer on an unexpected disconnect or connection error.
 ///
-/// A clean disconnect (no error) is treated as intentional and does not trigger
-/// a reconnect. Initializes [`ReconnectBackoff::current_delay`] from
-/// [`ReconnectConfig::initial_delay`] before the first attempt.
-fn arm_reconnect_timer(
+/// A disconnect marked as [`DisconnectIntent::Requested`] is treated as intentional; an unmarked
+/// disconnect is retried even when the SDK provides no error. Initializes
+/// [`ReconnectBackoff::current_delay`] from [`ReconnectConfig::initial_delay`] before the first attempt.
+fn arm_reconnect_timer<C: DbContext + Send + Sync + 'static>(
     mut disconnect_msgs: ReadStdbDisconnectedMessage,
     mut error_msgs: ReadStdbConnectErrorMessage,
     mut backoff: ResMut<ReconnectBackoff>,
     config: Res<ReconnectConfig>,
 ) {
-    let unexpected_disconnect = disconnect_msgs.read().any(|msg| msg.err.is_some());
+    let mut disconnected = false;
+    let mut intentional_disconnect = false;
+    for message in disconnect_msgs.read() {
+        disconnected = true;
+        intentional_disconnect |= matches!(message.result, Ok(DisconnectIntent::Requested));
+    }
     let connect_error = error_msgs.read().next().is_some();
 
-    if !(unexpected_disconnect || connect_error) {
+    if intentional_disconnect {
+        return;
+    }
+
+    if !(connect_error || disconnected) {
         return;
     }
 
