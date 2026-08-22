@@ -8,8 +8,7 @@ use crate::{
     alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
     message::{
-        StdbConnectErrorMessage, StdbConnectedMessage, StdbDisconnectRequestedMessage,
-        StdbDisconnectedMessage,
+        DisconnectIntent, StdbConnectErrorMessage, StdbConnectedMessage, StdbDisconnectedMessage,
     },
     set::StdbSet,
 };
@@ -23,12 +22,15 @@ use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// Stores the in-flight task for a pending connection attempt.
 #[derive(Resource)]
 pub(crate) struct PendingConnection<C: DbContext + Send + Sync + 'static>(
-    pub(crate) Task<Result<Arc<C>>>,
+    pub(crate) Task<Result<(Arc<C>, Arc<AtomicBool>)>>,
 );
 
 /// Internal connection driver configuration.
@@ -100,7 +102,7 @@ where
     M: SpacetimeModule<DbConnection = C>,
 {
     /// Produces a configured [`DbConnectionBuilder`] for this connection.
-    fn connection_builder(&self) -> DbConnectionBuilder<M> {
+    fn connection_builder(&self, disconnect_requested: Arc<AtomicBool>) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
         let connect_error_tx = self.connect_error_tx.clone();
@@ -117,7 +119,14 @@ where
                 });
             })
             .on_disconnect(move |_ctx, err| {
-                let _ = disconnected_tx.send(StdbDisconnectedMessage { err });
+                let result = if disconnect_requested.swap(false, Ordering::AcqRel) {
+                    Ok(DisconnectIntent::Requested)
+                } else if let Some(err) = err {
+                    Err(err)
+                } else {
+                    Ok(DisconnectIntent::Lost)
+                };
+                let _ = disconnected_tx.send(StdbDisconnectedMessage { result });
             })
             .on_connect_error(move |_ctx, err| {
                 // TODO: waiting for STDB release with fix for this to function properly.
@@ -128,11 +137,20 @@ where
     /// Builds a SpacetimeDB connection from this config.
     ///
     /// The returned connection is not started automatically.
-    pub(crate) async fn build_connection(&self) -> Result<Arc<C>> {
+    pub(crate) async fn build_connection(&self) -> Result<(Arc<C>, Arc<AtomicBool>)> {
+        let disconnect_requested = Arc::new(AtomicBool::new(false));
         #[cfg(not(feature = "browser"))]
-        return self.connection_builder().build().map(Arc::new);
+        let connection = self
+            .connection_builder(Arc::clone(&disconnect_requested))
+            .build()
+            .map(Arc::new)?;
         #[cfg(feature = "browser")]
-        return self.connection_builder().build().await.map(Arc::new);
+        let connection = self
+            .connection_builder(Arc::clone(&disconnect_requested))
+            .build()
+            .await
+            .map(Arc::new)?;
+        Ok((connection, disconnect_requested))
     }
 }
 
@@ -144,12 +162,16 @@ where
 pub struct StdbConnection<T: DbContext + 'static> {
     /// The underlying connection context.
     conn: Arc<T>,
+    disconnect_requested: Arc<AtomicBool>,
 }
 
 impl<T: DbContext> StdbConnection<T> {
     /// Wraps an existing shared connection.
-    fn new(conn: Arc<T>) -> Self {
-        Self { conn }
+    fn new(conn: Arc<T>, disconnect_requested: Arc<AtomicBool>) -> Self {
+        Self {
+            conn,
+            disconnect_requested,
+        }
     }
 }
 
@@ -176,7 +198,12 @@ impl<T: DbContext> StdbConnection<T> {
 
     /// Closes the connection to the SpacetimeDB server.
     pub fn disconnect(&self) -> Result<()> {
-        self.conn.disconnect()
+        self.disconnect_requested.store(true, Ordering::Release);
+        let result = self.conn.disconnect();
+        if result.is_err() {
+            self.disconnect_requested.store(false, Ordering::Release);
+        }
+        result
     }
 
     /// Returns a builder for database subscriptions.
@@ -237,7 +264,6 @@ impl<
         register_channel::<StdbConnectedMessage>(app);
         register_channel::<StdbDisconnectedMessage>(app);
         register_channel::<StdbConnectErrorMessage>(app);
-        app.add_message::<StdbDisconnectRequestedMessage>();
 
         let world = app.world();
         app.insert_resource(StdbConnectionConfig::<C, M> {
@@ -303,7 +329,7 @@ fn poll_pending_connection<
             };
 
             match result {
-                Ok(conn) => {
+                Ok((conn, disconnect_requested)) => {
                     let driver = world
                         .get_resource::<StdbConnectionConfig<C, M>>()
                         .expect("StdbConnectionConfig should exist when activating a connection")
@@ -317,7 +343,7 @@ fn poll_pending_connection<
                     if let Some(prev_conn) = world.get_resource::<StdbConnection<C>>() {
                         let _ = prev_conn.disconnect();
                     }
-                    world.insert_resource(StdbConnection::new(conn));
+                    world.insert_resource(StdbConnection::new(conn, disconnect_requested));
                 }
                 Err(err) => {
                     world.write_message(StdbConnectErrorMessage { err });
