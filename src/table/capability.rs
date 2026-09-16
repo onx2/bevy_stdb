@@ -38,7 +38,7 @@ pub struct TableCapability<
 > {
     kind: TableCapabilityKind,
     app_registration: fn(&mut bevy_app::App),
-    change_registration: fn(&mut bevy_app::App),
+    change_registration: Option<fn(&mut bevy_app::App)>,
     table_binding: Arc<TableBindCallback<C>>,
     _marker: PhantomData<fn() -> T>,
 }
@@ -62,7 +62,7 @@ where
         Self {
             kind: TableCapabilityKind::Insert,
             app_registration: register_channel::<InsertMessage<T::Row>>,
-            change_registration: register_channel::<TableChange<T::Row>>,
+            change_registration: Some(register_channel::<TableChange<T::Row>>),
             table_binding: Arc::new(|world, db| {
                 bind_insert(world, &T::get(db));
             }),
@@ -84,7 +84,7 @@ where
         Self {
             kind: TableCapabilityKind::Delete,
             app_registration: register_channel::<DeleteMessage<T::Row>>,
-            change_registration: register_channel::<TableChange<T::Row>>,
+            change_registration: Some(register_channel::<TableChange<T::Row>>),
             table_binding: Arc::new(|world, db| {
                 bind_delete(world, &T::get(db));
             }),
@@ -106,7 +106,7 @@ where
         Self {
             kind: TableCapabilityKind::Update,
             app_registration: register_channel::<UpdateMessage<T::Row>>,
-            change_registration: register_channel::<TableChange<T::Row>>,
+            change_registration: Some(register_channel::<TableChange<T::Row>>),
             table_binding: Arc::new(|world, db| {
                 bind_update(world, &T::get(db));
             }),
@@ -132,7 +132,7 @@ where
         Self {
             kind: TableCapabilityKind::InsertUpdate,
             app_registration: register_channel::<InsertUpdateMessage<T::Row>>,
-            change_registration: register_channel::<TableChange<T::Row>>,
+            change_registration: None,
             table_binding: Arc::new(|world, db| {
                 bind_insert_update(world, &T::get(db));
             }),
@@ -173,7 +173,7 @@ where
         &mut self,
         kind: TableCapabilityKind,
         register: fn(&mut bevy_app::App),
-        change_register: fn(&mut bevy_app::App),
+        change_register: Option<fn(&mut bevy_app::App)>,
         bind: Arc<TableBindCallback<C>>,
     ) where
         TTable: 'static,
@@ -192,7 +192,7 @@ where
         );
         self.registered_capabilities.push(key);
 
-        if !has_table_registration {
+        if !has_table_registration && let Some(change_register) = change_register {
             self.table_registrations.push(Arc::new(change_register));
         }
         self.table_registrations.push(Arc::new(register));
