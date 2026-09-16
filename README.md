@@ -210,7 +210,7 @@ Depending on the table shape, systems consume database changes through MessageRe
 - `ReadUpdateMessage<T>`
 - `ReadInsertUpdateMessage<T>`
 
-These aliases are `MessageReader`s backed by internal message channels. The legacy message types are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change. `ReadTableChangeMessage<T>` is the unified stream when insert, update, and delete delivery must remain in SDK callback order; it does not expose the order of individual mutations within one server transaction.
+These aliases are `MessageReader`s backed by internal message channels. The legacy message types are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change. `ReadTableChangeMessage<T>` is available when the table's insert, update, or delete capability is registered; it preserves SDK callback order but does not expose the order of individual mutations within one server transaction.
 
 ```rust
 use crate::module_bindings::Reducer;

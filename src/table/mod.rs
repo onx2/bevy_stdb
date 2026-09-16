@@ -11,10 +11,7 @@ use bevy_ecs::{
     prelude::{Resource, World, resource_added},
     schedule::IntoScheduleConfigs,
 };
-pub(crate) use bind::{
-    bind_change_delete, bind_change_insert, bind_change_update, bind_delete, bind_insert,
-    bind_insert_update, bind_update,
-};
+pub(crate) use bind::{bind_delete, bind_insert, bind_insert_update, bind_update};
 pub use capability::TableCapability;
 pub(crate) use capability::TableCapabilityKind;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};

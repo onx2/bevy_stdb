@@ -239,10 +239,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Registers table event capabilities for a generated table accessor.
     ///
-    /// Use the `change_*` capabilities to expose the unified [`crate::prelude::TableChange`]
-    /// stream. Each capability constructor validates the corresponding SDK trait at
-    /// compile time. Duplicate accessor/capability pairs panic with a precise
-    /// error when this method is called.
+    /// The insert, delete, and update capabilities also expose the unified
+    /// [`crate::prelude::TableChange`] stream. Each capability constructor validates the
+    /// corresponding SDK trait at compile time. Duplicate accessor/capability pairs panic
+    /// with a precise error when this method is called.
     ///
     /// # Example
     ///
@@ -252,9 +252,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///     TableCapability::delete(),
     ///     TableCapability::update(),
     ///     TableCapability::insert_update(),
-    ///     TableCapability::change_insert(),
-    ///     TableCapability::change_delete(),
-    ///     TableCapability::change_update(),
     /// ])
     /// ```
     pub fn bind<TTable>(
@@ -266,68 +263,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     {
         self.table_registry.bind(capabilities);
         self
-    }
-
-    /// Binds ordered insert changes for a generated table accessor.
-    pub fn bind_change_insert<TTable>(self) -> Self
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert,
-    {
-        self.bind([TableCapability::<C, M, TTable>::change_insert()])
-    }
-
-    /// Binds ordered delete changes for a generated table accessor.
-    pub fn bind_change_delete<TTable>(self) -> Self
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithDelete,
-    {
-        self.bind([TableCapability::<C, M, TTable>::change_delete()])
-    }
-
-    /// Binds ordered update changes for a generated table accessor.
-    pub fn bind_change_update<TTable>(self) -> Self
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithUpdate,
-    {
-        self.bind([TableCapability::<C, M, TTable>::change_update()])
-    }
-
-    /// Binds all ordered table changes for a generated table accessor.
-    pub fn bind_change<TTable>(self) -> Self
-    where
-        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
-        TTable::Row: Send + Sync + Clone + InModule + 'static,
-        RowEvent<TTable::Row>: Send + Sync,
-        for<'db> TTable::Handle<'db>: TableLike<
-                Row = TTable::Row,
-                EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
-            > + WithInsert
-            + WithDelete
-            + WithUpdate,
-    {
-        self.bind([
-            TableCapability::<C, M, TTable>::change_insert(),
-            TableCapability::<C, M, TTable>::change_delete(),
-            TableCapability::<C, M, TTable>::change_update(),
-        ])
     }
 
     /// Binds insert messages for a generated table accessor.
@@ -410,7 +345,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             .bind_delete::<TTable>()
             .bind_update::<TTable>()
             .bind_insert_update::<TTable>()
-            .bind_change::<TTable>()
     }
 
     /// Registers a table without a primary key.
@@ -431,10 +365,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             > + WithInsert
             + WithDelete,
     {
-        self.bind_insert::<TTable>()
-            .bind_delete::<TTable>()
-            .bind_change_insert::<TTable>()
-            .bind_change_delete::<TTable>()
+        self.bind_insert::<TTable>().bind_delete::<TTable>()
     }
 
     /// Registers a view.
@@ -455,10 +386,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             > + WithInsert
             + WithDelete,
     {
-        self.bind_insert::<TTable>()
-            .bind_delete::<TTable>()
-            .bind_change_insert::<TTable>()
-            .bind_change_delete::<TTable>()
+        self.bind_insert::<TTable>().bind_delete::<TTable>()
     }
 
     /// Registers an event table.
@@ -478,7 +406,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
                 EventContext = <<TTable::Row as InModule>::Module as SpacetimeModule>::EventContext,
             > + WithInsert,
     {
-        self.bind_insert::<TTable>().bind_change_insert::<TTable>()
+        self.bind_insert::<TTable>()
     }
 
     /// Registers a bridged message channel for `T`.

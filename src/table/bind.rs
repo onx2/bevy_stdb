@@ -9,25 +9,6 @@ use spacetimedb_sdk::__codegen::{
     AbstractEventContext, InModule, SpacetimeModule, TableLike, WithDelete, WithInsert, WithUpdate,
 };
 
-pub(crate) fn bind_change_insert<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-    TTable: TableLike<
-            Row = TRow,
-            EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithInsert,
-    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
-{
-    let sender = channel_sender::<TableChange<TRow>>(world);
-    table.on_insert(move |ctx, row| {
-        let _ = sender.send(TableChange::Insert {
-            event: ctx.event().clone(),
-            row: row.clone(),
-        });
-    });
-}
-
 pub(crate) fn bind_insert<TRow, TTable>(world: &World, table: &TTable)
 where
     TRow: Send + Sync + Clone + InModule + 'static,
@@ -39,27 +20,13 @@ where
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<InsertMessage<TRow>>(world);
+    let change_sender = channel_sender::<TableChange<TRow>>(world);
     table.on_insert(move |ctx, row| {
         let _ = sender.send(InsertMessage {
             event: ctx.event().clone(),
             row: row.clone(),
         });
-    });
-}
-
-pub(crate) fn bind_change_delete<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-    TTable: TableLike<
-            Row = TRow,
-            EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithDelete,
-    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
-{
-    let sender = channel_sender::<TableChange<TRow>>(world);
-    table.on_delete(move |ctx, row| {
-        let _ = sender.send(TableChange::Delete {
+        let _ = change_sender.send(TableChange::Insert {
             event: ctx.event().clone(),
             row: row.clone(),
         });
@@ -77,30 +44,15 @@ where
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<DeleteMessage<TRow>>(world);
+    let change_sender = channel_sender::<TableChange<TRow>>(world);
     table.on_delete(move |ctx, row| {
         let _ = sender.send(DeleteMessage {
             event: ctx.event().clone(),
             row: row.clone(),
         });
-    });
-}
-
-pub(crate) fn bind_change_update<TRow, TTable>(world: &World, table: &TTable)
-where
-    TRow: Send + Sync + Clone + InModule + 'static,
-    RowEvent<TRow>: Send + Sync,
-    TTable: TableLike<
-            Row = TRow,
-            EventContext = <<TRow as InModule>::Module as SpacetimeModule>::EventContext,
-        > + WithUpdate,
-    TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
-{
-    let sender = channel_sender::<TableChange<TRow>>(world);
-    table.on_update(move |ctx, old, new| {
-        let _ = sender.send(TableChange::Update {
+        let _ = change_sender.send(TableChange::Delete {
             event: ctx.event().clone(),
-            old: old.clone(),
-            new: new.clone(),
+            row: row.clone(),
         });
     });
 }
@@ -116,8 +68,14 @@ where
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<UpdateMessage<TRow>>(world);
+    let change_sender = channel_sender::<TableChange<TRow>>(world);
     table.on_update(move |ctx, old, new| {
         let _ = sender.send(UpdateMessage {
+            event: ctx.event().clone(),
+            old: old.clone(),
+            new: new.clone(),
+        });
+        let _ = change_sender.send(TableChange::Update {
             event: ctx.event().clone(),
             old: old.clone(),
             new: new.clone(),
