@@ -61,6 +61,41 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
     }
 }
 
+/// A [`Message`] sent when a subscribed table row changes.
+///
+/// Values are emitted in the order in which the SDK invokes row callbacks. This
+/// is not an operation log for mutations within one server transaction.
+#[derive(Message, Debug)]
+pub enum TableChange<T>
+where
+    T: InModule,
+    RowEvent<T>: Send + Sync,
+{
+    /// The row was inserted.
+    Insert {
+        /// The SpacetimeDB event that triggered the row callback.
+        event: RowEvent<T>,
+        /// The inserted row.
+        row: T,
+    },
+    /// The row was deleted.
+    Delete {
+        /// The SpacetimeDB event that triggered the row callback.
+        event: RowEvent<T>,
+        /// The deleted row.
+        row: T,
+    },
+    /// The row was updated.
+    Update {
+        /// The SpacetimeDB event that triggered the row callback.
+        event: RowEvent<T>,
+        /// The previous row value.
+        old: T,
+        /// The updated row value.
+        new: T,
+    },
+}
+
 /// A [`Message`] sent when a row is inserted into a subscribed table.
 #[derive(Message, Debug)]
 pub struct InsertMessage<T>

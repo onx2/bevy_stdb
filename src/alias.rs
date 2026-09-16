@@ -2,9 +2,12 @@
 use crate::message::{
     DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
     StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
-    StdbSubscriptionErrorMessage, UpdateMessage,
+    StdbSubscriptionErrorMessage, TableChange, UpdateMessage,
 };
 use bevy_ecs::prelude::MessageReader;
+
+/// Reads ordered table changes for rows of `T`.
+pub type ReadTableChangeMessage<'w, 's, T> = MessageReader<'w, 's, TableChange<T>>;
 
 /// Reads insert events for rows of `T`.
 pub type ReadInsertMessage<'w, 's, T> = MessageReader<'w, 's, InsertMessage<T>>;
