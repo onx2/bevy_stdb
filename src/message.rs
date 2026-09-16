@@ -63,8 +63,13 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
 
 /// A [`Message`] sent when a subscribed table row changes.
 ///
-/// Values are emitted in the order in which the SDK invokes row callbacks. This
-/// is not an operation log for mutations within one server transaction.
+/// The insert, delete, and update variants share one channel and are forwarded from the same
+/// SDK callbacks as the corresponding typed messages. For one row type and connection driver,
+/// values retain SDK callback order without cross-type channel reordering.
+///
+/// The SDK may group or coalesce rows while applying a transaction diff, so this is not an
+/// operation log and does not expose the order of mutations within one server transaction.
+/// Streams for different row types have no ordering relationship.
 #[derive(Message, Debug)]
 pub enum TableChange<T>
 where

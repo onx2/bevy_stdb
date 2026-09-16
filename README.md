@@ -171,16 +171,16 @@ fn main() {
 
 Use the `StdbPlugin` builder methods to register table bindings during app setup.
 
-Each method eagerly registers the internal Bevy message channels for the row type and stores a deferred binding that runs whenever a connection becomes active.
+Each method eagerly registers the internal Bevy message channels for the row type and stores a deferred binding that runs whenever a connection becomes active. Insert, delete, and update capabilities also register the unified `TableChange<T>` channel automatically; no separate ordered-binding option is required.
 
 The `add_*` methods are semantic convenience APIs. For capability-based registration, use `bind` or the direct `bind_insert`, `bind_delete`, `bind_update`, and `bind_insert_update` methods. Unsupported capabilities fail at compile time; duplicate bindings panic during plugin configuration with the accessor and capability in the error.
 
 | Method | Use when |
 |---|---|
-| `add_table::<T>` | Table has a primary key — exposes insert, update, delete, and insert-or-update message readers |
-| `add_table_without_pk::<T>` | Table has no primary key — exposes insert and delete message readers |
-| `add_event_table::<T>` | Append-only log table — exposes insert message readers |
-| `add_view::<T>` | Server-computed virtual table — exposes insert and delete message readers |
+| `add_table::<T>` | Table has a primary key — exposes unified changes plus insert, update, delete, and insert-or-update readers |
+| `add_table_without_pk::<T>` | Table has no primary key — exposes unified insert/delete changes plus typed readers |
+| `add_event_table::<T>` | Append-only log table — exposes unified insert changes plus typed readers |
+| `add_view::<T>` | Server-computed virtual table — exposes unified insert/delete changes plus typed readers |
 | `bind::<T>`, `bind_*::<T>` | Explicit control — exposes specific message readers |
 
 ```rust
@@ -210,7 +210,28 @@ Depending on the table shape, systems consume database changes through MessageRe
 - `ReadUpdateMessage<T>`
 - `ReadInsertUpdateMessage<T>`
 
-These aliases are `MessageReader`s backed by internal message channels. The legacy message types are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change. `ReadTableChangeMessage<T>` is available when the table's insert, update, or delete capability is registered; it preserves SDK callback order but does not expose the order of individual mutations within one server transaction.
+These aliases are `MessageReader`s backed by internal message channels. The legacy message types are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
+
+### Unified table changes
+
+`ReadTableChangeMessage<T>` combines inserts, updates, and deletes for one row type:
+
+```rust
+use bevy_stdb::prelude::*;
+use crate::module_bindings::PlayerRow;
+
+fn on_player_change(mut changes: ReadTableChangeMessage<PlayerRow>) {
+    for change in changes.read() {
+        match change {
+            TableChange::Insert { row, .. } => { /* inserted */ }
+            TableChange::Update { old, new, .. } => { /* updated */ }
+            TableChange::Delete { row, .. } => { /* deleted */ }
+        }
+    }
+}
+```
+
+The unified stream is forwarded from the same SDK insert, delete, and update callbacks as the legacy typed streams. Its deterministic property is limited to preserving the order in which the SDK invokes those callbacks for one row type and connection driver; it does not recover server-side mutation order within a transaction, and streams for different row types are independent. `ReadInsertUpdateMessage<T>` remains a separate compatibility stream and is not an additional `TableChange` variant.
 
 ```rust
 use crate::module_bindings::Reducer;
