@@ -459,12 +459,31 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Compatibility
 
-| bevy_stdb | bevy   | spacetimedb_sdk | MSRV |
-| --------- | ------ | --------------- | ---- |
-| 0.1 - 0.8 | 0.18   | 2.0 - 2.6       | 1.93 |
-|      0.12 | 0.19   | 2.0 - 2.6       | 1.95 |
-|      0.13 | 0.19   | 2.7+            | 1.95 |
+| bevy_stdb   | bevy | spacetimedb_sdk | MSRV |
+| ----------- | ---- | --------------- | ---- |
+|   0.1 - 0.8 | 0.18 | 2.0 - 2.6       | 1.93 |
+|        0.12 | 0.19 | 2.0 - 2.6       | 1.95 |
+| 0.13 - 0.14 | 0.19 | 2.7+            | 1.95 |
 
+
+### Upgrading to 0.14
+
+`event` on every row message is now `SharedRowEvent<T>` (`Arc<RowEvent<T>>`) instead of
+`RowEvent<T>`, so one SDK row callback clones its event once however many streams observe it.
+This affects `TableChange` and the messages read through `ReadInsertMessage`,
+`ReadDeleteMessage`, `ReadUpdateMessage`, and `ReadInsertUpdateMessage`.
+
+Matching on the event needs a deref:
+
+```rust
+// 0.13
+if let Event::Reducer(reducer) = &msg.event { }
+// 0.14
+if let Event::Reducer(reducer) = &*msg.event { }
+```
+
+Method calls and formatting auto-deref and need no change. Note that `msg.event.clone()` still
+compiles but now yields `Arc<RowEvent<T>>`; use `(*msg.event).clone()` for an owned event.
 
 ## Notes
 
