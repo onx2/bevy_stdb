@@ -4,6 +4,7 @@
 //! and binds SDK table callbacks for row event readers.
 mod bind;
 mod capability;
+mod fanout;
 
 use crate::{connection::StdbConnection, set::StdbSet};
 use bevy_app::{App, Plugin, PreUpdate};
@@ -11,7 +12,7 @@ use bevy_ecs::{
     prelude::{Resource, World, resource_added},
     schedule::IntoScheduleConfigs,
 };
-pub(crate) use bind::{bind_delete, bind_insert, bind_insert_update, bind_update};
+pub(crate) use bind::{bind_delete, bind_insert, bind_update};
 pub(crate) use capability::CapabilityLedger;
 pub use capability::TableCapability;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};

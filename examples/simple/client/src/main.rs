@@ -231,3 +231,130 @@ mod registration_tests {
         }));
     }
 }
+
+#[cfg(test)]
+mod fanout_tests {
+    use crate::module_bindings::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::*;
+    use bevy_stdb::prelude::*;
+    use spacetimedb_sdk::{Event, Identity};
+    use std::sync::Arc;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(
+            StdbPlugin::<DbConnection, RemoteModule>::default()
+                .with_uri(String::from("http://localhost:3000"))
+                .with_database_name(String::from("bevy-stdb-simple"))
+                .with_background_driver(DbConnection::run_threaded)
+                .add_table::<PlayerTableAccessor>(),
+        );
+        app
+    }
+
+    fn player(x: f32) -> Player {
+        Player { identity: Identity::from_byte_array([0; 32]), online: true, x, y: 0.0 }
+    }
+
+    #[test]
+    fn one_change_fans_out_to_every_bound_stream() {
+        let mut app = app();
+        let tx = app
+            .world()
+            .resource::<StdbChannels>()
+            .sender::<TableChange<Player>>();
+
+        tx.send(TableChange::Insert {
+            event: Arc::new(Event::SubscribeApplied),
+            row: player(1.0),
+        })
+        .unwrap();
+        tx.send(TableChange::Update {
+            event: Arc::new(Event::SubscribeApplied),
+            old: player(1.0),
+            new: player(2.0),
+        })
+        .unwrap();
+        tx.send(TableChange::Delete {
+            event: Arc::new(Event::SubscribeApplied),
+            row: player(2.0),
+        })
+        .unwrap();
+        app.update();
+
+        let w = app.world_mut();
+        let unified = w
+            .run_system_once(|mut r: ReadTableChangeMessage<Player>| r.read().count())
+            .unwrap();
+        let inserts = w
+            .run_system_once(|mut r: ReadInsertMessage<Player>| r.read().count())
+            .unwrap();
+        let updates = w
+            .run_system_once(|mut r: ReadUpdateMessage<Player>| r.read().count())
+            .unwrap();
+        let deletes = w
+            .run_system_once(|mut r: ReadDeleteMessage<Player>| r.read().count())
+            .unwrap();
+        let upserts = w
+            .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| r.read().count())
+            .unwrap();
+
+        assert_eq!((unified, inserts, updates, deletes, upserts), (3, 1, 1, 1, 2));
+    }
+
+    #[test]
+    fn the_unified_stream_keeps_callback_order() {
+        let mut app = app();
+        let tx = app
+            .world()
+            .resource::<StdbChannels>()
+            .sender::<TableChange<Player>>();
+
+        for x in 0..5 {
+            let e = Arc::new(Event::SubscribeApplied);
+            let _ = tx.send(if x % 2 == 0 {
+                TableChange::Insert { event: e, row: player(x as f32) }
+            } else {
+                TableChange::Delete { event: e, row: player(x as f32) }
+            });
+        }
+        app.update();
+
+        let seen = app
+            .world_mut()
+            .run_system_once(|mut r: ReadTableChangeMessage<Player>| {
+                r.read()
+                    .map(|c| match c {
+                        TableChange::Insert { row, .. } => ('i', row.x),
+                        TableChange::Delete { row, .. } => ('d', row.x),
+                        TableChange::Update { new, .. } => ('u', new.x),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+
+        assert_eq!(
+            seen,
+            vec![('i', 0.0), ('d', 1.0), ('i', 2.0), ('d', 3.0), ('i', 4.0)]
+        );
+    }
+
+    #[test]
+    fn the_event_is_shared_not_cloned_per_stream() {
+        let mut app = app();
+        let tx = app
+            .world()
+            .resource::<StdbChannels>()
+            .sender::<TableChange<Player>>();
+        let event = Arc::new(Event::SubscribeApplied);
+
+        tx.send(TableChange::Insert { event: Arc::clone(&event), row: player(1.0) })
+            .unwrap();
+        app.update();
+
+        // held here, plus TableChange, InsertMessage and InsertUpdateMessage
+        assert_eq!(Arc::strong_count(&event), 4);
+    }
+}

@@ -5,10 +5,18 @@ use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
     Error, Identity,
 };
+use std::sync::Arc;
 
 /// Event metadata associated with row callbacks for a SpacetimeDB row type.
 pub type RowEvent<T> =
     <<<T as InModule>::Module as SpacetimeModule>::EventContext as AbstractEventContext>::Event;
+
+/// A row event shared by every message derived from one SDK row callback.
+///
+/// A generated `Event` carries the reducer that caused the change, including its arguments, so
+/// it can be far larger than the row itself. The callback clones it once and each derived
+/// message shares it; deref to read it as a `RowEvent`.
+pub type SharedRowEvent<T> = Arc<RowEvent<T>>;
 
 /// A [`Message`] sent when a SpacetimeDB connection is established.
 #[derive(Message, Debug)]
@@ -63,9 +71,10 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
 
 /// A [`Message`] sent when a subscribed table row changes.
 ///
-/// The insert, delete, and update variants share one channel and are forwarded from the same
-/// SDK callbacks as the corresponding typed messages. For one row type and connection driver,
-/// values retain SDK callback order without cross-type channel reordering.
+/// This is the one stream the SDK row callbacks feed; the typed streams read through
+/// [`ReadInsertMessage`](crate::prelude::ReadInsertMessage) and its siblings are projected from
+/// it. For one row type and connection driver, values retain SDK callback order without
+/// cross-type channel reordering.
 ///
 /// The SDK may group or coalesce rows while applying a transaction diff, so this is not an
 /// operation log and does not expose the order of mutations within one server transaction.
@@ -79,21 +88,21 @@ where
     /// The row was inserted.
     Insert {
         /// The SpacetimeDB event that triggered the row callback.
-        event: RowEvent<T>,
+        event: SharedRowEvent<T>,
         /// The inserted row.
         row: T,
     },
     /// The row was deleted.
     Delete {
         /// The SpacetimeDB event that triggered the row callback.
-        event: RowEvent<T>,
+        event: SharedRowEvent<T>,
         /// The deleted row.
         row: T,
     },
     /// The row was updated.
     Update {
         /// The SpacetimeDB event that triggered the row callback.
-        event: RowEvent<T>,
+        event: SharedRowEvent<T>,
         /// The previous row value.
         old: T,
         /// The updated row value.
@@ -109,7 +118,7 @@ where
     RowEvent<T>: Send + Sync,
 {
     /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
+    pub event: SharedRowEvent<T>,
     /// The affected row.
     pub row: T,
 }
@@ -122,7 +131,7 @@ where
     RowEvent<T>: Send + Sync,
 {
     /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
+    pub event: SharedRowEvent<T>,
     /// The affected row.
     pub row: T,
 }
@@ -135,7 +144,7 @@ where
     RowEvent<T>: Send + Sync,
 {
     /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
+    pub event: SharedRowEvent<T>,
     /// The previous row value.
     pub old: T,
     /// The updated row value.
@@ -150,7 +159,7 @@ where
     RowEvent<T>: Send + Sync,
 {
     /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
+    pub event: SharedRowEvent<T>,
     /// The previous row value, if this was an update.
     pub old: Option<T>,
     /// The current row value.

@@ -171,7 +171,7 @@ fn main() {
 
 Use the `StdbPlugin` builder methods to register table bindings during app setup.
 
-Each method eagerly registers the internal Bevy message channels for the row type and stores a deferred binding that runs whenever a connection becomes active. Insert, delete, and update capabilities also register the unified `TableChange<T>` channel automatically; no separate ordered-binding option is required.
+Each method eagerly registers the internal Bevy messages for the row type and stores a deferred binding that runs whenever a connection becomes active. Every capability registers the unified `TableChange<T>` channel automatically; no separate ordered-binding option is required.
 
 The `add_*` methods are semantic convenience APIs. For capability-based registration, use `bind` or the direct `bind_insert`, `bind_delete`, `bind_update`, and `bind_insert_update` methods. Unsupported capabilities fail at compile time; duplicate bindings panic during plugin configuration with the accessor and capability in the error.
 
@@ -210,7 +210,7 @@ Depending on the table shape, systems consume database changes through MessageRe
 - `ReadUpdateMessage<T>`
 - `ReadInsertUpdateMessage<T>`
 
-These aliases are `MessageReader`s backed by internal message channels. The legacy message types are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
+These aliases are `MessageReader`s. The message types themselves are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
 
 ### Unified table changes
 
@@ -231,7 +231,21 @@ fn on_player_change(mut changes: ReadTableChangeMessage<PlayerRow>) {
 }
 ```
 
-The unified stream is forwarded from the same SDK insert, delete, and update callbacks as the legacy typed streams. Its deterministic property is limited to preserving the order in which the SDK invokes those callbacks for one row type and connection driver; it does not recover server-side mutation order within a transaction, and streams for different row types are independent. `ReadInsertUpdateMessage<T>` remains a separate compatibility stream and is not an additional `TableChange` variant.
+`TableChange<T>` is the one stream the SDK callbacks feed. The typed streams above are projected from it each frame, so a row callback clones its event once no matter how many streams observe it, and `ReadInsertUpdateMessage<T>` stays a separate compatibility stream rather than an additional `TableChange` variant.
+
+Its deterministic property is limited to preserving the order in which the SDK invokes insert, delete, and update callbacks for one row type and connection driver; it does not recover server-side mutation order within a transaction, and streams for different row types are independent.
+
+A generated `Event` carries the reducer that caused the change, arguments included, so it can be much larger than the row. Every message therefore holds it as `SharedRowEvent<T>` (an `Arc`), which derefs to the event:
+
+```rust
+fn on_player_change(mut changes: ReadTableChangeMessage<PlayerRow>) {
+    for change in changes.read() {
+        if let TableChange::Insert { event, row } = change {
+            info!("{row:?} from {:?}", **event);
+        }
+    }
+}
+```
 
 ```rust
 use crate::module_bindings::Reducer;
