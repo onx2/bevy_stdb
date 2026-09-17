@@ -37,6 +37,8 @@ pub struct TableCapability<
     T,
 > {
     kind: TableCapabilityKind,
+    /// The row type this capability yields, which keys the shared change channel.
+    row_type: TypeId,
     app_registration: fn(&mut bevy_app::App),
     change_registration: Option<fn(&mut bevy_app::App)>,
     table_binding: Arc<TableBindCallback<C>>,
@@ -61,6 +63,7 @@ where
     {
         Self {
             kind: TableCapabilityKind::Insert,
+            row_type: TypeId::of::<T::Row>(),
             app_registration: register_channel::<InsertMessage<T::Row>>,
             change_registration: Some(register_channel::<TableChange<T::Row>>),
             table_binding: Arc::new(|world, db| {
@@ -83,6 +86,7 @@ where
     {
         Self {
             kind: TableCapabilityKind::Delete,
+            row_type: TypeId::of::<T::Row>(),
             app_registration: register_channel::<DeleteMessage<T::Row>>,
             change_registration: Some(register_channel::<TableChange<T::Row>>),
             table_binding: Arc::new(|world, db| {
@@ -105,6 +109,7 @@ where
     {
         Self {
             kind: TableCapabilityKind::Update,
+            row_type: TypeId::of::<T::Row>(),
             app_registration: register_channel::<UpdateMessage<T::Row>>,
             change_registration: Some(register_channel::<TableChange<T::Row>>),
             table_binding: Arc::new(|world, db| {
@@ -131,6 +136,7 @@ where
     {
         Self {
             kind: TableCapabilityKind::InsertUpdate,
+            row_type: TypeId::of::<T::Row>(),
             app_registration: register_channel::<InsertUpdateMessage<T::Row>>,
             change_registration: None,
             table_binding: Arc::new(|world, db| {
@@ -146,6 +152,7 @@ where
     {
         registry.register_capability::<T>(
             self.kind,
+            self.row_type,
             self.app_registration,
             self.change_registration,
             self.table_binding,
@@ -172,30 +179,177 @@ where
     fn register_capability<TTable>(
         &mut self,
         kind: TableCapabilityKind,
+        row_type: TypeId,
         register: fn(&mut bevy_app::App),
         change_register: Option<fn(&mut bevy_app::App)>,
         bind: Arc<TableBindCallback<C>>,
     ) where
         TTable: 'static,
     {
-        let table_id = TypeId::of::<TTable>();
-        let key = (table_id, kind);
-        let has_table_registration = self
-            .registered_capabilities
-            .iter()
-            .any(|(table, _)| *table == table_id);
-        assert!(
-            !self.registered_capabilities.contains(&key),
-            "duplicate table capability registration: accessor `{}` already has `{:?}` bound",
-            type_name::<TTable>(),
-            kind,
-        );
-        self.registered_capabilities.push(key);
+        self.ledger
+            .claim_capability(TypeId::of::<TTable>(), kind, type_name::<TTable>());
 
-        if !has_table_registration && let Some(change_register) = change_register {
+        // Channels are keyed by message type, so by row type -- not by accessor. A table and a
+        // view over one row (`monster_instance_tbl` and `monster_instance_aoi`) share their
+        // channels, and `register_channel` panics on a second registration of the same message
+        // type. Each accessor still binds its own SDK callbacks, which feed the shared channel.
+        if let Some(change_register) = change_register
+            && self.ledger.claim_change_channel(row_type)
+        {
             self.table_registrations.push(Arc::new(change_register));
         }
-        self.table_registrations.push(Arc::new(register));
+        if self.ledger.claim_channel(row_type, kind) {
+            self.table_registrations.push(Arc::new(register));
+        }
         self.table_bindings.push(bind);
+    }
+}
+
+/// Tracks which accessor/capability pairs and shared change channels a [`TableRegistry`] has
+/// already registered, so each underlying channel is registered exactly once.
+#[derive(Default)]
+pub(crate) struct CapabilityLedger {
+    /// Claimed accessor/capability pairs, for duplicate detection.
+    capabilities: Vec<(TypeId, TableCapabilityKind)>,
+    /// Row/capability pairs whose typed channel is registered.
+    channels: Vec<(TypeId, TableCapabilityKind)>,
+    /// Row types whose shared [`TableChange`] channel is registered.
+    change_channels: Vec<TypeId>,
+}
+
+impl CapabilityLedger {
+    /// Records an accessor/capability pair.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pair was already claimed. `accessor_name` names it in the message.
+    fn claim_capability(
+        &mut self,
+        accessor: TypeId,
+        kind: TableCapabilityKind,
+        accessor_name: &str,
+    ) {
+        let key = (accessor, kind);
+        assert!(
+            !self.capabilities.contains(&key),
+            "duplicate table capability registration: accessor `{accessor_name}` already has `{kind:?}` bound",
+        );
+        self.capabilities.push(key);
+    }
+
+    /// Claims the typed channel for `row_type` and `kind`, returning whether this caller is the
+    /// first to do so and must therefore register it.
+    fn claim_channel(&mut self, row_type: TypeId, kind: TableCapabilityKind) -> bool {
+        let key = (row_type, kind);
+        if self.channels.contains(&key) {
+            return false;
+        }
+        self.channels.push(key);
+        true
+    }
+
+    /// Claims the shared [`TableChange`] channel for `row_type`, returning whether this caller is
+    /// the first to do so and must therefore register it.
+    fn claim_change_channel(&mut self, row_type: TypeId) -> bool {
+        if self.change_channels.contains(&row_type) {
+            return false;
+        }
+        self.change_channels.push(row_type);
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CapabilityLedger, TableCapabilityKind};
+    use std::any::TypeId;
+
+    // Stand-ins for a generated table accessor, a view accessor over the same row, and two rows.
+    struct MonsterTbl;
+    struct MonsterAoi;
+    struct MonsterRow;
+    struct PlayerRow;
+
+    fn claim(ledger: &mut CapabilityLedger, accessor: TypeId, kind: TableCapabilityKind) {
+        ledger.claim_capability(accessor, kind, "TestAccessor");
+    }
+
+    #[test]
+    fn insert_update_first_still_registers_the_change_channel() {
+        // `bind` takes capabilities in caller order, so `InsertUpdate` can be claimed first even
+        // though it never sends a `TableChange`. A later `Insert` must still register the
+        // channel, or binding it panics with "unregistered channel" on connect.
+        let mut ledger = CapabilityLedger::default();
+        claim(
+            &mut ledger,
+            TypeId::of::<MonsterTbl>(),
+            TableCapabilityKind::InsertUpdate,
+        );
+        claim(
+            &mut ledger,
+            TypeId::of::<MonsterTbl>(),
+            TableCapabilityKind::Insert,
+        );
+
+        assert!(ledger.claim_change_channel(TypeId::of::<MonsterRow>()));
+    }
+
+    #[test]
+    fn a_table_and_a_view_over_one_row_share_their_channels() {
+        // `register_channel` panics on a duplicate message type, and message types are keyed by
+        // row, so the second accessor over `MonsterRow` must claim nothing.
+        let mut ledger = CapabilityLedger::default();
+        let (row, kind) = (TypeId::of::<MonsterRow>(), TableCapabilityKind::Insert);
+
+        claim(&mut ledger, TypeId::of::<MonsterTbl>(), kind);
+        assert!(ledger.claim_change_channel(row));
+        assert!(ledger.claim_channel(row, kind));
+
+        claim(&mut ledger, TypeId::of::<MonsterAoi>(), kind);
+        assert!(!ledger.claim_change_channel(row));
+        assert!(!ledger.claim_channel(row, kind));
+    }
+
+    #[test]
+    fn each_capability_claims_its_own_typed_channel() {
+        let mut ledger = CapabilityLedger::default();
+        let row = TypeId::of::<MonsterRow>();
+
+        for kind in [
+            TableCapabilityKind::Insert,
+            TableCapabilityKind::Delete,
+            TableCapabilityKind::Update,
+            TableCapabilityKind::InsertUpdate,
+        ] {
+            assert!(ledger.claim_channel(row, kind), "{kind:?} channel");
+        }
+        // ...but they share one change channel.
+        assert!(ledger.claim_change_channel(row));
+        assert!(!ledger.claim_change_channel(row));
+    }
+
+    #[test]
+    fn distinct_row_types_claim_distinct_channels() {
+        let mut ledger = CapabilityLedger::default();
+
+        assert!(ledger.claim_change_channel(TypeId::of::<MonsterRow>()));
+        assert!(ledger.claim_change_channel(TypeId::of::<PlayerRow>()));
+    }
+
+    #[test]
+    #[should_panic(expected = "already has `Insert` bound")]
+    fn one_accessor_may_not_claim_a_capability_twice() {
+        let mut ledger = CapabilityLedger::default();
+
+        claim(
+            &mut ledger,
+            TypeId::of::<MonsterTbl>(),
+            TableCapabilityKind::Insert,
+        );
+        claim(
+            &mut ledger,
+            TypeId::of::<MonsterTbl>(),
+            TableCapabilityKind::Insert,
+        );
     }
 }
