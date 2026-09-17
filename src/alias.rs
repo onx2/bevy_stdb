@@ -2,9 +2,27 @@
 use crate::message::{
     DeleteMessage, InsertMessage, InsertUpdateMessage, StdbConnectErrorMessage,
     StdbConnectedMessage, StdbDisconnectedMessage, StdbSubscriptionAppliedMessage,
-    StdbSubscriptionErrorMessage, UpdateMessage,
+    StdbSubscriptionErrorMessage, TableChange, UpdateMessage,
 };
 use bevy_ecs::prelude::MessageReader;
+
+/// Reads ordered table changes for rows of `T`.
+///
+/// Register the table with [`StdbPlugin::add_table`](crate::prelude::StdbPlugin::add_table)
+/// or an insert, delete, or update capability, then read all change kinds from one stream.
+///
+/// ```ignore
+/// fn read_changes(mut changes: ReadTableChangeMessage<'_, '_, PlayerRow>) {
+///     for change in changes.read() {
+///         match change {
+///             TableChange::Insert { row, .. } => { /* use `row` */ }
+///             TableChange::Update { old, new, .. } => { /* use `old` and `new` */ }
+///             TableChange::Delete { row, .. } => { /* use `row` */ }
+///         }
+///     }
+/// }
+/// ```
+pub type ReadTableChangeMessage<'w, 's, T> = MessageReader<'w, 's, TableChange<T>>;
 
 /// Reads insert events for rows of `T`.
 pub type ReadInsertMessage<'w, 's, T> = MessageReader<'w, 's, InsertMessage<T>>;

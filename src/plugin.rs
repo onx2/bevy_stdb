@@ -239,9 +239,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Registers table event capabilities for a generated table accessor.
     ///
-    /// Each capability constructor validates the corresponding SDK trait at
-    /// compile time. Duplicate accessor/capability pairs panic with a precise
-    /// error when this method is called.
+    /// The insert, delete, and update capabilities also expose the unified
+    /// [`crate::prelude::TableChange`] stream. The stream is registered alongside the existing
+    /// typed callback channels and preserves the SDK callback order across those change kinds.
+    /// Each capability constructor validates the corresponding SDK trait at compile time.
+    /// Duplicate accessor/capability pairs panic with a precise error when this method is called.
     ///
     /// # Example
     ///
@@ -321,7 +323,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.bind([TableCapability::<C, M, TTable>::insert_update()])
     }
 
-    /// Registers a table with a primary key.
+    /// Registers a table with a primary key and its unified [`crate::prelude::TableChange`] stream.
     ///
     /// # Example
     ///
@@ -346,7 +348,8 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             .bind_insert_update::<TTable>()
     }
 
-    /// Registers a table without a primary key.
+    /// Registers a table without a primary key and its supported unified
+    /// [`crate::prelude::TableChange`] stream.
     ///
     /// # Example
     ///
@@ -367,7 +370,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.bind_insert::<TTable>().bind_delete::<TTable>()
     }
 
-    /// Registers a view.
+    /// Registers a view and its supported unified [`crate::prelude::TableChange`] stream.
     ///
     /// # Example
     ///
@@ -388,7 +391,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.bind_insert::<TTable>().bind_delete::<TTable>()
     }
 
-    /// Registers an event table.
+    /// Registers an event table and its insert [`crate::prelude::TableChange`] stream.
     ///
     /// # Example
     ///

@@ -61,6 +61,46 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
     }
 }
 
+/// A [`Message`] sent when a subscribed table row changes.
+///
+/// The insert, delete, and update variants share one channel and are forwarded from the same
+/// SDK callbacks as the corresponding typed messages. For one row type and connection driver,
+/// values retain SDK callback order without cross-type channel reordering.
+///
+/// The SDK may group or coalesce rows while applying a transaction diff, so this is not an
+/// operation log and does not expose the order of mutations within one server transaction.
+/// Streams for different row types have no ordering relationship.
+#[derive(Message, Debug)]
+pub enum TableChange<T>
+where
+    T: InModule,
+    RowEvent<T>: Send + Sync,
+{
+    /// The row was inserted.
+    Insert {
+        /// The SpacetimeDB event that triggered the row callback.
+        event: RowEvent<T>,
+        /// The inserted row.
+        row: T,
+    },
+    /// The row was deleted.
+    Delete {
+        /// The SpacetimeDB event that triggered the row callback.
+        event: RowEvent<T>,
+        /// The deleted row.
+        row: T,
+    },
+    /// The row was updated.
+    Update {
+        /// The SpacetimeDB event that triggered the row callback.
+        event: RowEvent<T>,
+        /// The previous row value.
+        old: T,
+        /// The updated row value.
+        new: T,
+    },
+}
+
 /// A [`Message`] sent when a row is inserted into a subscribed table.
 #[derive(Message, Debug)]
 pub struct InsertMessage<T>

@@ -1,6 +1,8 @@
 use crate::{
     channel_bridge::channel_sender,
-    message::{DeleteMessage, InsertMessage, InsertUpdateMessage, RowEvent, UpdateMessage},
+    message::{
+        DeleteMessage, InsertMessage, InsertUpdateMessage, RowEvent, TableChange, UpdateMessage,
+    },
 };
 use bevy_ecs::prelude::World;
 use spacetimedb_sdk::__codegen::{
@@ -18,8 +20,13 @@ where
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<InsertMessage<TRow>>(world);
+    let change_sender = channel_sender::<TableChange<TRow>>(world);
     table.on_insert(move |ctx, row| {
         let _ = sender.send(InsertMessage {
+            event: ctx.event().clone(),
+            row: row.clone(),
+        });
+        let _ = change_sender.send(TableChange::Insert {
             event: ctx.event().clone(),
             row: row.clone(),
         });
@@ -37,8 +44,13 @@ where
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<DeleteMessage<TRow>>(world);
+    let change_sender = channel_sender::<TableChange<TRow>>(world);
     table.on_delete(move |ctx, row| {
         let _ = sender.send(DeleteMessage {
+            event: ctx.event().clone(),
+            row: row.clone(),
+        });
+        let _ = change_sender.send(TableChange::Delete {
             event: ctx.event().clone(),
             row: row.clone(),
         });
@@ -56,8 +68,14 @@ where
     TTable::EventContext: AbstractEventContext<Event = RowEvent<TRow>>,
 {
     let sender = channel_sender::<UpdateMessage<TRow>>(world);
+    let change_sender = channel_sender::<TableChange<TRow>>(world);
     table.on_update(move |ctx, old, new| {
         let _ = sender.send(UpdateMessage {
+            event: ctx.event().clone(),
+            old: old.clone(),
+            new: new.clone(),
+        });
+        let _ = change_sender.send(TableChange::Update {
             event: ctx.event().clone(),
             old: old.clone(),
             new: new.clone(),

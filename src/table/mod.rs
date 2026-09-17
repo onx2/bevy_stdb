@@ -12,10 +12,10 @@ use bevy_ecs::{
     schedule::IntoScheduleConfigs,
 };
 pub(crate) use bind::{bind_delete, bind_insert, bind_insert_update, bind_update};
+pub(crate) use capability::CapabilityLedger;
 pub use capability::TableCapability;
-pub(crate) use capability::TableCapabilityKind;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};
-use std::{any::TypeId, marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, sync::Arc};
 
 /// Stored callback that performs one-time Bevy app registration for a table/view.
 pub(crate) type TableRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
@@ -31,7 +31,7 @@ where
 {
     table_registrations: Vec<Arc<TableRegistrationCallback>>,
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
-    registered_capabilities: Vec<(TypeId, TableCapabilityKind)>,
+    ledger: CapabilityLedger,
     _module: PhantomData<fn() -> M>,
 }
 
@@ -44,7 +44,7 @@ where
         Self {
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
-            registered_capabilities: Vec::new(),
+            ledger: CapabilityLedger::default(),
             _module: PhantomData,
         }
     }

@@ -184,3 +184,50 @@ fn handle_move_request(
         (player.translation.y + step.y + half_h).rem_euclid(window.height()) - half_h,
     );
 }
+
+#[cfg(test)]
+mod registration_tests {
+    use crate::module_bindings::*;
+    use bevy::prelude::*;
+    use bevy_stdb::prelude::*;
+
+    fn app_with(
+        bind: impl FnOnce(
+            StdbPlugin<DbConnection, RemoteModule>,
+        ) -> StdbPlugin<DbConnection, RemoteModule>,
+    ) -> App {
+        let mut app = App::new();
+        let plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
+            .with_uri(String::from("http://localhost:3000"))
+            .with_database_name(String::from("bevy-stdb-simple"))
+            .with_background_driver(DbConnection::run_threaded);
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(bind(plugin));
+        app
+    }
+
+    /// The channel every bound capability sends into must exist before a connection binds it,
+    /// whatever order the capabilities were registered in. `channel_sender` panics otherwise,
+    /// and it runs when the connection becomes active rather than at startup.
+    fn assert_change_channel_registered(app: &App) {
+        let _ = app
+            .world()
+            .resource::<StdbChannels>()
+            .sender::<TableChange<Player>>();
+    }
+
+    #[test]
+    fn add_table_registers_the_change_channel() {
+        assert_change_channel_registered(&app_with(|p| p.add_table::<PlayerTableAccessor>()));
+    }
+
+    #[test]
+    fn insert_update_before_insert_registers_the_change_channel() {
+        // `InsertUpdate` sends no `TableChange` of its own, so claiming it first must not
+        // convince a later `Insert` that the channel is already registered.
+        assert_change_channel_registered(&app_with(|p| {
+            p.bind_insert_update::<PlayerTableAccessor>()
+                .bind_insert::<PlayerTableAccessor>()
+        }));
+    }
+}
