@@ -484,6 +484,33 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 ```
 
 
+## Performance
+
+Per change, the SDK callback copies the row once into `TableChange<T>` and clones the event once
+(or not at all, with `without_event`). Readers filter that one stream and borrow out of it, so
+binding more of them costs no extra copies and adds no systems to the schedule.
+
+`examples/simple/client/benches/table_streams.rs` measures one frame: `n` changes pushed into the
+channel, then `app.update()` drains them and every registered reader consumes them.
+
+```sh
+cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams
+```
+
+Criterion baselines are the way to track it across a change:
+
+```sh
+# on the commit you are comparing against
+cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams -- --save-baseline before
+# on your change
+cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams -- --baseline before
+```
+
+Two things the bench does not cover: everything upstream of the channel send happens on the SDK's
+thread and needs a live connection, and the event clone `without_event` saves happens there, so
+neither shows up here. CI compiles the bench but does not time it — shared runners are too noisy
+to gate on.
+
 ## Compatibility
 
 | bevy_stdb   | bevy | spacetimedb_sdk | MSRV |

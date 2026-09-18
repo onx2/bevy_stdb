@@ -110,10 +110,15 @@ jobs:
       # No format check: `cargo fmt` would also rewrite the committed
       # `spacetime generate` output under `src/module_bindings/`.
       - name: Lint
-        run: cargo clippy --manifest-path $MANIFEST --bins --tests --locked -- -D warnings
+        run: cargo clippy --manifest-path $MANIFEST --bins --tests --benches --locked -- -D warnings
 
       - name: Run tests
         run: cargo test --manifest-path $MANIFEST --locked
+
+      # Compiled, not timed: shared runners are too noisy to gate on, but the bench
+      # still has to keep building as the API moves.
+      - name: Build benches
+        run: cargo bench --manifest-path $MANIFEST --bench table_streams --no-run --locked
 
   # 4. Target-Specific Verification (WASM browser check on both MSRV and Stable)
   browser-wasm:

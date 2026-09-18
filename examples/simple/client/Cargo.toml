@@ -19,6 +19,13 @@ tracing = { version = "0.1", features = [
     "release_max_level_warn",
 ] }
 
+[dev-dependencies]
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "table_streams"
+harness = false
+
 [target.wasm32-unknown-unknown.dependencies]
 spacetimedb-sdk = { version = "2.7", features = ["browser"] }
 bevy_stdb = { path = "../../..", features = ["browser"] }
