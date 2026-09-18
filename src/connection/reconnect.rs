@@ -154,7 +154,7 @@ fn arm_reconnect_timer<C: DbContext + Send + Sync + 'static>(
     let mut intentional_disconnect = false;
     for message in disconnect_msgs.read() {
         disconnected = true;
-        intentional_disconnect |= matches!(message.result, Ok(DisconnectIntent::Requested));
+        intentional_disconnect |= matches!(&message.result, Ok(DisconnectIntent::Requested));
     }
     let connect_error = error_msgs.read().next().is_some();
 
