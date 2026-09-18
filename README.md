@@ -490,8 +490,10 @@ Per change, the SDK callback copies the row once into `TableChange<T>` and clone
 (or not at all, with `without_event`). Readers filter that one stream and borrow out of it, so
 binding more of them costs no extra copies and adds no systems to the schedule.
 
-`examples/simple/client/benches/table_streams.rs` measures one frame: `n` changes pushed into the
-channel, then `app.update()` drains them and every registered reader consumes them.
+`examples/simple/client/benches/table_streams.rs` measures one frame: the changes `n` row events
+deliver, pushed into the channel, then `app.update()` drains them and every registered reader
+consumes them. Bindings are matched to readers, since binding a capability you never read is the
+thing this design made free.
 
 ```sh
 cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams
