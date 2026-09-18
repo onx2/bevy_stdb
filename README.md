@@ -254,7 +254,7 @@ use spacetimedb_sdk::Event;
 
 fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
   for msg in messages.read() {
-    match &msg.event {
+    match &*msg.event {
       Event::Reducer(r) => {
         /* r.status, r.timestamp, r.reducer */ 
         if let Reducer::CreatePerson(p) = &r.reducer { /* ... */ }
