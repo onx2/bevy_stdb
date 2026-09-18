@@ -115,7 +115,7 @@ fn spawn_player(
 /// Interpolate the rendered position of the player toward the server authority's position
 fn interpolate(
     time: Res<Time>,
-    mut player: Single<(&mut Transform, &NetTransform), With<PlayerMarker>>,
+    player: Single<(&mut Transform, &NetTransform), With<PlayerMarker>>,
     window: Single<&Window>, // Added window to check screen bounds
 ) {
     let dt = time.delta_secs();
@@ -223,11 +223,32 @@ mod registration_tests {
 
     #[test]
     fn insert_update_before_insert_registers_the_change_channel() {
-        // `InsertUpdate` sends no `TableChange` of its own, so claiming it first must not
-        // convince a later `Insert` that the channel is already registered.
+        // Every capability registers the shared channel, so claiming `InsertUpdate` first must
+        // not leave a later `Insert` believing someone else already did it -- nor register it
+        // twice, which `register_channel` panics on.
         assert_change_channel_registered(&app_with(|p| {
             p.bind_insert_update::<PlayerTableAccessor>()
                 .bind_insert::<PlayerTableAccessor>()
+        }));
+    }
+
+    #[test]
+    fn every_add_method_registers_the_change_channel() {
+        assert_change_channel_registered(&app_with(|p| {
+            p.add_table_without_pk::<PlayerTableAccessor>()
+        }));
+        assert_change_channel_registered(&app_with(|p| p.add_view::<PlayerTableAccessor>()));
+        assert_change_channel_registered(&app_with(|p| p.add_event_table::<PlayerTableAccessor>()));
+    }
+
+    #[test]
+    fn opting_out_of_events_still_registers_everything_else() {
+        // `without_event` only changes what a bound callback puts in the message; it must not
+        // disturb registration, and it is order-independent.
+        assert_change_channel_registered(&app_with(|p| {
+            p.without_event::<PlayerTableAccessor>()
+                .add_table::<PlayerTableAccessor>()
+                .without_event::<PlayerTableAccessor>()
         }));
     }
 }
@@ -242,43 +263,65 @@ mod fanout_tests {
     use std::sync::Arc;
 
     fn app() -> App {
+        app_with(|p| p)
+    }
+
+    fn app_with(
+        bind: impl FnOnce(
+            StdbPlugin<DbConnection, RemoteModule>,
+        ) -> StdbPlugin<DbConnection, RemoteModule>,
+    ) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.add_plugins(
-            StdbPlugin::<DbConnection, RemoteModule>::default()
-                .with_uri(String::from("http://localhost:3000"))
-                .with_database_name(String::from("bevy-stdb-simple"))
-                .with_background_driver(DbConnection::run_threaded)
-                .add_table::<PlayerTableAccessor>(),
+            bind(
+                StdbPlugin::<DbConnection, RemoteModule>::default()
+                    .with_uri(String::from("http://localhost:3000"))
+                    .with_database_name(String::from("bevy-stdb-simple"))
+                    .with_background_driver(DbConnection::run_threaded),
+            )
+            .add_table::<PlayerTableAccessor>(),
         );
         app
     }
 
     fn player(x: f32) -> Player {
-        Player { identity: Identity::from_byte_array([0; 32]), online: true, x, y: 0.0 }
+        Player {
+            identity: Identity::from_byte_array([0; 32]),
+            online: true,
+            x,
+            y: 0.0,
+        }
+    }
+
+    fn event() -> MaybeRowEvent<Player> {
+        Some(Arc::new(Event::SubscribeApplied))
+    }
+
+    fn sender(app: &App) -> Sender<TableChange<Player>> {
+        app.world()
+            .resource::<StdbChannels>()
+            .sender::<TableChange<Player>>()
     }
 
     #[test]
     fn one_change_fans_out_to_every_bound_stream() {
         let mut app = app();
-        let tx = app
-            .world()
-            .resource::<StdbChannels>()
-            .sender::<TableChange<Player>>();
+        let tx = sender(&app);
 
         tx.send(TableChange::Insert {
-            event: Arc::new(Event::SubscribeApplied),
+            event: event(),
             row: player(1.0),
         })
         .unwrap();
         tx.send(TableChange::Update {
-            event: Arc::new(Event::SubscribeApplied),
+            event: event(),
             old: player(1.0),
             new: player(2.0),
         })
         .unwrap();
         tx.send(TableChange::Delete {
-            event: Arc::new(Event::SubscribeApplied),
+            event: event(),
             row: player(2.0),
         })
         .unwrap();
@@ -301,23 +344,104 @@ mod fanout_tests {
             .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| r.read().count())
             .unwrap();
 
-        assert_eq!((unified, inserts, updates, deletes, upserts), (3, 1, 1, 1, 2));
+        assert_eq!(
+            (unified, inserts, updates, deletes, upserts),
+            (3, 1, 1, 1, 2)
+        );
+    }
+
+    #[test]
+    fn the_derived_rows_carry_the_change_they_were_projected_from() {
+        // Counting alone would pass if a projection copied the wrong row or dropped `old`.
+        let mut app = app();
+        sender(&app)
+            .send(TableChange::Update {
+                event: event(),
+                old: player(1.0),
+                new: player(2.0),
+            })
+            .unwrap();
+        app.update();
+
+        let w = app.world_mut();
+        let updates = w
+            .run_system_once(|mut r: ReadUpdateMessage<Player>| {
+                r.read().map(|m| (m.old.x, m.new.x)).collect::<Vec<_>>()
+            })
+            .unwrap();
+        let upserts = w
+            .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| {
+                r.read()
+                    .map(|m| (m.old.as_ref().map(|o| o.x), m.new.x))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+
+        assert_eq!(updates, vec![(1.0, 2.0)]);
+        assert_eq!(upserts, vec![(Some(1.0), 2.0)]);
+    }
+
+    #[test]
+    fn an_insert_reaches_insert_update_with_no_old_row() {
+        let mut app = app();
+        sender(&app)
+            .send(TableChange::Insert {
+                event: event(),
+                row: player(7.0),
+            })
+            .unwrap();
+        app.update();
+
+        let upserts = app
+            .world_mut()
+            .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| {
+                r.read()
+                    .map(|m| (m.old.is_some(), m.new.x))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+
+        assert_eq!(upserts, vec![(false, 7.0)]);
+    }
+
+    #[test]
+    fn a_delete_reaches_no_insert_or_insert_update_stream() {
+        let mut app = app();
+        sender(&app)
+            .send(TableChange::Delete {
+                event: event(),
+                row: player(1.0),
+            })
+            .unwrap();
+        app.update();
+
+        let w = app.world_mut();
+        let inserts = w
+            .run_system_once(|mut r: ReadInsertMessage<Player>| r.read().count())
+            .unwrap();
+        let upserts = w
+            .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| r.read().count())
+            .unwrap();
+
+        assert_eq!((inserts, upserts), (0, 0));
     }
 
     #[test]
     fn the_unified_stream_keeps_callback_order() {
         let mut app = app();
-        let tx = app
-            .world()
-            .resource::<StdbChannels>()
-            .sender::<TableChange<Player>>();
+        let tx = sender(&app);
 
         for x in 0..5 {
-            let e = Arc::new(Event::SubscribeApplied);
             let _ = tx.send(if x % 2 == 0 {
-                TableChange::Insert { event: e, row: player(x as f32) }
+                TableChange::Insert {
+                    event: event(),
+                    row: player(x as f32),
+                }
             } else {
-                TableChange::Delete { event: e, row: player(x as f32) }
+                TableChange::Delete {
+                    event: event(),
+                    row: player(x as f32),
+                }
             });
         }
         app.update();
@@ -342,19 +466,67 @@ mod fanout_tests {
     }
 
     #[test]
+    fn a_change_is_projected_exactly_once_across_frames() {
+        // Bevy keeps messages for two frames. The fan-out reader holds a cursor, so a second
+        // frame must not re-project what the first already did.
+        let mut app = app();
+        sender(&app)
+            .send(TableChange::Insert {
+                event: event(),
+                row: player(1.0),
+            })
+            .unwrap();
+        app.update();
+        app.update();
+
+        let inserts = app
+            .world_mut()
+            .run_system_once(|mut r: ReadInsertMessage<Player>| r.read().count())
+            .unwrap();
+
+        assert_eq!(inserts, 1);
+    }
+
+    #[test]
     fn the_event_is_shared_not_cloned_per_stream() {
         let mut app = app();
-        let tx = app
-            .world()
-            .resource::<StdbChannels>()
-            .sender::<TableChange<Player>>();
         let event = Arc::new(Event::SubscribeApplied);
 
-        tx.send(TableChange::Insert { event: Arc::clone(&event), row: player(1.0) })
+        sender(&app)
+            .send(TableChange::Insert {
+                event: Some(Arc::clone(&event)),
+                row: player(1.0),
+            })
             .unwrap();
         app.update();
 
         // held here, plus TableChange, InsertMessage and InsertUpdateMessage
         assert_eq!(Arc::strong_count(&event), 4);
+    }
+
+    #[test]
+    fn a_row_type_without_events_projects_none_to_every_stream() {
+        let mut app = app_with(|p| p.without_event::<PlayerTableAccessor>());
+        sender(&app)
+            .send(TableChange::Insert {
+                event: None,
+                row: player(1.0),
+            })
+            .unwrap();
+        app.update();
+
+        let w = app.world_mut();
+        let inserts = w
+            .run_system_once(|mut r: ReadInsertMessage<Player>| {
+                r.read().map(|m| m.event.is_some()).collect::<Vec<_>>()
+            })
+            .unwrap();
+        let upserts = w
+            .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| {
+                r.read().map(|m| m.event.is_some()).collect::<Vec<_>>()
+            })
+            .unwrap();
+
+        assert_eq!((inserts, upserts), (vec![false], vec![false]));
     }
 }

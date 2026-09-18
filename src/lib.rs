@@ -13,12 +13,17 @@
 //!   connection as [`StdbConnection`](crate::prelude::StdbConnection).
 //! - **Tables** — Register internal channels for Bevy
 //!   [`Message`](bevy_ecs::prelude::Message) values once at startup and
-//!   re-bind SDK table callbacks whenever a connection becomes active. Row
-//!   changes are consumed through read-only reader aliases such as
+//!   re-bind SDK table callbacks whenever a connection becomes active. SDK
+//!   callbacks feed one [`TableChange`](crate::prelude::TableChange) stream per
+//!   row type, read through
+//!   [`ReadTableChangeMessage`](crate::prelude::ReadTableChangeMessage); the
+//!   typed reader aliases
 //!   [`ReadInsertMessage`](crate::prelude::ReadInsertMessage),
 //!   [`ReadDeleteMessage`](crate::prelude::ReadDeleteMessage),
 //!   [`ReadUpdateMessage`](crate::prelude::ReadUpdateMessage), and
-//!   [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage).
+//!   [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage) are
+//!   projected from it each frame, so inserts, deletes, and updates of one row
+//!   type keep the order the SDK delivered them in.
 //! - **Subscriptions** — Store subscription intent separately from the live
 //!   connection via [`StdbSubscriptions`](crate::prelude::StdbSubscriptions)
 //!   so queries are automatically re-applied after reconnects.
@@ -104,10 +109,15 @@ pub mod prelude {
         channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
-        message::{SharedRowEvent, TableChange},
+        message::{MaybeRowEvent, RowEvent, SharedRowEvent, TableChange},
         plugin::StdbPlugin,
         set::StdbSet,
         subscription::StdbSubscriptions,
         table::TableCapability,
     };
+    /// The channel sender [`StdbChannels::sender`] hands out.
+    ///
+    /// Re-exported so naming one does not mean depending on `crossbeam-channel` directly and
+    /// keeping its version in step with this crate's.
+    pub use crossbeam_channel::Sender;
 }

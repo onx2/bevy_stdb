@@ -15,8 +15,15 @@ pub type RowEvent<T> =
 ///
 /// A generated `Event` carries the reducer that caused the change, including its arguments, so
 /// it can be far larger than the row itself. The callback clones it once and each derived
-/// message shares it; deref to read it as a `RowEvent`.
+/// message shares it; deref to read it as a [`RowEvent`].
 pub type SharedRowEvent<T> = Arc<RowEvent<T>>;
+
+/// The row event carried by a table message, or `None` when the row type opted out with
+/// [`StdbPlugin::without_event`](crate::prelude::StdbPlugin::without_event).
+///
+/// `Arc` is never null, so the `None` case costs no extra space: this is the same size as
+/// [`SharedRowEvent`].
+pub type MaybeRowEvent<T> = Option<SharedRowEvent<T>>;
 
 /// A [`Message`] sent when a SpacetimeDB connection is established.
 #[derive(Message, Debug)]
@@ -79,6 +86,10 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
 /// The SDK may group or coalesce rows while applying a transaction diff, so this is not an
 /// operation log and does not expose the order of mutations within one server transaction.
 /// Streams for different row types have no ordering relationship.
+///
+/// The stream is keyed by row type, not by accessor: binding both a table and a view over one
+/// row type merges their callbacks here, and a change seen by both arrives twice with nothing
+/// to tell them apart. Subscribe to one accessor per row type when that matters.
 #[derive(Message, Debug)]
 pub enum TableChange<T>
 where
@@ -87,22 +98,22 @@ where
 {
     /// The row was inserted.
     Insert {
-        /// The SpacetimeDB event that triggered the row callback.
-        event: SharedRowEvent<T>,
+        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        event: MaybeRowEvent<T>,
         /// The inserted row.
         row: T,
     },
     /// The row was deleted.
     Delete {
-        /// The SpacetimeDB event that triggered the row callback.
-        event: SharedRowEvent<T>,
+        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        event: MaybeRowEvent<T>,
         /// The deleted row.
         row: T,
     },
     /// The row was updated.
     Update {
-        /// The SpacetimeDB event that triggered the row callback.
-        event: SharedRowEvent<T>,
+        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        event: MaybeRowEvent<T>,
         /// The previous row value.
         old: T,
         /// The updated row value.
@@ -117,8 +128,8 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: SharedRowEvent<T>,
+    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+    pub event: MaybeRowEvent<T>,
     /// The affected row.
     pub row: T,
 }
@@ -130,8 +141,8 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: SharedRowEvent<T>,
+    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+    pub event: MaybeRowEvent<T>,
     /// The affected row.
     pub row: T,
 }
@@ -143,8 +154,8 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: SharedRowEvent<T>,
+    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+    pub event: MaybeRowEvent<T>,
     /// The previous row value.
     pub old: T,
     /// The updated row value.
@@ -158,8 +169,8 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: SharedRowEvent<T>,
+    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+    pub event: MaybeRowEvent<T>,
     /// The previous row value, if this was an update.
     pub old: Option<T>,
     /// The current row value.

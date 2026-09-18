@@ -182,6 +182,7 @@ The `add_*` methods are semantic convenience APIs. For capability-based registra
 | `add_event_table::<T>` | Append-only log table — exposes unified insert changes plus typed readers |
 | `add_view::<T>` | Server-computed virtual table — exposes unified insert/delete changes plus typed readers |
 | `bind::<T>`, `bind_*::<T>` | Explicit control — exposes specific message readers |
+| `without_event::<T>` | Messages for this row type carry no SDK event — see [Dropping the event](#dropping-the-event) |
 
 ```rust
 // Semantic convenience APIs.
@@ -210,7 +211,7 @@ Depending on the table shape, systems consume database changes through MessageRe
 - `ReadUpdateMessage<T>`
 - `ReadInsertUpdateMessage<T>`
 
-These aliases are `MessageReader`s. The message types themselves are not part of the public API, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
+These aliases are `MessageReader`s. `TableChange<T>` is public because you match on its variants; the derived message types are not, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
 
 ### Unified table changes
 
@@ -235,17 +236,40 @@ fn on_player_change(mut changes: ReadTableChangeMessage<PlayerRow>) {
 
 Its deterministic property is limited to preserving the order in which the SDK invokes insert, delete, and update callbacks for one row type and connection driver; it does not recover server-side mutation order within a transaction, and streams for different row types are independent.
 
+The stream is keyed by the **row type**, not the accessor. Binding both a table and a view over one row type merges their callbacks into it, and a change both of them see arrives twice with nothing to tell the two apart — subscribe to one accessor per row type when that matters.
+
+What it costs: the row is copied once into `TableChange<T>` and once more per typed stream you bind, so a row bound through `add_table` is copied three times (unified, `InsertMessage`, `InsertUpdateMessage`) where the previous per-callback design copied it twice. In exchange the event — usually the bigger of the two — is cloned once instead of once per stream, and the SDK callback runs once instead of once per capability. Bind only the streams you read (`bind_insert` rather than `add_table`) to bring the row copies back down, and use `without_event` below to drop the event clone entirely.
+
 A generated `Event` carries the reducer that caused the change, arguments included, so it can be much larger than the row. Every message therefore holds it as `SharedRowEvent<T>` (an `Arc`), which derefs to the event:
 
 ```rust
 fn on_player_change(mut changes: ReadTableChangeMessage<PlayerRow>) {
     for change in changes.read() {
-        if let TableChange::Insert { event, row } = change {
+        if let TableChange::Insert { event: Some(event), row } = change {
             info!("{row:?} from {:?}", **event);
         }
     }
 }
 ```
+
+### Dropping the event
+
+The SDK invokes a row callback once per changed row, so a transaction touching 500 rows clones
+that event 500 times — and each clone carries the reducer's arguments. A row type read only for
+its row data can skip it:
+
+```rust
+StdbPlugin::<DbConnection, RemoteModule>::default()
+    // ...
+    .add_table::<PlayerTableAccessor>()
+    .without_event::<PlayerTableAccessor>()
+```
+
+`event` on every message for that row type is then `None`. This applies to the row type rather
+than the accessor — a table and a view over one row share the stream, so they share the policy —
+and it is order-independent: declare it before or after the table it applies to. `Arc` is never
+null, so `MaybeRowEvent<T>` is the same size as `SharedRowEvent<T>`; opting out saves the clone,
+not the pointer.
 
 ```rust
 use crate::module_bindings::Reducer;
@@ -254,7 +278,8 @@ use spacetimedb_sdk::Event;
 
 fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
   for msg in messages.read() {
-    match &*msg.event {
+    let Some(event) = &msg.event else { continue };
+    match &**event {
       Event::Reducer(r) => {
         /* r.status, r.timestamp, r.reducer */ 
         if let Reducer::CreatePerson(p) = &r.reducer { /* ... */ }
@@ -468,22 +493,24 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ### Upgrading to 0.14
 
-`event` on every row message is now `SharedRowEvent<T>` (`Arc<RowEvent<T>>`) instead of
-`RowEvent<T>`, so one SDK row callback clones its event once however many streams observe it.
-This affects `TableChange` and the messages read through `ReadInsertMessage`,
-`ReadDeleteMessage`, `ReadUpdateMessage`, and `ReadInsertUpdateMessage`.
+`event` on every row message is now `MaybeRowEvent<T>` (`Option<Arc<RowEvent<T>>>`) instead of
+`RowEvent<T>`: one SDK row callback clones its event once however many streams observe it, and a
+row type that opted out of events with `without_event` carries `None`. This affects `TableChange`
+and the messages read through `ReadInsertMessage`, `ReadDeleteMessage`, `ReadUpdateMessage`, and
+`ReadInsertUpdateMessage`.
 
-Matching on the event needs a deref:
+Matching on the event now unwraps and derefs:
 
 ```rust
 // 0.13
 if let Event::Reducer(reducer) = &msg.event { }
 // 0.14
-if let Event::Reducer(reducer) = &*msg.event { }
+if let Some(event) = &msg.event
+    && let Event::Reducer(reducer) = &**event { }
 ```
 
-Method calls and formatting auto-deref and need no change. Note that `msg.event.clone()` still
-compiles but now yields `Arc<RowEvent<T>>`; use `(*msg.event).clone()` for an owned event.
+Note that `msg.event.clone()` still compiles but now yields `Option<Arc<RowEvent<T>>>`; use
+`msg.event.as_deref().cloned()` for an owned event.
 
 ## Notes
 

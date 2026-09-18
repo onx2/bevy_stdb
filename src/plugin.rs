@@ -324,6 +324,32 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.bind([TableCapability::<C, M, TTable>::insert_update()])
     }
 
+    /// Drops the SpacetimeDB event from every message for `TTable`'s row type.
+    ///
+    /// The SDK invokes a row callback once per changed row, and a generated `Event` carries the
+    /// reducer that caused the change, arguments included -- so a transaction touching many rows
+    /// clones that event once per row. A row type read only for its row data can skip the clone
+    /// entirely; `event` on its messages is then `None`.
+    ///
+    /// Applies to the row type, not the accessor: one channel carries every accessor over a row
+    /// type, so a table and a view over the same row share this. Order-independent, and calling
+    /// it more than once for a row type is harmless.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// .add_table::<PlayerTableAccessor>()
+    /// .without_event::<PlayerTableAccessor>()
+    /// ```
+    pub fn without_event<TTable>(mut self) -> Self
+    where
+        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
+        TTable::Row: 'static,
+    {
+        self.table_registry.omit_event::<TTable::Row>();
+        self
+    }
+
     /// Registers a table with a primary key and its unified [`crate::prelude::TableChange`] stream.
     ///
     /// # Example

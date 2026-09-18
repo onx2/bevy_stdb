@@ -328,23 +328,30 @@ mod tests {
     }
 
     #[test]
-    fn insert_update_first_still_registers_the_change_channel() {
-        // `bind` takes capabilities in caller order, so `InsertUpdate` can be claimed first even
-        // though it never sends a `TableChange`. A later `Insert` must still register the
-        // channel, or binding it panics with "unregistered channel" on connect.
-        let mut ledger = CapabilityLedger::default();
-        claim(
-            &mut ledger,
-            TypeId::of::<MonsterTbl>(),
+    fn the_first_capability_of_any_kind_claims_the_change_channel() {
+        // Every capability registers the channel, so whichever is claimed first must be the one
+        // that registers it and the rest must not -- `register_channel` panics on a duplicate,
+        // and a row whose channel is never registered panics with "unregistered channel" when a
+        // connection binds it.
+        for first in [
             TableCapabilityKind::InsertUpdate,
-        );
-        claim(
-            &mut ledger,
-            TypeId::of::<MonsterTbl>(),
             TableCapabilityKind::Insert,
-        );
+            TableCapabilityKind::Delete,
+            TableCapabilityKind::Update,
+        ] {
+            let mut ledger = CapabilityLedger::default();
+            let row = TypeId::of::<MonsterRow>();
 
-        assert!(ledger.claim_change_channel(TypeId::of::<MonsterRow>()));
+            claim(&mut ledger, TypeId::of::<MonsterTbl>(), first);
+            assert!(ledger.claim_change_channel(row), "first was {first:?}");
+
+            claim(
+                &mut ledger,
+                TypeId::of::<MonsterAoi>(),
+                TableCapabilityKind::Insert,
+            );
+            assert!(!ledger.claim_change_channel(row), "first was {first:?}");
+        }
     }
 
     #[test]

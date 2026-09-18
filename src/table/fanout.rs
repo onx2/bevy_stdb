@@ -3,7 +3,12 @@
 //! SDK row callbacks feed one [`TableChange`] channel per row type. The systems here run in
 //! [`StdbSet::Flush`] after the channel drain and project that stream into the typed messages a
 //! capability was bound for, so a row callback clones its event once no matter how many streams
-//! observe it.
+//! observe it, and each projection only bumps that `Arc`.
+//!
+//! Projecting copies the row itself, so a row bound for `n` typed streams is cloned `n + 1`
+//! times: once into [`TableChange`] and once per derived message. That trades row copies for
+//! event copies, which is the cheaper side whenever the reducer arguments an event carries
+//! outweigh the row -- and a row type that needs neither pays for only the streams it binds.
 use crate::{
     channel_bridge::drain_channels,
     message::{
@@ -17,7 +22,6 @@ use bevy_ecs::{
     schedule::IntoScheduleConfigs,
 };
 use spacetimedb_sdk::__codegen::InModule;
-use std::sync::Arc;
 
 /// Adds the derived message `TMessage` and the system that projects it from [`TableChange`].
 macro_rules! fanout {
@@ -56,7 +60,7 @@ fanout!(
     InsertMessage<TRow>,
     |change| match change {
         TableChange::Insert { event, row } => Some(InsertMessage {
-            event: Arc::clone(event),
+            event: event.clone(),
             row: row.clone(),
         }),
         _ => None,
@@ -69,7 +73,7 @@ fanout!(
     DeleteMessage<TRow>,
     |change| match change {
         TableChange::Delete { event, row } => Some(DeleteMessage {
-            event: Arc::clone(event),
+            event: event.clone(),
             row: row.clone(),
         }),
         _ => None,
@@ -82,7 +86,7 @@ fanout!(
     UpdateMessage<TRow>,
     |change| match change {
         TableChange::Update { event, old, new } => Some(UpdateMessage {
-            event: Arc::clone(event),
+            event: event.clone(),
             old: old.clone(),
             new: new.clone(),
         }),
@@ -96,12 +100,12 @@ fanout!(
     InsertUpdateMessage<TRow>,
     |change| match change {
         TableChange::Insert { event, row } => Some(InsertUpdateMessage {
-            event: Arc::clone(event),
+            event: event.clone(),
             old: None,
             new: row.clone(),
         }),
         TableChange::Update { event, old, new } => Some(InsertUpdateMessage {
-            event: Arc::clone(event),
+            event: event.clone(),
             old: Some(old.clone()),
             new: new.clone(),
         }),
