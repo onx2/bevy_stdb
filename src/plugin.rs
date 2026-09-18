@@ -239,9 +239,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Registers table event capabilities for a generated table accessor.
     ///
-    /// The insert, delete, and update capabilities also expose the unified
-    /// [`crate::prelude::TableChange`] stream. The stream is registered alongside the existing
-    /// typed callback channels and preserves the SDK callback order across those change kinds.
+    /// Every capability feeds the one [`crate::prelude::TableChange`] stream the SDK callbacks
+    /// write to, and the typed readers are views over it, so they preserve SDK callback order
+    /// across change kinds and store a row once. A capability decides which SDK callbacks are
+    /// bound and therefore which readers are allowed; capabilities needing the same callback
+    /// bind it once. Reading a stream whose capability was never bound panics naming it.
     /// Each capability constructor validates the corresponding SDK trait at compile time.
     /// Duplicate accessor/capability pairs panic with a precise error when this method is called.
     ///
@@ -321,6 +323,32 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             + WithUpdate,
     {
         self.bind([TableCapability::<C, M, TTable>::insert_update()])
+    }
+
+    /// Drops the SpacetimeDB event from every message for `TTable`'s row type.
+    ///
+    /// The SDK invokes a row callback once per changed row, and a generated `Event` carries the
+    /// reducer that caused the change, arguments included -- so a transaction touching many rows
+    /// clones that event once per row. A row type read only for its row data can skip the clone
+    /// entirely; `event` on its messages is then `None`.
+    ///
+    /// Applies to the row type, not the accessor: one channel carries every accessor over a row
+    /// type, so a table and a view over the same row share this. Order-independent, and calling
+    /// it more than once for a row type is harmless.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// .add_table::<PlayerTableAccessor>()
+    /// .without_event::<PlayerTableAccessor>()
+    /// ```
+    pub fn without_event<TTable>(mut self) -> Self
+    where
+        TTable: TableAccessor<C::DbView> + Send + Sync + 'static,
+        TTable::Row: 'static,
+    {
+        self.table_registry.omit_event::<TTable::Row>();
+        self
     }
 
     /// Registers a table with a primary key and its unified [`crate::prelude::TableChange`] stream.

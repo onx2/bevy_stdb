@@ -5,10 +5,25 @@ use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
     Error, Identity,
 };
+use std::sync::Arc;
 
 /// Event metadata associated with row callbacks for a SpacetimeDB row type.
 pub type RowEvent<T> =
     <<<T as InModule>::Module as SpacetimeModule>::EventContext as AbstractEventContext>::Event;
+
+/// A row event shared by every message derived from one SDK row callback.
+///
+/// A generated `Event` carries the reducer that caused the change, including its arguments, so
+/// it can be far larger than the row itself. The callback clones it once and each derived
+/// message shares it; deref to read it as a [`RowEvent`].
+pub type SharedRowEvent<T> = Arc<RowEvent<T>>;
+
+/// The row event carried by a table message, or `None` when the row type opted out with
+/// [`StdbPlugin::without_event`](crate::prelude::StdbPlugin::without_event).
+///
+/// `Arc` is never null, so the `None` case costs no extra space: this is the same size as
+/// [`SharedRowEvent`].
+pub type MaybeRowEvent<T> = Option<SharedRowEvent<T>>;
 
 /// A [`Message`] sent when a SpacetimeDB connection is established.
 #[derive(Message, Debug)]
@@ -63,13 +78,18 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
 
 /// A [`Message`] sent when a subscribed table row changes.
 ///
-/// The insert, delete, and update variants share one channel and are forwarded from the same
-/// SDK callbacks as the corresponding typed messages. For one row type and connection driver,
-/// values retain SDK callback order without cross-type channel reordering.
+/// This is the one stream the SDK row callbacks feed, and the only place a row is stored.
+/// [`ReadInsertMessage`](crate::prelude::ReadInsertMessage) and its siblings are views over it
+/// that filter to one change kind and borrow the row out. For one row type and connection
+/// driver, values retain SDK callback order without cross-type channel reordering.
 ///
 /// The SDK may group or coalesce rows while applying a transaction diff, so this is not an
 /// operation log and does not expose the order of mutations within one server transaction.
 /// Streams for different row types have no ordering relationship.
+///
+/// The stream is keyed by row type, not by accessor: binding both a table and a view over one
+/// row type merges their callbacks here, and a change seen by both arrives twice with nothing
+/// to tell them apart. Subscribe to one accessor per row type when that matters.
 #[derive(Message, Debug)]
 pub enum TableChange<T>
 where
@@ -78,81 +98,25 @@ where
 {
     /// The row was inserted.
     Insert {
-        /// The SpacetimeDB event that triggered the row callback.
-        event: RowEvent<T>,
+        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        event: MaybeRowEvent<T>,
         /// The inserted row.
         row: T,
     },
     /// The row was deleted.
     Delete {
-        /// The SpacetimeDB event that triggered the row callback.
-        event: RowEvent<T>,
+        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        event: MaybeRowEvent<T>,
         /// The deleted row.
         row: T,
     },
     /// The row was updated.
     Update {
-        /// The SpacetimeDB event that triggered the row callback.
-        event: RowEvent<T>,
+        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        event: MaybeRowEvent<T>,
         /// The previous row value.
         old: T,
         /// The updated row value.
         new: T,
     },
-}
-
-/// A [`Message`] sent when a row is inserted into a subscribed table.
-#[derive(Message, Debug)]
-pub struct InsertMessage<T>
-where
-    T: InModule,
-    RowEvent<T>: Send + Sync,
-{
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
-    /// The affected row.
-    pub row: T,
-}
-
-/// A [`Message`] sent when a row is deleted from a subscribed table.
-#[derive(Message, Debug)]
-pub struct DeleteMessage<T>
-where
-    T: InModule,
-    RowEvent<T>: Send + Sync,
-{
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
-    /// The affected row.
-    pub row: T,
-}
-
-/// A [`Message`] sent when a row in a subscribed table is updated.
-#[derive(Message, Debug)]
-pub struct UpdateMessage<T>
-where
-    T: InModule,
-    RowEvent<T>: Send + Sync,
-{
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
-    /// The previous row value.
-    pub old: T,
-    /// The updated row value.
-    pub new: T,
-}
-
-/// A [`Message`] sent when a row in a subscribed table is inserted or updated.
-#[derive(Message, Debug)]
-pub struct InsertUpdateMessage<T>
-where
-    T: InModule,
-    RowEvent<T>: Send + Sync,
-{
-    /// The SpacetimeDB event that triggered the row callback.
-    pub event: RowEvent<T>,
-    /// The previous row value, if this was an update.
-    pub old: Option<T>,
-    /// The current row value.
-    pub new: T,
 }
