@@ -254,7 +254,7 @@ mod registration_tests {
 }
 
 #[cfg(test)]
-mod fanout_tests {
+mod table_reader_tests {
     use crate::module_bindings::*;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
@@ -305,7 +305,7 @@ mod fanout_tests {
     }
 
     #[test]
-    fn one_change_fans_out_to_every_bound_stream() {
+    fn one_change_reaches_every_bound_reader() {
         let mut app = app();
         let tx = sender(&app);
 
@@ -351,8 +351,8 @@ mod fanout_tests {
     }
 
     #[test]
-    fn the_derived_rows_carry_the_change_they_were_projected_from() {
-        // Counting alone would pass if a projection copied the wrong row or dropped `old`.
+    fn a_reader_yields_the_values_of_the_change_it_filtered() {
+        // Counting alone would pass if a reader yielded the wrong row or dropped `old`.
         let mut app = app();
         sender(&app)
             .send(TableChange::Update {
@@ -372,7 +372,7 @@ mod fanout_tests {
         let upserts = w
             .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| {
                 r.read()
-                    .map(|m| (m.old.as_ref().map(|o| o.x), m.new.x))
+                    .map(|m| (m.old.map(|o| o.x), m.new.x))
                     .collect::<Vec<_>>()
             })
             .unwrap();
@@ -466,9 +466,9 @@ mod fanout_tests {
     }
 
     #[test]
-    fn a_change_is_projected_exactly_once_across_frames() {
-        // Bevy keeps messages for two frames. The fan-out reader holds a cursor, so a second
-        // frame must not re-project what the first already did.
+    fn a_change_is_read_exactly_once_across_frames() {
+        // Bevy keeps messages for two frames. Each reader holds its own cursor, so a second
+        // frame must not re-read what the first already did.
         let mut app = app();
         sender(&app)
             .send(TableChange::Insert {
@@ -488,7 +488,7 @@ mod fanout_tests {
     }
 
     #[test]
-    fn the_event_is_shared_not_cloned_per_stream() {
+    fn readers_borrow_one_event_rather_than_cloning_it() {
         let mut app = app();
         let event = Arc::new(Event::SubscribeApplied);
 
@@ -500,12 +500,102 @@ mod fanout_tests {
             .unwrap();
         app.update();
 
-        // held here, plus TableChange, InsertMessage and InsertUpdateMessage
-        assert_eq!(Arc::strong_count(&event), 4);
+        // Held here and by the one `TableChange`. Reading it through every table reader adds
+        // nothing: the readers borrow out of that single stored change.
+        let w = app.world_mut();
+        let _ = w
+            .run_system_once(|mut r: ReadInsertMessage<Player>| r.read().count())
+            .unwrap();
+        let _ = w
+            .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| r.read().count())
+            .unwrap();
+
+        assert_eq!(Arc::strong_count(&event), 2);
     }
 
     #[test]
-    fn a_row_type_without_events_projects_none_to_every_stream() {
+    fn a_reader_borrows_the_row_out_of_the_stream() {
+        // The point of the views: the row a reader yields is the one the change holds, not a
+        // copy of it.
+        let mut app = app();
+        sender(&app)
+            .send(TableChange::Insert {
+                event: event(),
+                row: player(3.0),
+            })
+            .unwrap();
+        app.update();
+
+        let same = app
+            .world_mut()
+            .run_system_once(
+                |mut changes: ReadTableChangeMessage<Player>,
+                 mut inserts: ReadInsertMessage<Player>| {
+                    let stored = changes
+                        .read()
+                        .map(|c| match c {
+                            TableChange::Insert { row, .. } => std::ptr::from_ref(row),
+                            _ => unreachable!(),
+                        })
+                        .collect::<Vec<_>>();
+                    let borrowed = inserts
+                        .read()
+                        .map(|i| std::ptr::from_ref(i.row))
+                        .collect::<Vec<_>>();
+                    stored == borrowed
+                },
+            )
+            .unwrap();
+
+        assert!(same);
+    }
+
+    #[test]
+    fn a_borrowed_row_still_clones_into_an_owned_one() {
+        // The migration guide promises `msg.row.clone()` keeps working; method resolution
+        // reaches `Player`'s own `Clone` through the borrow rather than cloning the reference.
+        let mut app = app();
+        sender(&app)
+            .send(TableChange::Insert {
+                event: event(),
+                row: player(5.0),
+            })
+            .unwrap();
+        app.update();
+
+        let owned = app
+            .world_mut()
+            .run_system_once(|mut r: ReadInsertMessage<Player>| {
+                r.read().map(|m| m.row.clone()).collect::<Vec<Player>>()
+            })
+            .unwrap();
+
+        assert_eq!(owned.len(), 1);
+        assert_eq!(owned[0].x, 5.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "no `Update` capability is bound")]
+    fn reading_a_stream_the_table_never_bound_panics() {
+        // `add_table_without_pk` binds insert and delete only, so an update reader would
+        // otherwise read as a table that never updates.
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(
+            StdbPlugin::<DbConnection, RemoteModule>::default()
+                .with_uri(String::from("http://localhost:3000"))
+                .with_database_name(String::from("bevy-stdb-simple"))
+                .with_background_driver(DbConnection::run_threaded)
+                .add_table_without_pk::<PlayerTableAccessor>(),
+        );
+
+        let _ = app
+            .world_mut()
+            .run_system_once(|mut r: ReadUpdateMessage<Player>| r.read().count());
+    }
+
+    #[test]
+    fn a_row_type_without_events_yields_none_to_every_reader() {
         let mut app = app_with(|p| p.without_event::<PlayerTableAccessor>());
         sender(&app)
             .send(TableChange::Insert {

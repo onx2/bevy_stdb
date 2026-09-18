@@ -17,13 +17,14 @@
 //!   callbacks feed one [`TableChange`](crate::prelude::TableChange) stream per
 //!   row type, read through
 //!   [`ReadTableChangeMessage`](crate::prelude::ReadTableChangeMessage); the
-//!   typed reader aliases
+//!   typed readers
 //!   [`ReadInsertMessage`](crate::prelude::ReadInsertMessage),
 //!   [`ReadDeleteMessage`](crate::prelude::ReadDeleteMessage),
 //!   [`ReadUpdateMessage`](crate::prelude::ReadUpdateMessage), and
 //!   [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage) are
-//!   projected from it each frame, so inserts, deletes, and updates of one row
-//!   type keep the order the SDK delivered them in.
+//!   views that filter it to one change kind, so inserts, deletes, and updates
+//!   of one row type keep the order the SDK delivered them in and a row is
+//!   stored once however many readers observe it.
 //! - **Subscriptions** — Store subscription intent separately from the live
 //!   connection via [`StdbSubscriptions`](crate::prelude::StdbSubscriptions)
 //!   so queries are automatically re-applied after reconnects.
@@ -101,10 +102,10 @@ mod table;
 pub mod prelude {
     pub use crate::{
         alias::{
-            ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
-            ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
-            ReadTableChangeMessage, ReadUpdateMessage,
+            Deleted, Inserted, InsertedOrUpdated, ReadDeleteMessage, ReadInsertMessage,
+            ReadInsertUpdateMessage, ReadStdbConnectErrorMessage, ReadStdbConnectedMessage,
+            ReadStdbDisconnectedMessage, ReadStdbSubscriptionAppliedMessage,
+            ReadStdbSubscriptionErrorMessage, ReadTableChangeMessage, ReadUpdateMessage, Updated,
         },
         channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},

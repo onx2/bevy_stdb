@@ -171,7 +171,7 @@ fn main() {
 
 Use the `StdbPlugin` builder methods to register table bindings during app setup.
 
-Each method eagerly registers the internal Bevy messages for the row type and stores a deferred binding that runs whenever a connection becomes active. Every capability registers the unified `TableChange<T>` channel automatically; no separate ordered-binding option is required.
+Each method eagerly registers the row type's `TableChange<T>` message and stores a deferred binding that runs whenever a connection becomes active. Every capability feeds that one stream; which capabilities you bind decides which SDK callbacks run and therefore which readers you may use.
 
 The `add_*` methods are semantic convenience APIs. For capability-based registration, use `bind` or the direct `bind_insert`, `bind_delete`, `bind_update`, and `bind_insert_update` methods. Unsupported capabilities fail at compile time; duplicate bindings panic during plugin configuration with the accessor and capability in the error.
 
@@ -211,7 +211,9 @@ Depending on the table shape, systems consume database changes through MessageRe
 - `ReadUpdateMessage<T>`
 - `ReadInsertUpdateMessage<T>`
 
-These aliases are `MessageReader`s. `TableChange<T>` is public because you match on its variants; the derived message types are not, so application code can observe table events without writing them directly. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change.
+The connection and subscription readers are `MessageReader` aliases. The four table readers are views over the row type's single `TableChange<T>` stream: each filters it to the change kind it names and borrows out of it, so nothing is copied per reader and each keeps its own cursor. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change, as borrows (`Inserted`, `Deleted`, `Updated`, `InsertedOrUpdated`).
+
+Reading a stream whose capability was never bound — `ReadUpdateMessage<T>` on a table registered with `add_table_without_pk`, say — panics naming the missing capability, rather than yielding nothing forever.
 
 ### Unified table changes
 
@@ -232,13 +234,13 @@ fn on_player_change(mut changes: ReadTableChangeMessage<PlayerRow>) {
 }
 ```
 
-`TableChange<T>` is the one stream the SDK callbacks feed. The typed streams above are projected from it each frame, so a row callback clones its event once no matter how many streams observe it, and `ReadInsertUpdateMessage<T>` stays a separate compatibility stream rather than an additional `TableChange` variant.
+`TableChange<T>` is the one stream the SDK callbacks feed and the only place a row is stored. The readers above are views over it, each filtering to its own change kind and keeping its own cursor, so a row callback clones its row and event once no matter how many readers observe them. `ReadInsertUpdateMessage<T>` is one such view over `Insert` and `Update` rather than an additional `TableChange` variant.
 
 Its deterministic property is limited to preserving the order in which the SDK invokes insert, delete, and update callbacks for one row type and connection driver; it does not recover server-side mutation order within a transaction, and streams for different row types are independent.
 
 The stream is keyed by the **row type**, not the accessor. Binding both a table and a view over one row type merges their callbacks into it, and a change both of them see arrives twice with nothing to tell the two apart — subscribe to one accessor per row type when that matters.
 
-What it costs: the row is copied once into `TableChange<T>` and once more per typed stream you bind, so a row bound through `add_table` is copied three times (unified, `InsertMessage`, `InsertUpdateMessage`) where the previous per-callback design copied it twice. In exchange the event — usually the bigger of the two — is cloned once instead of once per stream, and the SDK callback runs once instead of once per capability. Bind only the streams you read (`bind_insert` rather than `add_table`) to bring the row copies back down, and use `without_event` below to drop the event clone entirely.
+What it costs: one copy of the row and at most one clone of the event per change, no matter how many readers observe it, because the readers borrow rather than receive their own copy. The SDK callback for a given change kind runs once however many capabilities asked for it. Use `without_event` below to drop the event clone as well.
 
 A generated `Event` carries the reducer that caused the change, arguments included, so it can be much larger than the row. Every message therefore holds it as `SharedRowEvent<T>` (an `Arc`), which derefs to the event:
 
@@ -278,7 +280,7 @@ use spacetimedb_sdk::Event;
 
 fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
   for msg in messages.read() {
-    let Some(event) = &msg.event else { continue };
+    let Some(event) = msg.event else { continue };
     match &**event {
       Event::Reducer(r) => {
         /* r.status, r.timestamp, r.reducer */ 
@@ -493,19 +495,41 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ### Upgrading to 0.14
 
-`event` on every row message is now `MaybeRowEvent<T>` (`Option<Arc<RowEvent<T>>>`) instead of
-`RowEvent<T>`: one SDK row callback clones its event once however many streams observe it, and a
-row type that opted out of events with `without_event` carries `None`. This affects `TableChange`
-and the messages read through `ReadInsertMessage`, `ReadDeleteMessage`, `ReadUpdateMessage`, and
-`ReadInsertUpdateMessage`.
+**Readers yield borrows.** `ReadInsertMessage` and its siblings are no longer aliases for
+`MessageReader<InsertMessage<T>>`; they are views over the row type's `TableChange<T>` stream and
+yield `Inserted`, `Deleted`, `Updated`, and `InsertedOrUpdated`, whose fields borrow out of the
+stream. The field names are unchanged, so `msg.row`, `msg.old`, and `msg.new` read the same,
+`msg.row.field` still works through the borrow, and `msg.row.clone()` still gives an owned row.
+The one shape that changes is `old` on the insert-update reader, which was `Option<T>` and is now
+`Option<&T>`:
 
-Matching on the event now unwraps and derefs:
+```rust
+// 0.13
+msg.old.as_ref().map(|old| old.x)
+// 0.14
+msg.old.map(|old| old.x)
+```
+
+Passing a row on is the other thing to check: `msg.row` is a `&T` now, so it still satisfies a
+parameter taking `&T` but needs `.clone()` for one taking `T`.
+
+`MessageReader`'s own inherent methods (`len`, `is_empty`, `par_read`) are not available on the
+table readers, because the count of a filtered view is not known without scanning; use
+`read().next().is_some()` and `read().count()`.
+
+Reading a stream you never bound now panics naming the missing capability, where 0.13 panicked
+with Bevy's "resource does not exist" for the message that was never registered.
+
+**The event is optional and shared.** `event` is now `MaybeRowEvent<T>`
+(`Option<Arc<RowEvent<T>>>`) instead of `RowEvent<T>`: one SDK row callback clones its event once
+however many readers observe it, and a row type that opted out with `without_event` carries
+`None`.
 
 ```rust
 // 0.13
 if let Event::Reducer(reducer) = &msg.event { }
 // 0.14
-if let Some(event) = &msg.event
+if let Some(event) = msg.event
     && let Event::Reducer(reducer) = &**event { }
 ```
 

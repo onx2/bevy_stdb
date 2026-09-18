@@ -1,10 +1,10 @@
 //! Table registration and message forwarding for SpacetimeDB.
 //!
-//! Registers internal Bevy [`Message`](bevy_ecs::prelude::Message) channels
-//! and binds SDK table callbacks for row event readers.
+//! Registers one [`TableChange`](crate::prelude::TableChange) channel per row type and binds the
+//! SDK table callbacks that feed it. The readers in [`alias`](crate::prelude) are views over that
+//! channel; nothing here writes a per-kind message.
 mod bind;
 mod capability;
-mod fanout;
 mod policy;
 
 use crate::{connection::StdbConnection, set::StdbSet};
@@ -16,6 +16,7 @@ use bevy_ecs::{
 pub(crate) use bind::{bind_delete, bind_insert, bind_update};
 pub(crate) use capability::CapabilityLedger;
 pub use capability::TableCapability;
+pub use capability::{BoundStreams, TableCapabilityKind};
 use policy::RowEventPolicy;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};
 use std::{any::TypeId, marker::PhantomData, sync::Arc};
@@ -66,6 +67,7 @@ where
             self.table_bindings.clone(),
             self.table_registrations.clone(),
             self.event_policy.clone(),
+            self.ledger.bound_streams(),
         )
     }
 
@@ -99,6 +101,8 @@ where
     table_bindings: Vec<Arc<TableBindCallback<C>>>,
     /// Row types whose messages omit the SDK event.
     event_policy: RowEventPolicy,
+    /// The row/capability pairs the table readers may read.
+    bound_streams: BoundStreams,
 }
 impl<C, M> StdbTablePlugin<C, M>
 where
@@ -109,11 +113,13 @@ where
         table_bindings: Vec<Arc<TableBindCallback<C>>>,
         table_registrations: Vec<Arc<TableRegistrationCallback>>,
         event_policy: RowEventPolicy,
+        bound_streams: BoundStreams,
     ) -> Self {
         Self {
             table_bindings,
             table_registrations,
             event_policy,
+            bound_streams,
         }
     }
 }
@@ -129,6 +135,7 @@ where
         }
 
         app.insert_resource(self.event_policy.clone());
+        app.insert_resource(self.bound_streams.clone());
 
         app.insert_resource(StdbTableConfig::<C, M> {
             table_bindings: self.table_bindings.clone(),

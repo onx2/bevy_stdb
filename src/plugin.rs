@@ -239,10 +239,11 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Registers table event capabilities for a generated table accessor.
     ///
-    /// Every capability also exposes the unified [`crate::prelude::TableChange`] stream, which
-    /// is what the SDK callbacks feed; each capability's typed stream is projected from it and
-    /// preserves the SDK callback order across change kinds. Capabilities that need the same SDK
-    /// callback bind it once.
+    /// Every capability feeds the one [`crate::prelude::TableChange`] stream the SDK callbacks
+    /// write to, and the typed readers are views over it, so they preserve SDK callback order
+    /// across change kinds and store a row once. A capability decides which SDK callbacks are
+    /// bound and therefore which readers are allowed; capabilities needing the same callback
+    /// bind it once. Reading a stream whose capability was never bound panics naming it.
     /// Each capability constructor validates the corresponding SDK trait at compile time.
     /// Duplicate accessor/capability pairs panic with a precise error when this method is called.
     ///

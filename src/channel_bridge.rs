@@ -73,7 +73,7 @@ impl Plugin for ChannelBridgePlugin {
 }
 
 /// Drains all registered channels once per frame.
-pub(crate) fn drain_channels(world: &mut World) {
+fn drain_channels(world: &mut World) {
     world.resource_scope(|world, registry: Mut<StdbChannels>| {
         for entry in &registry.channels {
             (entry.drain)(world);

@@ -1,14 +1,9 @@
-use super::{
-    TableBindCallback, TableRegistry, bind_delete, bind_insert, bind_update,
-    fanout::{
-        register_delete_fanout, register_insert_fanout, register_insert_update_fanout,
-        register_update_fanout,
-    },
-};
+use super::{TableBindCallback, TableRegistry, bind_delete, bind_insert, bind_update};
 use crate::{
     channel_bridge::register_channel,
     message::{RowEvent, TableChange},
 };
+use bevy_ecs::prelude::Resource;
 use spacetimedb_sdk::__codegen::{
     DbConnection, DbContext, InModule, SpacetimeModule, TableAccessor, TableLike, WithDelete,
     WithInsert, WithUpdate,
@@ -29,8 +24,10 @@ pub(crate) enum RowCallback {
     Update,
 }
 
+/// A change kind a table reader can be bound for. Public only so the reader types can name it.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TableCapabilityKind {
+pub enum TableCapabilityKind {
     Insert,
     Delete,
     Update,
@@ -53,8 +50,6 @@ pub struct TableCapability<
     row_type: TypeId,
     /// Registers the shared [`TableChange`] channel for the row type.
     change_registration: fn(&mut bevy_app::App),
-    /// Registers this capability's derived message and the system that projects it.
-    fanout_registration: fn(&mut bevy_app::App),
     /// The SDK row callbacks this capability needs, bound once per accessor.
     callbacks: Vec<(RowCallback, Arc<TableBindCallback<C>>)>,
     _marker: PhantomData<fn() -> T>,
@@ -80,7 +75,6 @@ where
             kind: TableCapabilityKind::Insert,
             row_type: TypeId::of::<T::Row>(),
             change_registration: register_channel::<TableChange<T::Row>>,
-            fanout_registration: register_insert_fanout::<T::Row>,
             callbacks: vec![(
                 RowCallback::Insert,
                 Arc::new(|world, db| {
@@ -106,7 +100,6 @@ where
             kind: TableCapabilityKind::Delete,
             row_type: TypeId::of::<T::Row>(),
             change_registration: register_channel::<TableChange<T::Row>>,
-            fanout_registration: register_delete_fanout::<T::Row>,
             callbacks: vec![(
                 RowCallback::Delete,
                 Arc::new(|world, db| {
@@ -132,7 +125,6 @@ where
             kind: TableCapabilityKind::Update,
             row_type: TypeId::of::<T::Row>(),
             change_registration: register_channel::<TableChange<T::Row>>,
-            fanout_registration: register_update_fanout::<T::Row>,
             callbacks: vec![(
                 RowCallback::Update,
                 Arc::new(|world, db| {
@@ -143,10 +135,10 @@ where
         }
     }
 
-    /// Binds insert-update messages from `T`.
+    /// Binds the insert-update reader for `T`.
     ///
-    /// This derived message stream requires both insert and update
-    /// capabilities on the generated table handle.
+    /// This reader requires both insert and update capabilities on the
+    /// generated table handle.
     pub fn insert_update() -> Self
     where
         T: TableAccessor<C::DbView> + Send + Sync + 'static,
@@ -162,7 +154,6 @@ where
             kind: TableCapabilityKind::InsertUpdate,
             row_type: TypeId::of::<T::Row>(),
             change_registration: register_channel::<TableChange<T::Row>>,
-            fanout_registration: register_insert_update_fanout::<T::Row>,
             callbacks: vec![
                 (
                     RowCallback::Insert,
@@ -189,7 +180,6 @@ where
             self.kind,
             self.row_type,
             self.change_registration,
-            self.fanout_registration,
             self.callbacks,
         );
     }
@@ -216,7 +206,6 @@ where
         kind: TableCapabilityKind,
         row_type: TypeId,
         change_register: fn(&mut bevy_app::App),
-        fanout_register: fn(&mut bevy_app::App),
         callbacks: Vec<(RowCallback, Arc<TableBindCallback<C>>)>,
     ) where
         TTable: 'static,
@@ -225,16 +214,13 @@ where
         self.ledger
             .claim_capability(accessor, kind, type_name::<TTable>());
 
-        // Messages are keyed by type, so by row type -- not by accessor. A table and a view over
-        // one row (`monster_instance_tbl` and `monster_instance_aoi`) share the channel and the
-        // fan-out systems; `register_channel` panics on a second registration of the same
-        // message type, and a second fan-out system would duplicate every derived message.
+        // The channel is keyed by row type, not by accessor. A table and a view over one row
+        // (`monster_instance_tbl` and `monster_instance_aoi`) share it, and `register_channel`
+        // panics on a second registration of the same message type.
         if self.ledger.claim_change_channel(row_type) {
             self.table_registrations.push(Arc::new(change_register));
         }
-        if self.ledger.claim_fanout(row_type, kind) {
-            self.table_registrations.push(Arc::new(fanout_register));
-        }
+        self.ledger.claim_stream(row_type, kind);
 
         // Callbacks are per accessor: each one feeds the shared channel from its own table.
         for (callback, bind) in callbacks {
@@ -251,8 +237,8 @@ where
 pub(crate) struct CapabilityLedger {
     /// Claimed accessor/capability pairs, for duplicate detection.
     capabilities: Vec<(TypeId, TableCapabilityKind)>,
-    /// Row/capability pairs whose derived message and fan-out system are registered.
-    fanouts: Vec<(TypeId, TableCapabilityKind)>,
+    /// Row/capability pairs a reader may read, recorded so an unbound one panics precisely.
+    streams: Vec<(TypeId, TableCapabilityKind)>,
     /// Row types whose shared [`TableChange`] channel is registered.
     change_channels: Vec<TypeId>,
     /// Accessor/callback pairs already bound on the SDK table handle.
@@ -279,15 +265,22 @@ impl CapabilityLedger {
         self.capabilities.push(key);
     }
 
-    /// Claims the derived message and fan-out system for `row_type` and `kind`, returning
-    /// whether this caller is the first to do so and must therefore register them.
-    fn claim_fanout(&mut self, row_type: TypeId, kind: TableCapabilityKind) -> bool {
+    /// Records that a reader of `kind` over `row_type` has the callbacks it needs.
+    ///
+    /// Idempotent: a table and a view over one row both claim it, and the reader only asks
+    /// whether anyone did.
+    fn claim_stream(&mut self, row_type: TypeId, kind: TableCapabilityKind) {
         let key = (row_type, kind);
-        if self.fanouts.contains(&key) {
-            return false;
+        if !self.streams.contains(&key) {
+            self.streams.push(key);
         }
-        self.fanouts.push(key);
-        true
+    }
+
+    /// Returns the readable streams as the resource the table readers check.
+    pub(crate) fn bound_streams(&self) -> BoundStreams {
+        BoundStreams {
+            streams: self.streams.clone(),
+        }
     }
 
     /// Claims an SDK row callback on `accessor`, returning whether this caller is the first to
@@ -309,6 +302,30 @@ impl CapabilityLedger {
         }
         self.change_channels.push(row_type);
         true
+    }
+}
+
+/// The row/capability pairs the plugin bound, so a table reader can name the missing
+/// registration instead of yielding nothing forever.
+///
+/// Public only because the reader types are; it carries no useful API of its own.
+#[doc(hidden)]
+#[derive(Resource, Default, Clone)]
+pub struct BoundStreams {
+    streams: Vec<(TypeId, TableCapabilityKind)>,
+}
+
+impl BoundStreams {
+    /// # Panics
+    ///
+    /// Panics unless a capability of `kind` was bound for `TRow`.
+    pub fn assert_bound<TRow: 'static>(&self, kind: TableCapabilityKind) {
+        assert!(
+            self.streams.contains(&(TypeId::of::<TRow>(), kind)),
+            "no `{kind:?}` capability is bound for row type `{}`; register it with the matching \
+             `StdbPlugin` method before reading it",
+            type_name::<TRow>(),
+        );
     }
 }
 
@@ -355,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn a_table_and_a_view_over_one_row_share_their_channels() {
+    fn a_table_and_a_view_over_one_row_share_their_channel() {
         // `register_channel` panics on a duplicate message type, and message types are keyed by
         // row, so the second accessor over `MonsterRow` must claim nothing.
         let mut ledger = CapabilityLedger::default();
@@ -363,15 +380,20 @@ mod tests {
 
         claim(&mut ledger, TypeId::of::<MonsterTbl>(), kind);
         assert!(ledger.claim_change_channel(row));
-        assert!(ledger.claim_fanout(row, kind));
+        ledger.claim_stream(row, kind);
 
         claim(&mut ledger, TypeId::of::<MonsterAoi>(), kind);
         assert!(!ledger.claim_change_channel(row));
-        assert!(!ledger.claim_fanout(row, kind));
+        ledger.claim_stream(row, kind);
+
+        // One accessor is enough to make the stream readable, and the second must not duplicate
+        // the entry.
+        assert_eq!(ledger.streams.len(), 1);
+        ledger.bound_streams().assert_bound::<MonsterRow>(kind);
     }
 
     #[test]
-    fn each_capability_claims_its_own_typed_channel() {
+    fn every_capability_shares_one_change_channel() {
         let mut ledger = CapabilityLedger::default();
         let row = TypeId::of::<MonsterRow>();
 
@@ -381,11 +403,33 @@ mod tests {
             TableCapabilityKind::Update,
             TableCapabilityKind::InsertUpdate,
         ] {
-            assert!(ledger.claim_fanout(row, kind), "{kind:?} fan-out");
+            ledger.claim_stream(row, kind);
         }
-        // ...but they share one change channel.
         assert!(ledger.claim_change_channel(row));
         assert!(!ledger.claim_change_channel(row));
+
+        let bound = ledger.bound_streams();
+        for kind in [
+            TableCapabilityKind::Insert,
+            TableCapabilityKind::Delete,
+            TableCapabilityKind::Update,
+            TableCapabilityKind::InsertUpdate,
+        ] {
+            bound.assert_bound::<MonsterRow>(kind);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "no `Update` capability is bound")]
+    fn reading_a_stream_nobody_bound_says_which_one() {
+        // Readers filter the shared stream, so an unbound capability would otherwise read as a
+        // table that never changes.
+        let mut ledger = CapabilityLedger::default();
+        ledger.claim_stream(TypeId::of::<MonsterRow>(), TableCapabilityKind::Insert);
+
+        ledger
+            .bound_streams()
+            .assert_bound::<MonsterRow>(TableCapabilityKind::Update);
     }
 
     #[test]
