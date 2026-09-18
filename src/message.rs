@@ -19,11 +19,20 @@ pub struct StdbConnectedMessage {
     pub access_token: String,
 }
 
+/// Describes whether a closed SpacetimeDB connection was intentionally requested.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisconnectIntent {
+    /// The client explicitly requested the connection to close.
+    Requested,
+    /// The connection closed without a reported SDK error.
+    Lost,
+}
+
 /// A [`Message`] sent when a SpacetimeDB connection is closed or lost.
 #[derive(Message, Debug)]
 pub struct StdbDisconnectedMessage {
-    /// The error that caused the disconnect, if any.
-    pub err: Option<Error>,
+    /// The disconnect intent or error reported by the SDK.
+    pub result: Result<DisconnectIntent, Error>,
 }
 
 /// A [`Message`] sent when a SpacetimeDB connection fails to connect.
