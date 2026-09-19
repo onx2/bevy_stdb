@@ -79,8 +79,10 @@ Two consequences worth knowing:
 
 ## What a capability actually binds
 
-A capability is not a stream. It decides which SDK callback gets bound, and grants permission to
-read the corresponding view. Several capabilities can need the same callback, and it is bound once.
+A capability is not a stream. It decides which SDK callbacks get bound, and a reader is allowed
+once the callbacks it needs are. There are three callbacks and nothing else: `insert_update` is
+`insert` plus `update`, not a fourth thing. Binding is idempotent, so however many capabilities
+need a callback it is bound once.
 
 ```mermaid
 flowchart LR
@@ -120,15 +122,13 @@ flowchart LR
     stream --> rdel
     stream --> ru
     stream --> riu
-
-    ci -. "permits" .-> ri
-    cd -. "permits" .-> rdel
-    cu -. "permits" .-> ru
-    ciu -. "permits" .-> riu
 ```
 
-`add_table` binds all four capabilities; `add_table_without_pk` and `add_view` bind insert and
-delete; `add_event_table` binds insert only. Reading a view whose capability was never bound
+A reader checks for the callbacks it needs the first time it is read: `ReadInsertMessage` needs
+`on_insert`, `ReadInsertUpdateMessage` needs `on_insert` and `on_update`, and so on.
+
+`add_table` binds all three callbacks; `add_table_without_pk` and `add_view` bind insert and
+delete; `add_event_table` binds insert only. Reading a view whose callback was never bound
 panics naming it — because a filtered view of a stream nobody fed would otherwise read as a table
 that simply never changes.
 
@@ -144,14 +144,14 @@ after a reconnect, against fresh SDK table handles.
 ```mermaid
 flowchart TB
     subgraph build["app build — StdbPlugin::build"]
-        b1["capabilities recorded in CapabilityLedger"]
+        b1["callbacks recorded in BindLedger"]
         b2["register_channel::&lt;TableChange&lt;Row&gt;&gt;<br/>once per row type"]
         b3["insert RowEventPolicy + BoundStreams"]
         b4["store bind callbacks in StdbTableConfig"]
     end
 
     subgraph run["when a connection becomes active"]
-        r1["on_connected_bind<br/>run_if resource_added::&lt;StdbConnection&gt;"]
+        r1["bind_tables<br/>called by poll_pending_connection"]
         r2["for each stored callback:<br/>table.on_insert / on_delete / on_update"]
         r3["each closure captures its Sender<br/>and whether this row carries events"]
     end
@@ -166,23 +166,28 @@ row type registers two SDK callbacks but only one channel and one set of readers
 
 ## Ordering inside PreUpdate
 
-`StdbPlugin` chains four sets. Everything the crate does happens in `PreUpdate`, so by `Update` the
+`StdbPlugin` chains five sets. Everything the crate does happens in `PreUpdate`, so by `Update` the
 world is consistent.
 
 ```mermaid
 flowchart LR
+    drive["StdbSet::Drive<br/>frame driver only:<br/>frame_tick runs SDK callbacks"]
     flush["StdbSet::Flush<br/>drain every channel"]
     state["StdbSet::StateSync<br/>sync_connection_resource"]
-    conn["StdbSet::Connection<br/>poll pending, drive, reconnect"]
+    conn["StdbSet::Connection<br/>poll pending, bind tables, reconnect"]
     subs["StdbSet::Subscriptions<br/>apply queued subscriptions"]
     user["your systems<br/>Update, or PreUpdate after Flush"]
 
-    flush --> state --> conn --> subs --> user
-
-    bind["on_connected_bind"]
-    conn -. "after" .-> bind
-    bind -. "before" .-> subs
+    drive --> flush --> state --> conn --> subs --> user
 ```
+
+`Drive` comes first because a frame-driven connection runs its SDK callbacks inside `frame_tick`:
+ticking ahead of `Flush` means what they send is drained and readable in the same frame. A
+background-driven connection sends from its own thread whenever it likes, and `Drive` is empty.
+
+Tables are bound inside `poll_pending_connection`, at the moment a resolved connection is about to
+become the `StdbConnection` resource and before its background driver starts. Nothing can deliver
+a row to a connection whose callbacks are not yet bound.
 
 Put your own table-reading systems in `Update`, or in `PreUpdate` with `.after(StdbSet::Flush)`.
 
@@ -203,14 +208,27 @@ stateDiagram-v2
     Disconnected --> Idle: no reconnect configured
 
     note right of Connected
-        on_connected_bind runs here:
-        table callbacks are re-bound
-        and subscriptions re-applied
+        on the way in, bind_tables
+        re-binds the table callbacks;
+        subscriptions are re-applied after
     end note
 ```
 
 Subscriptions are stored as intent in `StdbSubscriptions`, separately from the live connection, so
-a reconnect re-applies them without the caller re-subscribing.
+a reconnect re-applies them without the caller re-subscribing. Each `StdbConnection` carries a
+generation number, and `StdbSubscriptions` remembers which generation its handles came from: when
+the two differ, every intent is queued again. It deliberately does not wait for a disconnect
+message. A frame-driven connection that `StdbCommands::reconnect` replaced is never ticked again,
+so it never reports closing, and its successor would otherwise come up with no subscriptions.
+
+### Telling a lost connection from a closed one
+
+The SDK reports a server going away as `on_disconnect` with no error, which is also what it
+reports when the client disconnects on purpose. So each connection shares an `AtomicBool` with its
+own `on_disconnect` callback; `StdbConnection::disconnect` raises it, and the callback turns that
+into `DisconnectIntent::Requested` or `DisconnectIntent::Lost`. Reconnect retries everything but
+`Requested`, on a timer that counts `Time<Real>` so that pausing the game does not pause the
+network.
 
 ## Why the readers are views
 

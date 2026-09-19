@@ -23,10 +23,10 @@ change takes from the module to a system, and what a capability actually binds.
 - **Builder-style setup** via `StdbPlugin`
 - **Connection resource** access through `StdbConnection`
 - **Command interface** for sending SpacetimeDB commands through `StdbCmds`
-- **Table event bridging** through Bevy `MessageReader` aliases
+- **Table event bridging** through table readers that are views over one ordered stream per row type
 - **Callback bridging** for reducer/procedure completions through `StdbChannels` and `add_channel_message`
 - **Managed subscription intent** through `StdbSubscriptions`
-- **Optional reconnect support** through `StdbReconnectOptions`
+- **Optional reconnect support** through `StdbReconnectOptions`, including connections the SDK reports as cleanly closed when the server went away
 
 ## Example
 
@@ -155,7 +155,7 @@ fn main() {
 
 ### Bevy frame-tick driving
 
-Use `frame_tick` when you want Bevy to drive connection progress from Bevy each frame. Internally, `bevy_stdb` runs this driver from `PreUpdate`:
+Use `frame_tick` when you want Bevy to drive connection progress from Bevy each frame. `bevy_stdb` runs this driver in `PreUpdate`, in `StdbSet::Drive`, ahead of `StdbSet::Flush` — so a row the driver delivers is readable in that same frame. An error from the driver other than the connection closing is reported through `ReadStdbDriverErrorMessage`:
 
 ```rust
 use bevy::prelude::*;
@@ -176,7 +176,7 @@ Use the `StdbPlugin` builder methods to register table bindings during app setup
 
 Each method eagerly registers the row type's `TableChange<T>` message and stores a deferred binding that runs whenever a connection becomes active. Every capability feeds that one stream; which capabilities you bind decides which SDK callbacks run and therefore which readers you may use.
 
-The `add_*` methods are semantic convenience APIs. For capability-based registration, use `bind` or the direct `bind_insert`, `bind_delete`, `bind_update`, and `bind_insert_update` methods. Unsupported capabilities fail at compile time; duplicate bindings panic during plugin configuration with the accessor and capability in the error.
+There is one registration API, `bind`, which takes a list of `TableCapability` values, and two layers of shorthand over it. `bind_insert`, `bind_delete`, `bind_update`, and `bind_insert_update` each bind one capability. The `add_*` methods bind the list that suits a kind of table — `add_table` is `bind` with insert, delete, and update. They all land in the same place, so mix them freely. Unsupported capabilities fail at compile time, with an error that names what the table lacks (`PlayerTableAccessor does not report updated rows`). Binding is idempotent: `add_table` followed by `bind_insert` for the same accessor binds `on_insert` once.
 
 | Method | Use when |
 |---|---|
@@ -199,24 +199,23 @@ The `add_*` methods are semantic convenience APIs. For capability-based registra
     TableCapability::insert(),
     TableCapability::delete(),
     TableCapability::update(),
-    TableCapability::insert_update(),
 ])
 .bind_insert::<DamageEventsTableAccessor>()
 ```
 
 ## Reading table events
 
-Depending on the table shape, systems consume database changes through MessageReader aliases:
+Depending on the table shape, systems consume database changes through these readers:
 
 - `ReadTableChangeMessage<T>` — one stream for inserts, updates, and deletes in SDK callback order
 - `ReadInsertMessage<T>`
 - `ReadDeleteMessage<T>`
 - `ReadUpdateMessage<T>`
-- `ReadInsertUpdateMessage<T>`
+- `ReadInsertUpdateMessage<T>` — inserts and updates as one stream, for mirroring a table without caring which it was
 
 The connection and subscription readers are `MessageReader` aliases. The four table readers are views over the row type's single `TableChange<T>` stream: each filters it to the change kind it names and borrows out of it, so nothing is copied per reader and each keeps its own cursor. Values yielded by `.read()` expose the affected row data and the SpacetimeDB event that triggered the change, as borrows (`Inserted`, `Deleted`, `Updated`, `InsertedOrUpdated`).
 
-Reading a stream whose capability was never bound — `ReadUpdateMessage<T>` on a table registered with `add_table_without_pk`, say — panics naming the missing capability, rather than yielding nothing forever.
+Reading a stream whose callback was never bound — `ReadUpdateMessage<T>` on a table registered with `add_table_without_pk`, say — panics naming the missing callback, rather than yielding nothing forever. `ReadInsertUpdateMessage<T>` needs both inserts and updates bound, however they were bound: `bind_insert_update` is shorthand for `bind_insert` plus `bind_update`.
 
 ### Unified table changes
 
@@ -318,7 +317,23 @@ fn request_connect(mut stdb_cmds: StdbCmds) {
 
 Reconnect behavior is opt-in. Pass `StdbReconnectOptions` to `StdbPlugin::with_reconnect` to enable it.
 
-The reconnect cycle activates when a disconnect message includes an error, or when a connection attempt fails — including a first-time failure. A clean `disconnect()` call does not trigger a retry. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
+The reconnect cycle activates when a connection is lost, or when a connection attempt fails — including a first-time failure. A disconnect you asked for, through `StdbConnection::disconnect` or `StdbCommands`, does not trigger a retry. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
+
+"Lost" is decided by `bevy_stdb`, not by the SDK. The SDK reports a server that went away as a disconnect with no error — exactly what it reports for a disconnect you requested — so the absence of an error cannot mean "intentional". Each connection instead remembers whether this client asked it to close, and `StdbDisconnectedMessage::result` says which it was:
+
+```rust
+fn on_disconnected(mut messages: ReadStdbDisconnectedMessage) {
+    for msg in messages.read() {
+        match &msg.result {
+            Ok(DisconnectIntent::Requested) => { /* we closed it; nothing retries */ }
+            Ok(DisconnectIntent::Lost) => { /* it went away; reconnect will retry */ }
+            Err(err) => warn!("connection failed: {err}"),
+        }
+    }
+}
+```
+
+The backoff counts wall-clock time (`Time<Real>`), so a paused or sped-up game reconnects on the same schedule. When `max_attempts` is reached the cycle stops and says so once through `ReadStdbReconnectExhaustedMessage`.
 
 ```rust
 .with_reconnect(StdbReconnectOptions {
@@ -332,7 +347,7 @@ The reconnect cycle activates when a disconnect message includes an error, or wh
 When a reconnect succeeds:
 
 - the `StdbConnection` resource is replaced
-- table callbacks are re-bound
+- table callbacks are re-bound, before the new connection can deliver a row
 - subscriptions are re-applied
 
 ## Using commands
@@ -353,11 +368,11 @@ fn connect_with_token(mut cmds: StdbCmds) {
 }
 ```
 
-See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_database_name`, `from_target`).
+See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_database_name`, `from_target`). An override is not one-shot: it replaces the stored setting, so later attempts and automatic reconnects keep using it.
 
 ### Connection-dependent resources
 
-`bevy_stdb` resources are only available while a connection is active. Guard systems with `resource_exists::<StdbConnection<_>>()` or accept the connection as an optional parameter. If you need to detect that a connection has been lost before the resource is cleaned up, `StdbConnection::is_active()` checks whether the underlying send channel is still open:
+`StdbConnection` only exists while there is a connection. Guard systems with `resource_exists::<StdbConnection<_>>()` or accept the connection as an optional parameter. If you need to detect that a connection has been lost before the resource is cleaned up, `StdbConnection::is_active()` checks whether the underlying send channel is still open:
 
 ```rust
 use bevy::prelude::*;
@@ -403,6 +418,8 @@ That means you can:
 - enable subscription management during plugin setup using `with_subscriptions`
 - queue subscriptions later from normal Bevy systems, typically by reading `ReadStdbConnectedMessage`
 - automatically re-apply queued subscription intent after reconnect
+
+Handles belong to the connection that issued them, so `StdbSubscriptions` re-applies every stored query whenever the `StdbConnection` is a different one than it last applied to — it does not wait to be told the old one closed. Calling `subscribe_sql` again with a query that is already queued or live does nothing; one whose subscription ended, because it failed, is queued again, so a failed subscription can be retried as-is.
 
 Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
 
@@ -493,10 +510,16 @@ Per change, the SDK callback copies the row once into `TableChange<T>` and clone
 (or not at all, with `without_event`). Readers filter that one stream and borrow out of it, so
 binding more of them costs no extra copies and adds no systems to the schedule.
 
-`examples/simple/client/benches/table_streams.rs` measures one frame: the changes `n` row events
-deliver, pushed into the channel, then `app.update()` drains them and every registered reader
-consumes them. Bindings are matched to readers, since binding a capability you never read is the
-thing this design made free.
+`examples/simple/client/benches/table_streams.rs` has three groups. `frame` is what the Bevy thread
+pays: `n` changes are already in the channel when the clock starts, so an iteration is
+`app.update()` alone — the drain, then every reader. `produce` is what the SDK's thread pays per
+change downstream of the SDK, building the `TableChange` and sending it; in an app that is off the
+frame, which is why it is measured apart. `idle` is a frame with nothing to deliver, with and
+without a hundred extra channels, so the fixed cost of a registered channel is visible.
+
+For scale, on one development machine a frame delivering 10,000 changes of the example's 48-byte
+row costs about 0.29 ms, within 3% whether one reader or four consume it; producing those changes
+costs the SDK thread about 0.23 ms; and a hundred idle channels add about 2 µs to a frame.
 
 ```sh
 cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams
@@ -511,9 +534,10 @@ cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_stre
 cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams -- --baseline before
 ```
 
-Two things the bench does not cover: everything upstream of the channel send happens on the SDK's
+What the bench does not cover: everything upstream of the channel send happens on the SDK's
 thread and needs a live connection, and the event clone `without_event` saves happens there, so
-neither shows up here. CI compiles the bench but does not time it — shared runners are too noisy
+neither shows up here. Nor does row size: the example's row is small and flat, and a row holding
+`String`s or `Vec`s pays for its clone in `produce`. CI compiles the bench but does not time it — shared runners are too noisy
 to gate on.
 
 ## Compatibility
@@ -526,6 +550,30 @@ to gate on.
 
 
 ### Upgrading to 0.14
+
+**`StdbDisconnectedMessage` says why.** `err: Option<Error>` is now
+`result: Result<DisconnectIntent, Error>`. The SDK reports a lost server with no error, so
+`err.is_none()` never meant "intentional" — and reconnect, which assumed it did, did not retry a
+server going away. It does now.
+
+```rust
+// 0.13
+if msg.err.is_some() { /* unexpected */ }
+// 0.14
+if !msg.was_requested() { /* unexpected */ }
+```
+
+**Binding is idempotent.** Binding a capability an accessor already has used to panic; it now
+changes nothing. `bind_insert_update` is shorthand for `bind_insert` plus `bind_update`, and
+`ReadInsertUpdateMessage` works however those two were bound.
+
+**A frame-driven connection is a frame faster.** The driver runs in the new `StdbSet::Drive`,
+ahead of `StdbSet::Flush`. If you ordered a system against the driver with `StdbSet::Connection`,
+order it against `StdbSet::Drive`.
+
+**`TableCapability<C, M, T>` is `TableCapability<C, T>`**, and the `StdbPlugin` table methods are
+bounded by `OnInsert<C>`, `OnDelete<C>`, and `OnUpdate<C>` instead of spelling out the SDK traits.
+Nothing changes unless you named those bounds yourself.
 
 **Readers yield borrows.** `ReadInsertMessage` and its siblings are no longer aliases for
 `MessageReader<InsertMessage<T>>`; they are views over the row type's `TableChange<T>` stream and
@@ -569,6 +617,8 @@ Note that `msg.event.clone()` still compiles but now yields `Option<Arc<RowEvent
 `msg.event.as_deref().cloned()` for an owned event.
 
 ## Notes
+
+An `App` supports one `StdbPlugin`, and so one module: the connection messages, reconnect state, and table reader bookkeeping are not keyed by module. Talking to a second database from one app is not supported yet.
 
 This crate focuses on table-driven client workflows. Reducer and procedure access still exist through the active `StdbConnection`, but the primary Bevy-facing flow uses message readers for table events. When you need a reducer/procedure completion (or any off-schedule callback) back in the ECS, bridge it with `add_channel_message` / `StdbChannels` as shown in [Reducer and procedure callbacks](#reducer-and-procedure-callbacks).
 
