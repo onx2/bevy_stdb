@@ -1,18 +1,21 @@
 //! Per-frame cost of delivering table changes to the readers an app binds.
 //!
-//! One iteration is one frame: the changes an SDK row callback would deliver for `n` row events,
-//! pushed into the channel, then `app.update()`, which drains them and runs every reader system.
-//! Everything before the send happens on the SDK's thread and needs a live connection, so the
-//! sends stand in for it: one `TableChange` per row event, which is what one bound callback
-//! produces however many capabilities want it.
+//! - `frame`: what the Bevy thread pays. `n` changes are already in the channel when the clock
+//!   starts, so an iteration is `app.update()` alone: the drain, then every reader system.
+//!   Bindings are matched to readers, since an app binds the capabilities it reads and no more.
+//! - `produce`: what the SDK's thread pays per change downstream of the SDK -- building the
+//!   `TableChange` and sending it. In an app that is off the frame entirely, which is why it is
+//!   kept out of `frame`.
+//! - `idle`: a frame with nothing to deliver, with one table and with a hundred more channels, so
+//!   the fixed cost of every registered channel is visible.
 //!
-//! Bindings are matched to readers: an app binds the capabilities it reads and no more.
+//! Everything upstream of the send needs a live connection, so it is not here.
 #[path = "../src/module_bindings/mod.rs"]
 mod module_bindings;
 
 use bevy::prelude::*;
 use bevy_stdb::prelude::*;
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use module_bindings::{DbConnection, Player, PlayerTableAccessor, Reducer, RemoteModule};
 use spacetimedb_sdk::{Event, Identity};
 use std::hint::black_box;
@@ -63,13 +66,17 @@ fn read_upserts(mut r: ReadInsertUpdateMessage<Player>) {
     }
 }
 
+fn plugin() -> StdbPlugin<DbConnection, RemoteModule> {
+    StdbPlugin::<DbConnection, RemoteModule>::default()
+        .with_uri(String::from("http://localhost:3000"))
+        .with_database_name(String::from("bevy-stdb-simple"))
+        .with_background_driver(DbConnection::run_threaded)
+}
+
 fn app(bound: Bound) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    let plugin = StdbPlugin::<DbConnection, RemoteModule>::default()
-        .with_uri(String::from("http://localhost:3000"))
-        .with_database_name(String::from("bevy-stdb-simple"))
-        .with_background_driver(DbConnection::run_threaded);
+    let plugin = plugin();
 
     match bound {
         Bound::Insert => {
@@ -141,28 +148,89 @@ fn row_events(bound: Bound, n: usize) -> Vec<TableChange<Player>> {
         .collect()
 }
 
+fn sender(app: &App) -> Sender<TableChange<Player>> {
+    app.world()
+        .resource::<StdbChannels>()
+        .sender::<TableChange<Player>>()
+}
+
 fn frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("frame");
     for bound in [Bound::Insert, Bound::Mirror, Bound::All] {
         for n in [100usize, 1_000, 10_000] {
             let mut app = app(bound);
-            let tx = app
-                .world()
-                .resource::<StdbChannels>()
-                .sender::<TableChange<Player>>();
+            let tx = sender(&app);
             let events = row_events(bound, n);
 
-            group.throughput(criterion::Throughput::Elements(n as u64));
+            group.throughput(Throughput::Elements(n as u64));
             group.bench_with_input(BenchmarkId::new(bound.name(), n), &n, |b, _| {
-                b.iter(|| {
-                    for change in &events {
-                        tx.send(clone_change(change)).unwrap();
-                    }
-                    app.update();
-                });
+                b.iter_batched(
+                    || {
+                        for change in &events {
+                            tx.send(clone_change(change)).unwrap();
+                        }
+                    },
+                    |()| app.update(),
+                    BatchSize::PerIteration,
+                );
             });
         }
     }
+    group.finish();
+}
+
+fn produce(c: &mut Criterion) {
+    let mut group = c.benchmark_group("produce");
+    let n = 10_000usize;
+    let mut app = app(Bound::All);
+    let tx = sender(&app);
+    let events = row_events(Bound::All, n);
+
+    group.throughput(Throughput::Elements(n as u64));
+    group.bench_function(BenchmarkId::new("add_table", n), |b| {
+        b.iter_batched(
+            // Drained outside the clock so the channel never grows.
+            || app.update(),
+            |()| {
+                for change in &events {
+                    tx.send(clone_change(change)).unwrap();
+                }
+            },
+            BatchSize::PerIteration,
+        );
+    });
+    group.finish();
+}
+
+#[derive(Message)]
+struct Unused<const N: usize>;
+
+/// Registers a hundred channels nothing ever sends on.
+macro_rules! with_idle_channels {
+    ($plugin:expr; $($n:literal)*) => { $plugin$(.add_channel_message::<Unused<$n>>())* };
+}
+
+fn idle(c: &mut Criterion) {
+    let mut group = c.benchmark_group("idle");
+
+    let mut one = app(Bound::All);
+    group.bench_function("1_table", |b| b.iter(|| one.update()));
+
+    let mut many = App::new();
+    many.add_plugins(MinimalPlugins);
+    many.add_plugins(
+        with_idle_channels!(plugin().add_table::<PlayerTableAccessor>();
+        0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
+        25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49
+        50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74
+        75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99),
+    );
+    many.add_systems(
+        Update,
+        (read_inserts, read_deletes, read_updates, read_upserts),
+    );
+    group.bench_function("1_table+100_channels", |b| b.iter(|| many.update()));
+
     group.finish();
 }
 
@@ -186,5 +254,5 @@ fn clone_change(change: &TableChange<Player>) -> TableChange<Player> {
     }
 }
 
-criterion_group!(benches, frame);
+criterion_group!(benches, frame, produce, idle);
 criterion_main!(benches);
