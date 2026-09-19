@@ -6,7 +6,7 @@ rust-version = "1.95.0"
 publish = false
 
 [dependencies]
-spacetimedb-sdk = { version = "2.7", features = [] }
+spacetimedb-sdk = { version = "2", features = [] }
 bevy_stdb = { path = "../../..", features = [] }
 # Use only features needed for a 2D game to improve compile time and size
 bevy = { version = "0.19", default-features = false, features = ["2d", "ui"] }
