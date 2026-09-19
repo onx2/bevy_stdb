@@ -77,11 +77,16 @@ jobs:
       - name: Lint all features
         run: cargo clippy --lib --tests --all-features --locked -- -D warnings
 
-      - name: Run unit and integration tests
-        run: cargo test --lib --tests --all-features --locked
+      - name: Run unit tests with all features
+        run: cargo test --lib --all-features --locked
 
-  # 3. Example Verification (the fan-out and registration tests live here: they need real
-  # `spacetime generate` bindings, which the library crate has none of)
+      # Without `browser`: the integration tests build the example's generated bindings, which
+      # pick their native API by target while the SDK picks by feature.
+      - name: Run unit and integration tests
+        run: cargo test --lib --tests --locked
+
+  # 3. Example Verification (its tests moved to the crate's `tests/`, which borrows the
+  # bindings from here; what is left to check is that the example and its bench still build)
   example:
     name: Example
     runs-on: ubuntu-latest

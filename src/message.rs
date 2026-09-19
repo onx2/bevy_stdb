@@ -34,17 +34,59 @@ pub struct StdbConnectedMessage {
     pub access_token: String,
 }
 
+/// Why a SpacetimeDB connection closed without an SDK error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisconnectIntent {
+    /// This client asked for the close, through
+    /// [`StdbConnection::disconnect`](crate::prelude::StdbConnection::disconnect) or
+    /// [`StdbCommands`](crate::prelude::StdbCommands).
+    Requested,
+    /// The connection closed on its own and the SDK reported no error -- which is what the SDK
+    /// reports when the server goes away, so this is retried like an error.
+    Lost,
+}
+
 /// A [`Message`] sent when a SpacetimeDB connection is closed or lost.
 #[derive(Message, Debug)]
 pub struct StdbDisconnectedMessage {
-    /// The error that caused the disconnect, if any.
-    pub err: Option<Error>,
+    /// Why the connection closed, or the error the SDK reported for it.
+    pub result: Result<DisconnectIntent, Error>,
+}
+
+impl StdbDisconnectedMessage {
+    /// Returns `true` when this client asked for the disconnect, so nothing should retry it.
+    pub fn was_requested(&self) -> bool {
+        matches!(self.result, Ok(DisconnectIntent::Requested))
+    }
 }
 
 /// A [`Message`] sent when a SpacetimeDB connection fails to connect.
 #[derive(Message, Debug)]
 pub struct StdbConnectErrorMessage {
     /// The error that caused the connection attempt to fail.
+    pub err: Error,
+}
+
+/// A [`Message`] sent when the reconnect cycle gives up.
+///
+/// Sent once [`StdbReconnectOptions::max_attempts`](crate::prelude::StdbReconnectOptions::max_attempts)
+/// attempts have failed. Nothing retries after this until a connection succeeds or is requested
+/// again with [`StdbCommands::connect`](crate::prelude::StdbCommands::connect).
+#[derive(Message, Clone, Debug)]
+pub struct StdbReconnectExhaustedMessage {
+    /// The number of attempts that were made.
+    pub attempts: u32,
+}
+
+/// A [`Message`] sent when a frame-driven connection fails to advance.
+///
+/// Only a connection configured with
+/// [`StdbPlugin::with_frame_driver`](crate::prelude::StdbPlugin::with_frame_driver) sends this. A
+/// closed connection is not reported here; it arrives through
+/// [`ReadStdbDisconnectedMessage`](crate::prelude::ReadStdbDisconnectedMessage).
+#[derive(Message, Debug)]
+pub struct StdbDriverErrorMessage {
+    /// The error the driver returned.
     pub err: Error,
 }
 

@@ -7,10 +7,10 @@
 use crate::{
     message::{
         MaybeRowEvent, RowEvent, StdbConnectErrorMessage, StdbConnectedMessage,
-        StdbDisconnectedMessage, StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage,
-        TableChange,
+        StdbDisconnectedMessage, StdbDriverErrorMessage, StdbReconnectExhaustedMessage,
+        StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, TableChange,
     },
-    table::{BoundStreams, TableCapabilityKind},
+    table::{BoundStreams, RowCallback},
 };
 use bevy_ecs::{
     prelude::{Local, MessageReader, Res},
@@ -99,7 +99,7 @@ where
 macro_rules! table_reader {
     (
         $(#[$doc:meta])*
-        $reader:ident -> $item:ident, $kind:ident, |$change:ident| $project:expr
+        $reader:ident -> $item:ident, [$($needs:ident),+], |$change:ident| $project:expr
     ) => {
         $(#[$doc])*
         #[derive(SystemParam)]
@@ -122,11 +122,11 @@ macro_rules! table_reader {
             ///
             /// # Panics
             ///
-            /// Panics if the row type never bound the capability this reader needs, which would
+            /// Panics if the row type never bound a callback this reader needs, which would
             /// otherwise read as a table that simply never changes.
             pub fn read(&mut self) -> impl Iterator<Item = $item<'_, T>> {
                 if !*self.checked {
-                    self.bound.assert_bound::<T>(TableCapabilityKind::$kind);
+                    self.bound.assert_bound::<T>(&[$(RowCallback::$needs),+]);
                     *self.checked = true;
                 }
 
@@ -142,7 +142,7 @@ table_reader!(
     /// Needs [`StdbPlugin::bind_insert`](crate::prelude::StdbPlugin::bind_insert), or an
     /// `add_*` method that implies it.
     ReadInsertMessage -> Inserted,
-    Insert,
+    [Insert],
     |change| match change {
         TableChange::Insert { event, row } => Some(Inserted { event, row }),
         _ => None,
@@ -155,7 +155,7 @@ table_reader!(
     /// Needs [`StdbPlugin::bind_delete`](crate::prelude::StdbPlugin::bind_delete), or an
     /// `add_*` method that implies it.
     ReadDeleteMessage -> Deleted,
-    Delete,
+    [Delete],
     |change| match change {
         TableChange::Delete { event, row } => Some(Deleted { event, row }),
         _ => None,
@@ -168,7 +168,7 @@ table_reader!(
     /// Needs [`StdbPlugin::bind_update`](crate::prelude::StdbPlugin::bind_update), or an
     /// `add_*` method that implies it.
     ReadUpdateMessage -> Updated,
-    Update,
+    [Update],
     |change| match change {
         TableChange::Update { event, old, new } => Some(Updated { event, old, new }),
         _ => None,
@@ -178,10 +178,11 @@ table_reader!(
 table_reader!(
     /// Reads inserted and updated rows of `T` as one stream.
     ///
-    /// Needs [`StdbPlugin::bind_insert_update`](crate::prelude::StdbPlugin::bind_insert_update),
-    /// or an `add_*` method that implies it.
+    /// Needs both inserts and updates bound: by
+    /// [`StdbPlugin::bind_insert_update`](crate::prelude::StdbPlugin::bind_insert_update), by
+    /// `bind_insert` and `bind_update` separately, or by `add_table`.
     ReadInsertUpdateMessage -> InsertedOrUpdated,
-    InsertUpdate,
+    [Insert, Update],
     |change| match change {
         TableChange::Insert { event, row } => Some(InsertedOrUpdated {
             event,
@@ -205,6 +206,16 @@ pub type ReadStdbDisconnectedMessage<'w, 's> = MessageReader<'w, 's, StdbDisconn
 
 /// Reads failed SpacetimeDB connection attempts.
 pub type ReadStdbConnectErrorMessage<'w, 's> = MessageReader<'w, 's, StdbConnectErrorMessage>;
+
+/// Reads the reconnect cycle giving up, once
+/// [`StdbReconnectOptions::max_attempts`](crate::prelude::StdbReconnectOptions::max_attempts)
+/// attempts have failed.
+pub type ReadStdbReconnectExhaustedMessage<'w, 's> =
+    MessageReader<'w, 's, StdbReconnectExhaustedMessage>;
+
+/// Reads errors from advancing a connection configured with
+/// [`StdbPlugin::with_frame_driver`](crate::prelude::StdbPlugin::with_frame_driver).
+pub type ReadStdbDriverErrorMessage<'w, 's> = MessageReader<'w, 's, StdbDriverErrorMessage>;
 
 /// Reads successful subscription applications keyed by `K`.
 pub type ReadStdbSubscriptionAppliedMessage<'w, 's, K> =

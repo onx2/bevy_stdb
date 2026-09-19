@@ -28,8 +28,11 @@
 //! - **Subscriptions** — Store subscription intent separately from the live
 //!   connection via [`StdbSubscriptions`](crate::prelude::StdbSubscriptions)
 //!   so queries are automatically re-applied after reconnects.
-//! - **Reconnect** — Optionally retry failed connections with configurable
-//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions).
+//! - **Reconnect** — Optionally retry lost connections and failed attempts with configurable
+//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions). A disconnect
+//!   this client requested is told apart from a lost one by
+//!   [`DisconnectIntent`](crate::prelude::DisconnectIntent), because the SDK reports both without
+//!   an error.
 //!
 //! # Quick start
 //!
@@ -87,13 +90,13 @@
 ))]
 compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-unknown`.");
 
-mod alias;
 mod channel_bridge;
 mod commands;
 mod connection;
 
 mod message;
 mod plugin;
+mod reader;
 mod set;
 mod subscription;
 mod table;
@@ -101,20 +104,21 @@ mod table;
 /// Common imports for `bevy_stdb`.
 pub mod prelude {
     pub use crate::{
-        alias::{
-            Deleted, Inserted, InsertedOrUpdated, ReadDeleteMessage, ReadInsertMessage,
-            ReadInsertUpdateMessage, ReadStdbConnectErrorMessage, ReadStdbConnectedMessage,
-            ReadStdbDisconnectedMessage, ReadStdbSubscriptionAppliedMessage,
-            ReadStdbSubscriptionErrorMessage, ReadTableChangeMessage, ReadUpdateMessage, Updated,
-        },
         channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
-        message::{MaybeRowEvent, RowEvent, SharedRowEvent, TableChange},
+        message::{DisconnectIntent, MaybeRowEvent, RowEvent, SharedRowEvent, TableChange},
         plugin::StdbPlugin,
+        reader::{
+            Deleted, Inserted, InsertedOrUpdated, ReadDeleteMessage, ReadInsertMessage,
+            ReadInsertUpdateMessage, ReadStdbConnectErrorMessage, ReadStdbConnectedMessage,
+            ReadStdbDisconnectedMessage, ReadStdbDriverErrorMessage,
+            ReadStdbReconnectExhaustedMessage, ReadStdbSubscriptionAppliedMessage,
+            ReadStdbSubscriptionErrorMessage, ReadTableChangeMessage, ReadUpdateMessage, Updated,
+        },
         set::StdbSet,
         subscription::StdbSubscriptions,
-        table::TableCapability,
+        table::{OnDelete, OnInsert, OnUpdate, TableCapability, TableSource},
     };
     /// The channel sender [`StdbChannels::sender`] hands out.
     ///
