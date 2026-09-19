@@ -77,10 +77,55 @@ jobs:
       - name: Lint all features
         run: cargo clippy --lib --tests --all-features --locked -- -D warnings
 
-      - name: Run unit and integration tests
-        run: cargo test --lib --tests --all-features --locked
+      - name: Run unit tests with all features
+        run: cargo test --lib --all-features --locked
 
-  # 3. Target-Specific Verification (WASM browser check on both MSRV and Stable)
+      # Without `browser`: the integration tests build the example's generated bindings, which
+      # pick their native API by target while the SDK picks by feature.
+      - name: Run unit and integration tests
+        run: cargo test --lib --tests --locked
+
+  # 3. Example Verification (its tests moved to the crate's `tests/`, which borrows the
+  # bindings from here; what is left to check is that the example and its bench still build)
+  example:
+    name: Example
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MANIFEST: examples/simple/client/Cargo.toml
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 # v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 # v2
+        with:
+          key: example
+          workspaces: examples/simple
+
+      - name: Install Bevy system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev
+
+      # No format check: `cargo fmt` would also rewrite the committed
+      # `spacetime generate` output under `src/module_bindings/`.
+      - name: Lint
+        run: cargo clippy --manifest-path $MANIFEST --bins --tests --benches --locked -- -D warnings
+
+      - name: Run tests
+        run: cargo test --manifest-path $MANIFEST --locked
+
+      # Compiled, not timed: shared runners are too noisy to gate on, but the bench
+      # still has to keep building as the API moves.
+      - name: Build benches
+        run: cargo bench --manifest-path $MANIFEST --bench table_streams --no-run --locked
+
+  # 4. Target-Specific Verification (WASM browser check on both MSRV and Stable)
   browser-wasm:
     name: Browser WASM (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
@@ -107,7 +152,7 @@ jobs:
       - name: Run clippy for browser feature on Wasm
         run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features browser --locked -- -D warnings
 
-  # 4. Documentation & Packaging Safety (Only needs to run once on stable)
+  # 5. Documentation & Packaging Safety (Only needs to run once on stable)
   release-sanity:
     name: Docs & Package Sanity
     runs-on: ubuntu-latest

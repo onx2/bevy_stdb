@@ -13,11 +13,11 @@ You'll need the following installed to run this example for native and web. It's
 
 ## Running locally
 
-You can simple run `spacetime dev` from this directory: `bevy_stdb/examples/simple`. This will run the publish + generate commands for SpacetimeDB as well as `bevy run` for the client. If you'd like to run this in the web, you can update the config file:
+You can simply run `spacetime dev` from this directory: `bevy_stdb/examples/simple`. This will run the publish + generate commands for SpacetimeDB as well as `bevy run` for the client. If you'd like to run this in the web, you can update the config file:
 
 ```diff
 "dev": {
--  "run": "bevy run"
-+  "run": "bevy run web"
+-  "run": "bevy run -p client"
++  "run": "bevy run web -p client"
 },
-  ```
+```

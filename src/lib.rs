@@ -13,17 +13,26 @@
 //!   connection as [`StdbConnection`](crate::prelude::StdbConnection).
 //! - **Tables** — Register internal channels for Bevy
 //!   [`Message`](bevy_ecs::prelude::Message) values once at startup and
-//!   re-bind SDK table callbacks whenever a connection becomes active. Row
-//!   changes are consumed through read-only reader aliases such as
+//!   re-bind SDK table callbacks whenever a connection becomes active. SDK
+//!   callbacks feed one [`TableChange`](crate::prelude::TableChange) stream per
+//!   row type, read through
+//!   [`ReadTableChangeMessage`](crate::prelude::ReadTableChangeMessage); the
+//!   typed readers
 //!   [`ReadInsertMessage`](crate::prelude::ReadInsertMessage),
 //!   [`ReadDeleteMessage`](crate::prelude::ReadDeleteMessage),
 //!   [`ReadUpdateMessage`](crate::prelude::ReadUpdateMessage), and
-//!   [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage).
+//!   [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage) are
+//!   views that filter it to one change kind, so inserts, deletes, and updates
+//!   of one row type keep the order the SDK delivered them in and a row is
+//!   stored once however many readers observe it.
 //! - **Subscriptions** — Store subscription intent separately from the live
 //!   connection via [`StdbSubscriptions`](crate::prelude::StdbSubscriptions)
 //!   so queries are automatically re-applied after reconnects.
-//! - **Reconnect** — Optionally retry failed connections with configurable
-//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions).
+//! - **Reconnect** — Optionally retry lost connections and failed attempts with configurable
+//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions). A disconnect
+//!   this client requested is told apart from a lost one by
+//!   [`DisconnectIntent`](crate::prelude::DisconnectIntent), because the SDK reports both without
+//!   an error.
 //!
 //! # Quick start
 //!
@@ -81,13 +90,13 @@
 ))]
 compile_error!("Enable the `browser` feature when compiling for `wasm32-unknown-unknown`.");
 
-mod alias;
 mod channel_bridge;
 mod commands;
 mod connection;
 
 mod message;
 mod plugin;
+mod reader;
 mod set;
 mod subscription;
 mod table;
@@ -95,18 +104,25 @@ mod table;
 /// Common imports for `bevy_stdb`.
 pub mod prelude {
     pub use crate::{
-        alias::{
-            ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
-            ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
-            ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
-            ReadUpdateMessage,
-        },
         channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
+        message::{DisconnectIntent, MaybeRowEvent, RowEvent, SharedRowEvent, TableChange},
         plugin::StdbPlugin,
+        reader::{
+            Deleted, Inserted, InsertedOrUpdated, ReadDeleteMessage, ReadInsertMessage,
+            ReadInsertUpdateMessage, ReadStdbConnectErrorMessage, ReadStdbConnectedMessage,
+            ReadStdbDisconnectedMessage, ReadStdbDriverErrorMessage,
+            ReadStdbReconnectExhaustedMessage, ReadStdbSubscriptionAppliedMessage,
+            ReadStdbSubscriptionErrorMessage, ReadTableChangeMessage, ReadUpdateMessage, Updated,
+        },
         set::StdbSet,
         subscription::StdbSubscriptions,
-        table::TableCapability,
+        table::{OnDelete, OnInsert, OnUpdate, TableCapability, TableSource},
     };
+    /// The channel sender [`StdbChannels::sender`] hands out.
+    ///
+    /// Re-exported so naming one does not mean depending on `crossbeam-channel` directly and
+    /// keeping its version in step with this crate's.
+    pub use crossbeam_channel::Sender;
 }

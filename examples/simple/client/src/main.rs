@@ -115,7 +115,7 @@ fn spawn_player(
 /// Interpolate the rendered position of the player toward the server authority's position
 fn interpolate(
     time: Res<Time>,
-    mut player: Single<(&mut Transform, &NetTransform), With<PlayerMarker>>,
+    player: Single<(&mut Transform, &NetTransform), With<PlayerMarker>>,
     window: Single<&Window>, // Added window to check screen bounds
 ) {
     let dt = time.delta_secs();

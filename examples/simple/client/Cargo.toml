@@ -6,7 +6,7 @@ rust-version = "1.95.0"
 publish = false
 
 [dependencies]
-spacetimedb-sdk = { version = "2.7", features = [] }
+spacetimedb-sdk = { version = "2", features = [] }
 bevy_stdb = { path = "../../..", features = [] }
 # Use only features needed for a 2D game to improve compile time and size
 bevy = { version = "0.19", default-features = false, features = ["2d", "ui"] }
@@ -18,6 +18,13 @@ tracing = { version = "0.1", features = [
     "max_level_debug",
     "release_max_level_warn",
 ] }
+
+[dev-dependencies]
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "table_streams"
+harness = false
 
 [target.wasm32-unknown-unknown.dependencies]
 spacetimedb-sdk = { version = "2.7", features = ["browser"] }
