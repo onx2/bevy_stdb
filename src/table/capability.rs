@@ -6,11 +6,11 @@ use std::{
     marker::PhantomData,
 };
 
-/// An SDK row callback: the unit of binding. Public only so the reader types can name it.
+/// An SDK row callback that a [`TableCapability`] binds.
 ///
-/// What a reader yields is a question of which of these feed its row type's stream, so
-/// [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage) has no callback of its
-/// own; it needs `Insert` and `Update`.
+/// Public only so the reader types can name it.
+/// [`ReadInsertUpdateMessage`](crate::prelude::ReadInsertUpdateMessage) needs both `Insert` and
+/// `Update`.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowCallback {
@@ -83,13 +83,13 @@ impl<C: DbContext> TableRegistry<C> {
         capabilities: impl IntoIterator<Item = TableCapability<C, T>>,
     ) {
         for (callback, bind) in capabilities.into_iter().flat_map(|c| c.callbacks) {
-            // The channel is keyed by row type, not by accessor: a table and a view over one row
-            // share it, and `register_channel` panics on a second registration.
+            // Channels are keyed by row type, so a table and a view over one row share a channel,
+            // which must be registered exactly once.
             if self.ledger.claim_channel(T::row_type()) {
                 self.table_registrations.push(T::register_channel);
             }
-            // The callback is per accessor: each feeds the shared channel from its own table,
-            // and binding one twice would forward every row twice.
+            // Callbacks are keyed by accessor, since each table feeds the shared channel; a
+            // callback bound twice would send every row twice.
             if self
                 .ledger
                 .claim_callback(TypeId::of::<T>(), T::row_type(), callback)
@@ -147,10 +147,9 @@ impl BindLedger {
     }
 }
 
-/// The row/callback pairs the plugin bound, so a table reader can name the missing
-/// registration instead of yielding nothing forever.
+/// The row/callback pairs the plugin bound, which the table readers check before reading.
 ///
-/// Public only because the reader types are; it carries no useful API of its own.
+/// Public only because the reader types are.
 #[doc(hidden)]
 #[derive(Resource, Default, Clone)]
 pub struct BoundStreams {
@@ -230,8 +229,7 @@ mod tests {
 
     #[test]
     fn binding_a_callback_again_is_harmless() {
-        // `add_table` reaches `on_insert` through both `insert` and `insert_update`, and an app
-        // may add a `bind_insert` of its own. Binding it twice would forward every row twice.
+        // `bind_insert_update` and `bind_insert` both bind `on_insert`, and an app may use both.
         let mut ledger = BindLedger::default();
         let (tbl, _, row) = ids();
 
@@ -265,7 +263,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "no `Update` callback is bound")]
     fn reading_a_stream_nobody_bound_says_which_one() {
-        // Readers filter the shared stream, so an unbound callback would otherwise read as a
+        // Readers filter the shared stream, so without this check an unbound callback reads as a
         // table that never changes.
         let mut ledger = BindLedger::default();
         let (tbl, _, row) = ids();

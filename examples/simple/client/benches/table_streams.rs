@@ -3,9 +3,8 @@
 //! - `frame`: what the Bevy thread pays. `n` changes are already in the channel when the clock
 //!   starts, so an iteration is `app.update()` alone: the drain, then every reader system.
 //!   Bindings are matched to readers, since an app binds the capabilities it reads and no more.
-//! - `produce`: what the SDK's thread pays per change downstream of the SDK -- building the
-//!   `TableChange` and sending it. In an app that is off the frame entirely, which is why it is
-//!   kept out of `frame`.
+//! - `produce`: what the SDK's thread pays per change to build a `TableChange` and send it. In an
+//!   app this happens off the frame, so it is measured separately from `frame`.
 //! - `idle`: a frame with nothing to deliver, with one table and with a hundred more channels, so
 //!   the fixed cost of every registered channel is visible.
 //!
@@ -223,8 +222,8 @@ fn idle(c: &mut Criterion) {
     group.finish();
 }
 
-/// `TableChange` is deliberately not `Clone` -- a change is delivered once -- so the bench
-/// rebuilds each one the way a callback would.
+/// Rebuilds a change the way a callback would. `TableChange` is not `Clone`, since each change is
+/// delivered once.
 fn clone_change(change: &TableChange<Player>) -> TableChange<Player> {
     match change {
         TableChange::Insert { event, row } => TableChange::Insert {

@@ -237,8 +237,7 @@ fn readers_borrow_the_one_event_the_change_holds() {
 
 #[test]
 fn a_reader_borrows_the_row_out_of_the_stream() {
-    // The point of the views: the row a reader yields is the one the change holds, not a
-    // copy of it.
+    // A reader yields the row the change holds, not a copy of it.
     let mut app = app();
     sender(&app)
         .send(TableChange::Insert {
@@ -274,8 +273,8 @@ fn a_reader_borrows_the_row_out_of_the_stream() {
 
 #[test]
 fn a_borrowed_row_still_clones_into_an_owned_one() {
-    // The migration guide promises `msg.row.clone()` keeps working; method resolution
-    // reaches `Player`'s own `Clone` through the borrow rather than cloning the reference.
+    // `msg.row.clone()` gives an owned row: method resolution finds `Player`'s `Clone` through
+    // the reference.
     let mut app = app();
     sender(&app)
         .send(TableChange::Insert {
@@ -341,7 +340,7 @@ fn an_opted_in_event_reaches_every_reader() {
     assert_eq!((changes, inserts), (vec![true], vec![true]));
 }
 
-/// An app whose row type did not opt in, holding one change that carries no event -- what its
+/// An app whose row type did not opt in to events, holding one change without an event, as its
 /// callbacks send.
 fn app_with_an_eventless_change() -> App {
     let mut app = app();

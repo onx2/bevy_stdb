@@ -161,18 +161,17 @@ impl<K: PartialEq> StdbSubscriptionErrorMessage<K> {
 
 /// A [`Message`] sent when a subscribed table row changes.
 ///
-/// This is the one stream the SDK row callbacks feed, and the only place a row is stored.
-/// [`ReadInsertMessage`](crate::prelude::ReadInsertMessage) and its siblings are views over it
-/// that filter to one change kind and borrow the row out. For one row type and connection
-/// driver, values retain SDK callback order without cross-type channel reordering.
+/// The SDK row callbacks for a row type all write to this one stream, in the order the SDK invokes
+/// them. [`ReadInsertMessage`](crate::prelude::ReadInsertMessage) and its siblings read it filtered
+/// to one change kind.
 ///
 /// The SDK may group or coalesce rows while applying a transaction diff, so this is not an
 /// operation log and does not expose the order of mutations within one server transaction.
 /// Streams for different row types have no ordering relationship.
 ///
-/// The stream is keyed by row type, not by accessor: binding both a table and a view over one
-/// row type merges their callbacks here, and a change seen by both arrives twice with nothing
-/// to tell them apart. Subscribe to one accessor per row type when that matters.
+/// The stream is keyed by row type: binding both a table and a view over one row type merges their
+/// callbacks here, and a change seen by both arrives twice with nothing to tell them apart.
+/// Subscribe to one accessor per row type when that matters.
 #[derive(Message, Debug)]
 pub enum TableChange<T>
 where

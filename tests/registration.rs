@@ -21,9 +21,8 @@ fn add_table_registers_the_change_channel() {
 
 #[test]
 fn insert_update_before_insert_registers_the_change_channel() {
-    // Every capability registers the shared channel, so claiming `InsertUpdate` first must
-    // not leave a later `Insert` believing someone else already did it -- nor register it
-    // twice, which `register_channel` panics on.
+    // Whichever capability comes first registers the shared channel, exactly once:
+    // `register_channel` panics on a second registration.
     assert_change_channel_registered(&app_with(|p| {
         p.bind_insert_update::<PlayerTableAccessor>()
             .bind_insert::<PlayerTableAccessor>()
@@ -52,8 +51,8 @@ fn opting_in_to_events_still_registers_everything_else() {
 
 #[test]
 fn binding_what_is_already_bound_is_harmless() {
-    // `add_table` already binds inserts. Asking again -- from another plugin's setup, say --
-    // must neither panic nor register the channel a second time.
+    // `add_table` already binds inserts. Binding them again, from another plugin's setup for
+    // example, must neither panic nor register the channel twice.
     assert_change_channel_registered(&app_with(|p| {
         p.add_table::<PlayerTableAccessor>()
             .bind_insert::<PlayerTableAccessor>()

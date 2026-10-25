@@ -1,9 +1,7 @@
-//! Readers for connection lifecycle messages and for table changes.
+//! Readers for connection, subscription, and table messages.
 //!
-//! Connection and subscription readers are plain [`MessageReader`] aliases. The table readers are
-//! views over the one [`TableChange`] stream a row type has: they filter it to the change kind
-//! they name and borrow out of it, so a row is copied once by the SDK callback and never again,
-//! however many readers observe it.
+//! Connection and subscription readers are [`MessageReader`] aliases. The table readers filter a
+//! row type's [`TableChange`] stream to the change kind they name, and borrow each row from it.
 use crate::{
     message::{
         MaybeRowEvent, RowEvent, StdbConnectErrorMessage, StdbConnectedMessage,
@@ -88,8 +86,8 @@ where
     pub new: &'a T,
 }
 
-/// Gives each reader's item the `event` and `try_event` that [`TableChange`] has, borrowing from
-/// the change rather than copying the event.
+/// Implements `event` and `try_event` on a reader's item, borrowing the event from its
+/// [`TableChange`].
 macro_rules! event_accessors {
     ($($item:ident),+) => {$(
         impl<'a, T> $item<'a, T>
@@ -121,8 +119,8 @@ event_accessors!(Inserted, Deleted, Updated, InsertedOrUpdated);
 
 /// Defines a reader that filters the [`TableChange`] stream to one change kind.
 ///
-/// The `Local` makes the registration check once per system rather than once per call: a reader
-/// whose capability was never bound would otherwise just yield nothing forever.
+/// The first `read` in each system checks that the callbacks the reader needs were bound, and the
+/// `Local` records that the check passed.
 macro_rules! table_reader {
     (
         $(#[$doc:meta])*
@@ -149,8 +147,7 @@ macro_rules! table_reader {
             ///
             /// # Panics
             ///
-            /// Panics if the row type never bound a callback this reader needs, which would
-            /// otherwise read as a table that simply never changes.
+            /// Panics if a callback this reader needs was never bound for the row type.
             pub fn read(&mut self) -> impl Iterator<Item = $item<'_, T>> {
                 if !*self.checked {
                     self.bound.assert_bound::<T>(&[$(RowCallback::$needs),+]);

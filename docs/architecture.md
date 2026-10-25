@@ -231,35 +231,21 @@ into `DisconnectIntent::Requested` or `DisconnectIntent::Lost`. Reconnect retrie
 `Requested`, on a timer that counts `Time<Real>` so that pausing the game does not pause the
 network.
 
-## Why the readers are views
+## How the table readers work
 
-Earlier the crate projected each change into its own message type, one per bound capability. That
-meant a row was copied once per stream that consumed it, and a system per stream ran every frame to
-do the copying.
+Each row callback is bound once and writes into the row type's one `TableChange<T>` buffer. The
+table readers filter that buffer and borrow from it, so binding more of them adds no copies.
 
 ```mermaid
 flowchart LR
-    subgraph before["before"]
-        cb1["on_insert"]
-        cb2["on_insert<br/>(bound a second time)"]
-        m1["Messages&lt;InsertMessage&gt;"]
-        m2["Messages&lt;InsertUpdateMessage&gt;"]
-        cb1 --> m1
-        cb2 --> m2
-    end
-
-    subgraph after["now"]
-        cb3["on_insert<br/>(bound once)"]
-        s["Messages&lt;TableChange&gt;"]
-        v1["ReadInsertMessage<br/>filters"]
-        v2["ReadInsertUpdateMessage<br/>filters"]
-        cb3 --> s
-        s --> v1
-        s --> v2
-    end
+    cb["on_insert<br/>(bound once)"]
+    s["Messages&lt;TableChange&gt;"]
+    v1["ReadInsertMessage<br/>filters"]
+    v2["ReadInsertUpdateMessage<br/>filters"]
+    cb --> s
+    s --> v1
+    s --> v2
 ```
 
-One callback, one copy, one buffer. The readers borrow out of it rather than receiving a copy, so
-binding more of them costs nothing per change. The trade is that `TableChange<T>` is an enum sized
-by its largest variant, so an app that binds exactly one capability stores a little more per change
-than a purpose-built message would — see the Performance section of the README for what that costs.
+`TableChange<T>` is an enum, so every change is the size of its largest variant, `Update`, which
+holds two rows. The Performance section of the README measures what delivering changes costs.

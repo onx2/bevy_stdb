@@ -241,17 +241,15 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Binds table capabilities for a generated table accessor.
     ///
-    /// This is the one way a table is registered. Every other table method is shorthand for a
-    /// call to it: `bind_insert` and its siblings bind a single capability, and `add_table` and
-    /// its siblings bind the list that suits a kind of table. Mix them freely.
+    /// The other table methods are shorthand for this: `bind_insert` and its siblings bind one
+    /// capability, and `add_table` and its siblings bind the capabilities that suit a kind of
+    /// table. They can be mixed freely.
     ///
-    /// Every capability feeds the one [`crate::prelude::TableChange`] stream the SDK callbacks
-    /// write to, and the typed readers are views over it, so they preserve SDK callback order
-    /// across change kinds and store a row once. A capability decides which SDK callbacks are
-    /// bound and therefore which readers are allowed. Binding is idempotent: capabilities that
-    /// need the same callback bind it once, and repeating one changes nothing. Reading a stream
-    /// whose callbacks were never bound panics naming the missing one.
-    /// Each capability constructor validates the corresponding SDK trait at compile time.
+    /// Each capability binds SDK row callbacks that send to the row type's
+    /// [`TableChange`](crate::prelude::TableChange) stream, and decides which table readers can be
+    /// used. Binding is idempotent: a callback that is already bound is not bound again. Reading a
+    /// stream whose callbacks were never bound panics, naming the missing callback. Each capability
+    /// constructor checks the matching SDK trait at compile time.
     ///
     /// # Example
     ///
@@ -298,12 +296,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
 
     /// Carries the SpacetimeDB event on every message for `TTable`'s row type.
     ///
-    /// Off by default. The SDK invokes a row callback once per changed row, and a generated
-    /// `Event` carries the reducer that caused the change, arguments included -- so carrying it
-    /// clones that event once per row. Opt in for a row type whose readers need it: to see which
-    /// reducer made a change and who called it, or to tell the initial subscription rows from
-    /// live ones. Read it with `event()` or `try_event()` on [`crate::prelude::TableChange`] or on
-    /// what a table reader yields; `event()` panics for a row type that did not opt in.
+    /// Off by default: the SDK invokes a row callback once per changed row, so carrying the event
+    /// clones it, reducer arguments included, once per row. Opt in for a row type whose readers
+    /// need it, for example to see which reducer made a change and who called it, or to tell
+    /// initial subscription rows from live ones. Read it with `event()` or `try_event()` on a
+    /// [`TableChange`](crate::prelude::TableChange) or on what a table reader yields; `event()`
+    /// panics for a row type that did not opt in.
     ///
     /// Applies to the row type, not the accessor: one channel carries every accessor over a row
     /// type, so a table and a view over the same row share this. Order-independent, and calling

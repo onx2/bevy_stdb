@@ -1,8 +1,7 @@
 //! Table registration and message forwarding for SpacetimeDB.
 //!
 //! Registers one [`TableChange`](crate::prelude::TableChange) channel per row type and binds the
-//! SDK table callbacks that feed it. The readers in [`reader`](crate::prelude) are views over that
-//! channel; nothing here writes a per-kind message.
+//! SDK table callbacks that feed it.
 mod bind;
 mod capability;
 mod policy;

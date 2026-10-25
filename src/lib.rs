@@ -126,9 +126,8 @@ pub mod prelude {
         subscription::StdbSubscriptions,
         table::{OnDelete, OnInsert, OnUpdate, TableCapability, TableSource},
     };
-    /// The channel sender [`StdbChannels::sender`] hands out.
+    /// The channel sender returned by [`StdbChannels::sender`].
     ///
-    /// Re-exported so naming one does not mean depending on `crossbeam-channel` directly and
-    /// keeping its version in step with this crate's.
+    /// Re-exported so apps can name it without depending on `crossbeam-channel` themselves.
     pub use crossbeam_channel::Sender;
 }
