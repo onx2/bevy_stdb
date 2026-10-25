@@ -285,6 +285,8 @@ When a reconnect succeeds:
 - table callbacks are re-bound, before the new connection can deliver a row
 - subscriptions are re-applied
 
+Each reconnect is a new SpacetimeDB connection with an empty client cache. The re-applied subscriptions deliver every matching row again as an insert, and rows deleted while the client was offline never arrive as deletes. If you mirror a table into entities or resources, clear the mirror when `ReadStdbConnectedMessage` reports a connection, before applying that frame's table changes.
+
 ## Using commands
 
 Use `StdbCommands<C, M>` to connect or disconnect at runtime, optionally overriding the token, URI, or database name configured on the plugin.

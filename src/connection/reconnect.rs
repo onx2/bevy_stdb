@@ -36,7 +36,7 @@ pub struct StdbReconnectOptions {
     /// Multiplier applied to the current delay after each failed attempt.
     ///
     /// Values below `1.0` are clamped to `1.0` to prevent the delay from
-    /// shrinking between attempts.
+    /// shrinking between attempts, and the grown delay is capped at [`Self::max_delay`].
     pub backoff_factor: f32,
     /// Maximum delay between reconnect attempts.
     pub max_delay: Duration,
@@ -112,10 +112,9 @@ impl ReconnectBackoff {
 
         self.timer = None;
         self.attempts += 1;
-        self.current_delay = self
-            .current_delay
-            .mul_f32(options.backoff_factor.max(1.0))
-            .min(options.max_delay);
+        let grown = self.current_delay.as_secs_f64() * f64::from(options.backoff_factor.max(1.0));
+        self.current_delay = Duration::try_from_secs_f64(grown)
+            .map_or(options.max_delay, |delay| delay.min(options.max_delay));
         true
     }
 }
@@ -311,6 +310,19 @@ mod tests {
         }
 
         assert_eq!(delays, [1, 2, 4, 5, 5]);
+    }
+
+    #[test]
+    fn an_unbounded_backoff_factor_caps_at_the_max_delay() {
+        let options = StdbReconnectOptions {
+            backoff_factor: f32::INFINITY,
+            ..options(0)
+        };
+        let mut backoff = ReconnectBackoff::default();
+        backoff.arm(&options);
+
+        assert!(backoff.tick(SECOND, &options));
+        assert_eq!(backoff.current_delay, options.max_delay);
     }
 
     #[test]
