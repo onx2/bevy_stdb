@@ -1,12 +1,12 @@
 use crate::{
-    channel_bridge::{ChannelBridgePlugin, ChannelRegistrationCallback, register_channel},
+    channel_bridge::{ChannelBridgePlugin, register_channel},
     connection::{ConnectionDriver, ReconnectPlugin, StdbConnectionPlugin, StdbReconnectOptions},
     message::RowEvent,
     set::StdbSet,
-    subscription::{SubscriptionsInitializer, SubscriptionsPlugin},
+    subscription::SubscriptionsPlugin,
     table::{TableCapability, TableRegistry},
 };
-use bevy_app::{App, Plugin, PreStartup, PreUpdate};
+use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Message};
 use spacetimedb_sdk::{
     __codegen::{
@@ -58,9 +58,9 @@ pub struct StdbPlugin<
     eager_connection: bool,
     driver: Option<ConnectionDriver<C>>,
     reconnect_options: Option<StdbReconnectOptions>,
-    subscriptions_initializer: Option<Arc<SubscriptionsInitializer>>,
+    subscriptions_initializer: Option<fn(&mut App)>,
     table_registry: TableRegistry<C, M>,
-    channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
+    channel_registrations: Vec<fn(&mut App)>,
 }
 
 impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<DbConnection = C>>
@@ -436,8 +436,7 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// Panics during [`Plugin::build`] if `T` is registered more than once.
     pub fn add_channel_message<T: Message>(mut self) -> Self {
-        self.channel_registrations
-            .push(Arc::new(register_channel::<T>));
+        self.channel_registrations.push(register_channel::<T>);
         self
     }
 
@@ -472,9 +471,9 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
             "`with_subscriptions()` may only be called once"
         );
 
-        self.subscriptions_initializer = Some(Arc::new(|app: &mut App| {
+        self.subscriptions_initializer = Some(|app| {
             app.add_plugins(SubscriptionsPlugin::<K, C, M>::default());
-        }));
+        });
 
         self
     }
@@ -540,7 +539,6 @@ impl<
             channel_registrations: self.channel_registrations.clone(),
         });
 
-        app.configure_sets(PreStartup, StdbSet::Connection);
         app.configure_sets(
             PreUpdate,
             (
@@ -557,7 +555,7 @@ impl<
             app.add_plugins(ReconnectPlugin::<C, M>::new(reconnect_options));
         }
 
-        if let Some(init) = self.subscriptions_initializer.clone() {
+        if let Some(init) = self.subscriptions_initializer {
             init(app);
         }
 

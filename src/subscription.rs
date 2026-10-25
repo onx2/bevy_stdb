@@ -16,8 +16,6 @@ use spacetimedb_sdk::{
 };
 use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
-pub(crate) type SubscriptionsInitializer = dyn Fn(&mut App) + Send + Sync;
-
 /// Stored subscription intent and active handle for a single key.
 struct SubscriptionEntry<H> {
     /// Active handle for the current connection, if any.

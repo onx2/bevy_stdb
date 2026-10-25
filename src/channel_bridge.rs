@@ -8,9 +8,6 @@ use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{IntoScheduleConfigs, Message, Messages, Mut, Resource, World};
 use crossbeam_channel::{Sender, unbounded};
 use std::any::{Any, TypeId, type_name};
-use std::sync::Arc;
-
-pub type ChannelRegistrationCallback = dyn Fn(&mut App) + Send + Sync;
 
 /// Stores one registered message channel.
 struct ChannelEntry {
@@ -59,7 +56,7 @@ impl StdbChannels {
 }
 
 pub(crate) struct ChannelBridgePlugin {
-    pub(crate) channel_registrations: Vec<Arc<ChannelRegistrationCallback>>,
+    pub(crate) channel_registrations: Vec<fn(&mut App)>,
 }
 impl Plugin for ChannelBridgePlugin {
     fn build(&self, app: &mut App) {
