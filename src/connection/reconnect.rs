@@ -7,9 +7,9 @@
 
 use super::{PendingConnection, StdbConnection};
 use crate::{
-    alias::{ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     commands::{StartConnectCommand, StdbConnectOptions},
     message::StdbReconnectExhaustedMessage,
+    reader::{ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     set::StdbSet,
 };
 use bevy_app::{App, Plugin, PreUpdate};

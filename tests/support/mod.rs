@@ -11,7 +11,9 @@ pub mod module_bindings;
 
 use bevy_app::App;
 use bevy_stdb::prelude::*;
-use module_bindings::{DbConnection, RemoteModule};
+use module_bindings::{DbConnection, Player, RemoteModule};
+use spacetimedb_sdk::{Event, Identity};
+use std::sync::Arc;
 
 pub type Plugin = StdbPlugin<DbConnection, RemoteModule>;
 
@@ -32,4 +34,24 @@ pub fn app_with(configure: impl FnOnce(Plugin) -> Plugin) -> App {
     let mut app = App::new();
     app.add_plugins(configure(plugin()));
     app
+}
+
+pub fn player(x: f32) -> Player {
+    Player {
+        identity: Identity::from_byte_array([0; 32]),
+        online: true,
+        x,
+        y: 0.0,
+    }
+}
+
+pub fn event() -> MaybeRowEvent<Player> {
+    Some(Arc::new(Event::SubscribeApplied))
+}
+
+/// The sender a bound SDK row callback would hold.
+pub fn sender(app: &App) -> Sender<TableChange<Player>> {
+    app.world()
+        .resource::<StdbChannels>()
+        .sender::<TableChange<Player>>()
 }
