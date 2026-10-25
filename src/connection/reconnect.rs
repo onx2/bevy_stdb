@@ -14,7 +14,8 @@ use crate::{
 };
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_ecs::prelude::{
-    Commands, IntoScheduleConfigs, MessageWriter, Res, ResMut, Resource, not, resource_exists,
+    Commands, IntoScheduleConfigs, MessageWriter, Res, ResMut, Resource, World, not,
+    resource_exists,
 };
 use bevy_time::{Real, Time, Timer, TimerMode};
 use spacetimedb_sdk::{
@@ -160,19 +161,31 @@ impl<
         });
         app.init_resource::<ReconnectBackoff>();
 
+        // Chained so a connection that is made and lost within one frame is retried: the reset
+        // for the connect must not land after, and wipe, the timer armed for the loss.
         app.add_systems(
             PreUpdate,
-            (on_connect, arm_reconnect_timer).in_set(StdbSet::Connection),
-        );
-
-        // The countdown is paused while a connection is live or an attempt is in flight.
-        app.add_systems(
-            PreUpdate,
-            tick_reconnect_timer
-                .run_if(not(resource_exists::<StdbConnection<C>>))
-                .run_if(not(resource_exists::<PendingConnection<C>>))
+            (
+                on_connect,
+                arm_reconnect_timer,
+                // The countdown is paused while a connection is live or an attempt is in flight.
+                tick_reconnect_timer
+                    .run_if(not(resource_exists::<StdbConnection<C>>))
+                    .run_if(not(resource_exists::<PendingConnection<C>>)),
+            )
+                .chain()
                 .in_set(StdbSet::Connection),
         );
+    }
+}
+
+/// Ends any reconnect cycle in progress, as an explicit connect, reconnect, or disconnect does.
+///
+/// What the app asks for supersedes the cycle: a disconnect must not be undone by a retry that was
+/// already counting down, and a connect after the cycle gave up starts with the full budget.
+pub(crate) fn end_reconnect_cycle(world: &mut World) {
+    if let Some(mut backoff) = world.get_resource_mut::<ReconnectBackoff>() {
+        *backoff = ReconnectBackoff::default();
     }
 }
 
@@ -235,7 +248,7 @@ mod tests {
     use super::*;
     use crate::message::{DisconnectIntent, StdbConnectedMessage, StdbDisconnectedMessage};
     use bevy_app::App;
-    use bevy_ecs::prelude::{Messages, World};
+    use bevy_ecs::prelude::Messages;
     use bevy_time::{TimePlugin, TimeUpdateStrategy, Virtual};
     use spacetimedb_sdk::Identity;
 
@@ -362,6 +375,59 @@ mod tests {
         app.update();
 
         assert_eq!(attempts(&app), 1);
+    }
+
+    #[test]
+    fn a_connection_lost_in_the_frame_it_was_made_is_retried() {
+        // Both messages are read by the same update. Were the reset for the connect to run after
+        // the timer was armed for the loss, it would wipe that timer and nothing would retry.
+        let mut app = app(0);
+        app.world_mut().write_message(StdbConnectedMessage {
+            identity: Identity::from_byte_array([0; 32]),
+            access_token: String::new(),
+        });
+        disconnect(&mut app, Ok(DisconnectIntent::Lost));
+        app.update();
+        app.update();
+
+        assert_eq!(attempts(&app), 1);
+    }
+
+    #[test]
+    fn ending_the_cycle_cancels_a_retry_that_was_counting_down() {
+        // A disconnect asked for while a lost connection waits to be retried must stay asked for.
+        let mut app = app(0);
+        // Short steps, so the one second delay is still counting down when the cycle ends.
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(SECOND / 10));
+        disconnect(&mut app, Ok(DisconnectIntent::Lost));
+        app.update();
+
+        end_reconnect_cycle(app.world_mut());
+        for _ in 0..20 {
+            app.update();
+        }
+
+        assert_eq!(attempts(&app), 0);
+    }
+
+    #[test]
+    fn ending_the_cycle_after_it_gave_up_restores_the_budget() {
+        // `StdbCommands::connect` ends the cycle, so a connect after exhaustion that fails is
+        // retried rather than reported exhausted at once.
+        let mut app = app(1);
+        disconnect(&mut app, Ok(DisconnectIntent::Lost));
+        app.update();
+        app.update();
+        disconnect(&mut app, Ok(DisconnectIntent::Lost));
+        app.update();
+        assert_eq!(attempts(&app), 1);
+
+        end_reconnect_cycle(app.world_mut());
+        disconnect(&mut app, Ok(DisconnectIntent::Lost));
+        app.update();
+        app.update();
+
+        assert_eq!(attempts(&app), 2);
     }
 
     #[test]

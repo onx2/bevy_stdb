@@ -5,7 +5,7 @@
 mod reconnect;
 
 use crate::{
-    alias::{ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
+    alias::{ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
     channel_bridge::{channel_sender, register_channel},
     message::{
         DisconnectIntent, StdbConnectErrorMessage, StdbConnectedMessage, StdbDisconnectedMessage,
@@ -20,11 +20,11 @@ use bevy_ecs::prelude::{
 };
 use bevy_tasks::{IoTaskPool, Task, block_on, poll_once};
 use crossbeam_channel::Sender;
-pub(crate) use reconnect::ReconnectPlugin;
 pub use reconnect::StdbReconnectOptions;
+pub(crate) use reconnect::{ReconnectPlugin, end_reconnect_cycle};
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
-    Compression, ConnectionId, DbConnectionBuilder, DbContext, Error, Identity, Result,
+    Compression, ConnectionId, DbConnectionBuilder, DbContext, Identity, Result,
 };
 use std::sync::{
     Arc,
@@ -135,7 +135,6 @@ where
                 let _ = disconnected_tx.send(StdbDisconnectedMessage { result });
             })
             .on_connect_error(move |_ctx, err| {
-                // TODO: waiting for STDB release with fix for this to function properly.
                 let _ = connect_error_tx.send(StdbConnectErrorMessage { err });
             })
     }
@@ -197,12 +196,11 @@ impl<T: DbContext> StdbConnection<T> {
     /// The resulting disconnect message reports [`DisconnectIntent::Requested`], which
     /// the reconnect cycle leaves alone.
     pub fn disconnect(&self) -> Result<()> {
+        // Kept raised even if the SDK refuses: it only refuses a connection that is already
+        // closing, and if that close was an earlier request, clearing the flag would report it
+        // as lost and retry it.
         self.disconnect_requested.store(true, Ordering::Release);
-        let result = self.conn.disconnect();
-        if result.is_err() {
-            self.disconnect_requested.store(false, Ordering::Release);
-        }
-        result
+        self.conn.disconnect()
     }
 
     /// Returns a builder for database subscriptions.
@@ -295,8 +293,11 @@ impl<
                 (move |conn: Res<StdbConnection<C>>,
                        mut errors: MessageWriter<StdbDriverErrorMessage>| {
                     match frame_tick(conn.conn.as_ref()) {
-                        // A closed connection is reported by its `on_disconnect` callback.
-                        Ok(()) | Err(Error::Disconnected) => {}
+                        Ok(()) => {}
+                        // An error that ended the connection was already reported by the SDK
+                        // callback it ran -- `on_disconnect`, or `on_connect_error` before the
+                        // handshake -- and `frame_tick` returns it again.
+                        Err(_) if !conn.is_active() => {}
                         Err(err) => {
                             errors.write(StdbDriverErrorMessage { err });
                         }
@@ -322,13 +323,15 @@ fn poll_pending_connection<
 >(
     world: &mut World,
 ) {
-    let Some(PendingConnection(mut task)) = world.remove_resource::<PendingConnection<C>>() else {
+    // Polled in place: a resource is a component on its own entity, so taking it out and putting
+    // it back every frame would move it between archetypes twice for nothing.
+    let Some(mut pending) = world.get_resource_mut::<PendingConnection<C>>() else {
         return;
     };
-    let Some(result) = block_on(poll_once(&mut task)) else {
-        world.insert_resource(PendingConnection::<C>(task));
+    let Some(result) = block_on(poll_once(&mut pending.0)) else {
         return;
     };
+    world.remove_resource::<PendingConnection<C>>();
 
     match result {
         Ok(conn) => {
@@ -354,16 +357,22 @@ fn poll_pending_connection<
     }
 }
 
-// Ensures the StdbConnection resource is valid when it exists, otherwise it should be removed
+/// Removes the [`StdbConnection`] once the SDK reports it closed.
+///
+/// A connection that closes before its initial connection message is reported as a connect
+/// error, not a disconnect, so both are watched; left in place, a dead connection would pause the
+/// reconnect countdown and turn every [`StdbCommands::connect`](crate::prelude::StdbCommands::connect)
+/// into a no-op.
 fn sync_connection_resource<C: DbContext + Send + Sync + 'static>(
-    mut connected_msgs: ReadStdbConnectedMessage,
-    mut disconnected_msgs: ReadStdbDisconnectedMessage,
+    mut connected: ReadStdbConnectedMessage,
+    mut disconnected: ReadStdbDisconnectedMessage,
+    mut connect_errors: ReadStdbConnectErrorMessage,
     conn: Option<Res<StdbConnection<C>>>,
     mut commands: Commands,
 ) {
-    if (connected_msgs.read().next().is_some() || disconnected_msgs.read().next().is_some())
-        && conn.as_ref().is_some_and(|conn| !conn.is_active())
-    {
+    let reported =
+        connected.read().count() + disconnected.read().count() + connect_errors.read().count();
+    if reported > 0 && conn.is_some_and(|conn| !conn.is_active()) {
         commands.remove_resource::<StdbConnection<C>>();
     }
 }

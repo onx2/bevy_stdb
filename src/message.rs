@@ -66,9 +66,11 @@ pub struct StdbReconnectExhaustedMessage {
 /// A [`Message`] sent when a frame-driven connection fails to advance.
 ///
 /// Only a connection configured with
-/// [`StdbPlugin::with_frame_driver`](crate::prelude::StdbPlugin::with_frame_driver) sends this. A
-/// closed connection is not reported here; it arrives through
-/// [`ReadStdbDisconnectedMessage`](crate::prelude::ReadStdbDisconnectedMessage).
+/// [`StdbPlugin::with_frame_driver`](crate::prelude::StdbPlugin::with_frame_driver) sends this. An
+/// error that ends the connection is not reported here; it arrives through
+/// [`ReadStdbDisconnectedMessage`](crate::prelude::ReadStdbDisconnectedMessage), or through
+/// [`ReadStdbConnectErrorMessage`](crate::prelude::ReadStdbConnectErrorMessage) if the connection
+/// never finished connecting.
 #[derive(Message, Debug)]
 pub struct StdbDriverErrorMessage {
     /// The error the driver returned.

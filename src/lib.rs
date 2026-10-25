@@ -108,7 +108,11 @@ pub mod prelude {
         channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
-        message::DisconnectIntent,
+        message::{
+            DisconnectIntent, StdbConnectErrorMessage, StdbConnectedMessage,
+            StdbDisconnectedMessage, StdbDriverErrorMessage, StdbReconnectExhaustedMessage,
+            StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage,
+        },
         plugin::StdbPlugin,
         set::StdbSet,
         subscription::StdbSubscriptions,

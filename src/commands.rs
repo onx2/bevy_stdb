@@ -1,4 +1,6 @@
-use crate::connection::{PendingConnection, StdbConnection, StdbConnectionConfig};
+use crate::connection::{
+    PendingConnection, StdbConnection, StdbConnectionConfig, end_reconnect_cycle,
+};
 use bevy_ecs::{
     prelude::{Command, Commands, World},
     system::SystemParam,
@@ -82,10 +84,15 @@ where
 {
     /// Requests a SpacetimeDB connection attempt using [`StdbConnectOptions`].
     ///
-    /// No-op if a [`StdbConnection`] exists or a connection attempt is already in flight.
+    /// Starts no attempt if a [`StdbConnection`] exists or an attempt is already in flight. Either
+    /// way the reconnect cycle starts over, so a failure is retried with the full
+    /// [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions) budget, even after an
+    /// earlier cycle gave up.
     pub fn connect(&mut self, options: StdbConnectOptions) {
-        self.commands
-            .queue(StartConnectCommand::<C, M>::new(options));
+        self.commands.queue(move |world: &mut World| {
+            end_reconnect_cycle(world);
+            StartConnectCommand::<C, M>::new(options).apply(world);
+        });
     }
 
     /// Requests a new connection after closing the active or pending connection.
@@ -99,7 +106,8 @@ where
     /// Requests disconnection from the active SpacetimeDB connection.
     ///
     /// Reported as [`DisconnectIntent::Requested`](crate::prelude::DisconnectIntent), which the
-    /// reconnect cycle leaves alone.
+    /// reconnect cycle leaves alone. A retry that was already counting down for an earlier lost
+    /// connection is cancelled.
     pub fn disconnect(&mut self) {
         self.commands.queue(DisconnectCommand::<C>::new());
     }
@@ -224,10 +232,12 @@ where
     world.insert_resource(PendingConnection::<C>(task));
 }
 
+/// Closes the active connection and drops any attempt in flight, ending the reconnect cycle.
 fn disconnect_connection<C>(world: &mut World)
 where
     C: DbContext + Send + Sync + 'static,
 {
+    end_reconnect_cycle(world);
     if let Some(conn) = world.get_resource::<StdbConnection<C>>() {
         let _ = conn.disconnect();
     }
