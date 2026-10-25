@@ -423,11 +423,14 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Compatibility
 
-| bevy_stdb | bevy   | spacetimedb_sdk | MSRV |
-| --------- | ------ | --------------- | ---- |
-| 0.1 - 0.8 | 0.18   | 2.0 - 2.6       | 1.93 |
-|      0.12 | 0.19   | 2.0 - 2.6       | 1.95 |
-|      0.13 | 0.19   | 2.7+            | 1.95 |
+| bevy_stdb   | bevy | spacetimedb_sdk | MSRV |
+| ----------- | ---- | --------------- | ---- |
+|   0.1 - 0.8 | 0.18 | 2.0 - 2.6       | 1.93 |
+|        0.12 | 0.19 | 2.0 - 2.6       | 1.95 |
+|        0.13 | 0.19 | 2.7+            | 1.95 |
+|        0.14 | 0.20 | 2.7+            | 1.95 |
+
+The MSRV is `bevy_stdb`'s own. `spacetimedb_sdk` 2.10.2 and later need Rust 1.96, and 2.12 and later need 1.97, so on Rust 1.95 Cargo's MSRV-aware resolver settles on 2.10.1. The example needs Rust 1.97.1, which the `bevy` crate requires.
 
 
 ## Notes
