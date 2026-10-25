@@ -107,9 +107,9 @@ where
 {
     /// Produces a configured [`DbConnectionBuilder`] for this connection.
     ///
-    /// `disconnect_requested` is the flag [`StdbConnection::disconnect`] raises. The SDK reports
-    /// a connection the server dropped exactly as it reports one this client closed -- a
-    /// disconnect with no error -- so the flag is the only thing that tells them apart.
+    /// [`StdbConnection::disconnect`] sets `disconnect_requested`, and the `on_disconnect`
+    /// callback reads it to report the close as [`DisconnectIntent::Requested`] or
+    /// [`DisconnectIntent::Lost`]. The SDK reports both kinds of close without an error.
     fn connection_builder(&self, disconnect_requested: Arc<AtomicBool>) -> DbConnectionBuilder<M> {
         let connected_tx = self.connected_tx.clone();
         let disconnected_tx = self.disconnected_tx.clone();
@@ -166,7 +166,7 @@ where
 pub struct StdbConnection<T: DbContext + 'static> {
     /// The underlying connection context.
     conn: Arc<T>,
-    /// Raised by [`Self::disconnect`] and read by this connection's `on_disconnect` callback.
+    /// Set by [`Self::disconnect`], and read by this connection's `on_disconnect` callback.
     disconnect_requested: Arc<AtomicBool>,
 }
 
@@ -193,12 +193,11 @@ impl<T: DbContext> StdbConnection<T> {
 
     /// Closes the connection to the SpacetimeDB server.
     ///
-    /// The resulting disconnect message reports [`DisconnectIntent::Requested`], which
-    /// the reconnect cycle leaves alone.
+    /// The resulting [`StdbDisconnectedMessage`](crate::prelude::StdbDisconnectedMessage) reports
+    /// [`DisconnectIntent::Requested`], so reconnect does not retry it.
     pub fn disconnect(&self) -> Result<()> {
-        // Kept raised even if the SDK refuses: it only refuses a connection that is already
-        // closing, and if that close was an earlier request, clearing the flag would report it
-        // as lost and retry it.
+        // Set even if the SDK refuses: it only refuses a connection that is already closing,
+        // and that close still counts as requested.
         self.disconnect_requested.store(true, Ordering::Release);
         self.conn.disconnect()
     }
@@ -294,9 +293,8 @@ impl<
                        mut errors: MessageWriter<StdbDriverErrorMessage>| {
                     match frame_tick(conn.conn.as_ref()) {
                         Ok(()) => {}
-                        // An error that ended the connection was already reported by the SDK
-                        // callback it ran -- `on_disconnect`, or `on_connect_error` before the
-                        // handshake -- and `frame_tick` returns it again.
+                        // An error that ends the connection is reported by the SDK's
+                        // `on_disconnect` or `on_connect_error` callback instead.
                         Err(_) if !conn.is_active() => {}
                         Err(err) => {
                             errors.write(StdbDriverErrorMessage { err });
@@ -323,8 +321,6 @@ fn poll_pending_connection<
 >(
     world: &mut World,
 ) {
-    // Polled in place: a resource is a component on its own entity, so taking it out and putting
-    // it back every frame would move it between archetypes twice for nothing.
     let Some(mut pending) = world.get_resource_mut::<PendingConnection<C>>() else {
         return;
     };
@@ -335,9 +331,8 @@ fn poll_pending_connection<
 
     match result {
         Ok(conn) => {
-            // Bound here rather than by a system watching for the resource: a row callback must
-            // exist before anything can deliver a row, so the tables are bound before the
-            // driver starts and before any subscription is applied.
+            // Bind the table callbacks before the driver starts or any subscription is applied,
+            // so no row arrives before its callback exists.
             bind_tables::<C, M>(world, conn.db());
 
             let config = world.resource::<StdbConnectionConfig<C, M>>();
@@ -345,7 +340,7 @@ fn poll_pending_connection<
                 background_driver(conn.conn.as_ref());
             }
 
-            // Removed rather than overwritten, so subscriptions see the new connection as added.
+            // Remove the old connection first, so the new one is always seen as added.
             if let Some(prev_conn) = world.remove_resource::<StdbConnection<C>>() {
                 let _ = prev_conn.disconnect();
             }
@@ -359,10 +354,8 @@ fn poll_pending_connection<
 
 /// Removes the [`StdbConnection`] once the SDK reports it closed.
 ///
-/// A connection that closes before its initial connection message is reported as a connect
-/// error, not a disconnect, so both are watched; left in place, a dead connection would pause the
-/// reconnect countdown and turn every [`StdbCommands::connect`](crate::prelude::StdbCommands::connect)
-/// into a no-op.
+/// A connection that closes before its handshake completes is reported as a connect error, so
+/// connect errors are checked as well as disconnects.
 fn sync_connection_resource<C: DbContext + Send + Sync + 'static>(
     mut connected: ReadStdbConnectedMessage,
     mut disconnected: ReadStdbDisconnectedMessage,

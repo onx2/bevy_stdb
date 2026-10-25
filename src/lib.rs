@@ -29,10 +29,9 @@
 //!   connection via [`StdbSubscriptions`](crate::prelude::StdbSubscriptions)
 //!   so queries are automatically re-applied after reconnects.
 //! - **Reconnect** — Optionally retry lost connections and failed attempts with configurable
-//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions). A disconnect
-//!   this client requested is told apart from a lost one by
-//!   [`DisconnectIntent`](crate::prelude::DisconnectIntent), because the SDK reports both without
-//!   an error.
+//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions).
+//!   [`DisconnectIntent`](crate::prelude::DisconnectIntent) tells a disconnect this client
+//!   requested apart from a lost connection.
 //!
 //! # Quick start
 //!
@@ -81,6 +80,8 @@
 //! builder API and the [README](https://github.com/onx2/bevy_stdb)
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
+
+#![forbid(unsafe_code)]
 
 #[cfg(all(
     target_arch = "wasm32",

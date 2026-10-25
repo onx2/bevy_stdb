@@ -103,9 +103,10 @@ where
     }
 }
 
-/// Binds every registered table callback on `db`, the view of a connection about to go live.
+/// Binds every registered table callback on `db`, the database view of a connection about to be
+/// activated.
 ///
-/// Runs once per connection, reconnects included, because SDK callbacks belong to the connection
+/// Called once per connection, including reconnects, since SDK callbacks belong to the connection
 /// they were registered on.
 pub(crate) fn bind_tables<C, M>(world: &World, db: &C::DbView)
 where
