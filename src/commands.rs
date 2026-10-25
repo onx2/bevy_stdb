@@ -10,14 +10,19 @@ use spacetimedb_sdk::{
 };
 use std::marker::PhantomData;
 
-/// Options for starting a SpacetimeDB connection attempt.
+/// Overrides for the connection settings, applied when a connection attempt starts.
+///
+/// Every field that is `Some` replaces the stored setting, and stays replaced: later attempts,
+/// automatic reconnects included, go to the same place with the same token. That is what keeps a
+/// reconnect on the server the player chose rather than the one the plugin was built with. Leave
+/// a field `None` to keep the current setting.
 #[derive(Clone, Debug, Default)]
 pub struct StdbConnectOptions {
-    /// Optional access token for this connection attempt.
+    /// Access token to connect with from now on.
     pub token: Option<String>,
-    /// Optional URI for this connection attempt.
+    /// URI to connect to from now on.
     pub uri: Option<String>,
-    /// Optional database name for this connection attempt.
+    /// Database name to connect to from now on.
     pub database_name: Option<String>,
 }
 
@@ -84,11 +89,17 @@ where
     }
 
     /// Requests a new connection after closing the active or pending connection.
+    ///
+    /// The close is reported as [`DisconnectIntent::Requested`](crate::prelude::DisconnectIntent),
+    /// and stored subscriptions are applied to the new connection.
     pub fn reconnect(&mut self, options: StdbConnectOptions) {
         self.commands.queue(ReconnectCommand::<C, M>::new(options));
     }
 
     /// Requests disconnection from the active SpacetimeDB connection.
+    ///
+    /// Reported as [`DisconnectIntent::Requested`](crate::prelude::DisconnectIntent), which the
+    /// reconnect cycle leaves alone.
     pub fn disconnect(&mut self) {
         self.commands.queue(DisconnectCommand::<C>::new());
     }

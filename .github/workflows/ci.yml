@@ -77,8 +77,13 @@ jobs:
       - name: Lint all features
         run: cargo clippy --lib --tests --all-features --locked -- -D warnings
 
+      - name: Run unit tests with all features
+        run: cargo test --lib --all-features --locked
+
+      # Without `browser`: the integration tests build the example's generated bindings, which
+      # pick their native API by target while the SDK picks by feature.
       - name: Run unit and integration tests
-        run: cargo test --lib --tests --all-features --locked
+        run: cargo test --lib --tests --locked
 
   # 3. Example Verification (the example has to keep building as the crate and Bevy move)
   example:

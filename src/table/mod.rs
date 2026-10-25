@@ -5,12 +5,8 @@
 mod bind;
 mod capability;
 
-use crate::{connection::StdbConnection, set::StdbSet};
-use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{
-    prelude::{Resource, World, resource_added},
-    schedule::IntoScheduleConfigs,
-};
+use bevy_app::{App, Plugin};
+use bevy_ecs::prelude::{Resource, World};
 pub(crate) use bind::{bind_delete, bind_insert, bind_insert_update, bind_update};
 pub use capability::TableCapability;
 pub(crate) use capability::TableCapabilityKind;
@@ -112,32 +108,23 @@ where
         app.insert_resource(StdbTableConfig::<C, M> {
             table_bindings: self.table_bindings.clone(),
         });
-        app.add_systems(
-            PreUpdate,
-            on_connected_bind::<C, M>
-                .run_if(resource_added::<StdbConnection<C>>)
-                .after(StdbSet::Connection)
-                .before(StdbSet::Subscriptions),
-        );
     }
 }
 
-/// Binds deferred table callbacks after a connection becomes active.
-fn on_connected_bind<
-    C: DbConnection<Module = M> + DbContext + Send + Sync,
-    M: SpacetimeModule<DbConnection = C>,
->(
-    world: &mut World,
-) {
+/// Binds every registered table callback on `db`, the view of a connection about to go live.
+///
+/// Runs once per connection, reconnects included, because SDK callbacks belong to the connection
+/// they were registered on.
+pub(crate) fn bind_tables<C, M>(world: &World, db: &C::DbView)
+where
+    C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
+    M: SpacetimeModule<DbConnection = C> + 'static,
+{
     let config = world
         .get_resource::<StdbTableConfig<C, M>>()
-        .expect("StdbTableConfig should exist before Connected bind phase");
-    let conn = world
-        .get_resource::<StdbConnection<C>>()
-        .expect("StdbConnection should exist before Connected bind phase");
+        .expect("StdbTableConfig should exist before a connection is activated");
 
-    let db = conn.db();
     for bind in &config.table_bindings {
-        bind(&*world, db);
+        bind(world, db);
     }
 }

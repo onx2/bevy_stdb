@@ -23,7 +23,7 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 - **Table event bridging** through Bevy `MessageReader` aliases
 - **Callback bridging** for reducer/procedure completions through `StdbChannels` and `add_channel_message`
 - **Managed subscription intent** through `StdbSubscriptions`
-- **Optional reconnect support** through `StdbReconnectOptions`
+- **Optional reconnect support** through `StdbReconnectOptions`, including connections the SDK reports as cleanly closed when the server went away
 
 ## Example
 
@@ -152,7 +152,7 @@ fn main() {
 
 ### Bevy frame-tick driving
 
-Use `frame_tick` when you want Bevy to drive connection progress from Bevy each frame. Internally, `bevy_stdb` runs this driver from `PreUpdate`:
+Use `frame_tick` when you want Bevy to drive connection progress from Bevy each frame. `bevy_stdb` runs this driver in `PreUpdate`, in `StdbSet::Drive`, ahead of `StdbSet::Flush` — so a row the driver delivers is readable in that same frame. An error from the driver other than the connection closing is reported through `ReadStdbDriverErrorMessage`:
 
 ```rust
 use bevy::prelude::*;
@@ -252,7 +252,23 @@ fn request_connect(mut stdb_cmds: StdbCmds) {
 
 Reconnect behavior is opt-in. Pass `StdbReconnectOptions` to `StdbPlugin::with_reconnect` to enable it.
 
-The reconnect cycle activates when a disconnect message includes an error, or when a connection attempt fails — including a first-time failure. A clean `disconnect()` call does not trigger a retry. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
+The reconnect cycle activates when a connection is lost, or when a connection attempt fails — including a first-time failure. A disconnect you asked for, through `StdbConnection::disconnect` or `StdbCommands`, does not trigger a retry. While a connection attempt is in-flight the timer is paused; it re-arms once the attempt resolves. The cycle resets fully on a successful connect so the full attempt budget is available again.
+
+"Lost" is decided by `bevy_stdb`, not by the SDK. The SDK reports a server that went away as a disconnect with no error — exactly what it reports for a disconnect you requested — so the absence of an error cannot mean "intentional". Each connection instead remembers whether this client asked it to close, and `StdbDisconnectedMessage::result` says which it was:
+
+```rust
+fn on_disconnected(mut messages: ReadStdbDisconnectedMessage) {
+    for msg in messages.read() {
+        match &msg.result {
+            Ok(DisconnectIntent::Requested) => { /* we closed it; nothing retries */ }
+            Ok(DisconnectIntent::Lost) => { /* it went away; reconnect will retry */ }
+            Err(err) => warn!("connection failed: {err}"),
+        }
+    }
+}
+```
+
+The backoff counts wall-clock time (`Time<Real>`), so a paused or sped-up game reconnects on the same schedule. When `max_attempts` is reached the cycle stops and says so once through `ReadStdbReconnectExhaustedMessage`.
 
 ```rust
 .with_reconnect(StdbReconnectOptions {
@@ -266,7 +282,7 @@ The reconnect cycle activates when a disconnect message includes an error, or wh
 When a reconnect succeeds:
 
 - the `StdbConnection` resource is replaced
-- table callbacks are re-bound
+- table callbacks are re-bound, before the new connection can deliver a row
 - subscriptions are re-applied
 
 ## Using commands
@@ -287,11 +303,11 @@ fn connect_with_token(mut cmds: StdbCmds) {
 }
 ```
 
-See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_database_name`, `from_target`).
+See `StdbConnectOptions` for all available overrides (`from_token`, `from_uri`, `from_database_name`, `from_target`). An override is not one-shot: it replaces the stored setting, so later attempts and automatic reconnects keep using it.
 
 ### Connection-dependent resources
 
-`bevy_stdb` resources are only available while a connection is active. Guard systems with `resource_exists::<StdbConnection<_>>()` or accept the connection as an optional parameter. If you need to detect that a connection has been lost before the resource is cleaned up, `StdbConnection::is_active()` checks whether the underlying send channel is still open:
+`StdbConnection` only exists while there is a connection. Guard systems with `resource_exists::<StdbConnection<_>>()` or accept the connection as an optional parameter. If you need to detect that a connection has been lost before the resource is cleaned up, `StdbConnection::is_active()` checks whether the underlying send channel is still open:
 
 ```rust
 use bevy::prelude::*;
@@ -337,6 +353,8 @@ That means you can:
 - enable subscription management during plugin setup using `with_subscriptions`
 - queue subscriptions later from normal Bevy systems, typically by reading `ReadStdbConnectedMessage`
 - automatically re-apply queued subscription intent after reconnect
+
+Handles belong to the connection that issued them, so `StdbSubscriptions` follows the `StdbConnection` resource: it re-applies every stored query to each new connection and drops the old handles once the connection is gone. It does not wait to be told the old one closed. Calling `subscribe_sql` again with a query that is already queued or live does nothing; one whose subscription ended, because it failed, is queued again, so a failed subscription can be retried as-is.
 
 Subscriptions are keyed, so you can refer to them using domain-specific identifiers to do things like resubscribe dynamically or unsubscribe. 
 

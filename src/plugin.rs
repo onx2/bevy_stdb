@@ -544,6 +544,7 @@ impl<
         app.configure_sets(
             PreUpdate,
             (
+                StdbSet::Drive,
                 StdbSet::Flush,
                 StdbSet::StateSync,
                 StdbSet::Connection,
@@ -568,11 +569,9 @@ impl<
             uri: self.uri.clone().expect("No uri set. Use with_uri()"),
             token: self.token.clone(),
             eager_connection: self.eager_connection,
-            driver: self.driver.clone().or_else(|| {
-                panic!(
-                    "No connection driver set. Use with_background_driver() or with_frame_driver()"
-                )
-            }),
+            driver: self.driver.clone().expect(
+                "No connection driver set. Use with_background_driver() or with_frame_driver()",
+            ),
             compression: self.compression.unwrap_or_default(),
         });
 

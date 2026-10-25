@@ -22,8 +22,11 @@
 //! - **Subscriptions** — Store subscription intent separately from the live
 //!   connection via [`StdbSubscriptions`](crate::prelude::StdbSubscriptions)
 //!   so queries are automatically re-applied after reconnects.
-//! - **Reconnect** — Optionally retry failed connections with configurable
-//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions).
+//! - **Reconnect** — Optionally retry lost connections and failed attempts with configurable
+//!   backoff via [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions). A disconnect
+//!   this client requested is told apart from a lost one by
+//!   [`DisconnectIntent`](crate::prelude::DisconnectIntent), because the SDK reports both without
+//!   an error.
 //!
 //! # Quick start
 //!
@@ -98,12 +101,14 @@ pub mod prelude {
         alias::{
             ReadDeleteMessage, ReadInsertMessage, ReadInsertUpdateMessage,
             ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage,
+            ReadStdbDriverErrorMessage, ReadStdbReconnectExhaustedMessage,
             ReadStdbSubscriptionAppliedMessage, ReadStdbSubscriptionErrorMessage,
             ReadUpdateMessage,
         },
         channel_bridge::StdbChannels,
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
+        message::DisconnectIntent,
         plugin::StdbPlugin,
         set::StdbSet,
         subscription::StdbSubscriptions,
