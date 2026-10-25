@@ -43,8 +43,7 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
-    pub event: &'a MaybeRowEvent<T>,
+    event: &'a MaybeRowEvent<T>,
     /// The inserted row.
     pub row: &'a T,
 }
@@ -56,8 +55,7 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
-    pub event: &'a MaybeRowEvent<T>,
+    event: &'a MaybeRowEvent<T>,
     /// The deleted row.
     pub row: &'a T,
 }
@@ -69,8 +67,7 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
-    pub event: &'a MaybeRowEvent<T>,
+    event: &'a MaybeRowEvent<T>,
     /// The previous row value.
     pub old: &'a T,
     /// The updated row value.
@@ -84,13 +81,43 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
-    pub event: &'a MaybeRowEvent<T>,
+    event: &'a MaybeRowEvent<T>,
     /// The previous row value, if this was an update.
     pub old: Option<&'a T>,
     /// The current row value.
     pub new: &'a T,
 }
+
+/// Gives each reader's item the `event` and `try_event` that [`TableChange`] has, borrowing from
+/// the change rather than copying the event.
+macro_rules! event_accessors {
+    ($($item:ident),+) => {$(
+        impl<'a, T> $item<'a, T>
+        where
+            T: InModule,
+            RowEvent<T>: Send + Sync,
+        {
+            /// The SpacetimeDB event that caused this change.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the row type did not opt in with
+            /// [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
+            #[track_caller]
+            pub fn event(&self) -> &'a RowEvent<T> {
+                self.event.get()
+            }
+
+            /// The SpacetimeDB event that caused this change, or `None` if the row type did not
+            /// opt in with [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
+            pub fn try_event(&self) -> Option<&'a RowEvent<T>> {
+                self.event.try_get()
+            }
+        }
+    )+};
+}
+
+event_accessors!(Inserted, Deleted, Updated, InsertedOrUpdated);
 
 /// Defines a reader that filters the [`TableChange`] stream to one change kind.
 ///

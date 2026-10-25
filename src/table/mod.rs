@@ -26,7 +26,7 @@ pub(crate) struct TableRegistry<C: DbContext> {
     table_registrations: Vec<TableRegistration>,
     table_bindings: Vec<TableBind<C>>,
     ledger: BindLedger,
-    /// Row types whose messages omit the SDK event.
+    /// Row types whose messages carry the SDK event.
     event_policy: RowEventPolicy,
 }
 
@@ -56,12 +56,12 @@ impl<C: DbContext> TableRegistry<C> {
         }
     }
 
-    /// Records that messages for `row_type` omit the SDK event.
+    /// Records that messages for `row_type` carry the SDK event.
     ///
     /// Order-independent: the policy is read when a connection binds its callbacks, long after
     /// every registration has run, so this may be called before or after the table it applies to.
-    pub(crate) fn omit_event(&mut self, row_type: TypeId) {
-        self.event_policy.omit(row_type);
+    pub(crate) fn carry_event(&mut self, row_type: TypeId) {
+        self.event_policy.carry(row_type);
     }
 }
 
@@ -77,7 +77,7 @@ pub(crate) struct StdbTablePlugin<C: DbContext, M> {
     table_registrations: Vec<TableRegistration>,
     /// Bind functions invoked for each connection that goes live.
     table_bindings: Vec<TableBind<C>>,
-    /// Row types whose messages omit the SDK event.
+    /// Row types whose messages carry the SDK event.
     event_policy: RowEventPolicy,
     /// The row/callback pairs the table readers may read.
     bound_streams: BoundStreams,

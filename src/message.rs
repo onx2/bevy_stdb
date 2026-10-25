@@ -5,25 +5,62 @@ use spacetimedb_sdk::{
     __codegen::{AbstractEventContext, InModule, SpacetimeModule},
     Error, Identity,
 };
-use std::sync::Arc;
+use std::{any::type_name, fmt};
 
 /// Event metadata associated with row callbacks for a SpacetimeDB row type.
 pub type RowEvent<T> =
     <<<T as InModule>::Module as SpacetimeModule>::EventContext as AbstractEventContext>::Event;
 
-/// A row event shared by every message derived from one SDK row callback.
+/// The SpacetimeDB event behind one table change, carried only for row types that opted in with
+/// [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
 ///
-/// A generated `Event` carries the reducer that caused the change, including its arguments, so
-/// it can be far larger than the row itself. The callback clones it once and each derived
-/// message shares it; deref to read it as a [`RowEvent`].
-pub type SharedRowEvent<T> = Arc<RowEvent<T>>;
+/// Read it with [`TableChange::event`] or `event()` on what a table reader yields, or with
+/// `try_event()` where a row type may not carry it. Build one with `Some(event).into()` or
+/// `None.into()`, as a test that sends its own `TableChange` does. It is boxed, so a change without
+/// one costs a null pointer rather than the size of the event.
+pub struct MaybeRowEvent<T: InModule>(Option<Box<RowEvent<T>>>);
 
-/// The row event carried by a table message, or `None` when the row type opted out with
-/// [`StdbPlugin::without_event`](crate::prelude::StdbPlugin::without_event).
-///
-/// `Arc` is never null, so the `None` case costs no extra space: this is the same size as
-/// [`SharedRowEvent`].
-pub type MaybeRowEvent<T> = Option<SharedRowEvent<T>>;
+impl<T: InModule> MaybeRowEvent<T> {
+    /// Returns the event, or panics naming the opt-in when there is none.
+    #[track_caller]
+    pub(crate) fn get(&self) -> &RowEvent<T> {
+        self.try_get().unwrap_or_else(|| {
+            panic!(
+                "`{}` changes carry no SpacetimeDB event; opt in with `StdbPlugin::with_event` \
+                 for its table accessor, or read it with `try_event`",
+                type_name::<T>(),
+            )
+        })
+    }
+
+    pub(crate) fn try_get(&self) -> Option<&RowEvent<T>> {
+        self.0.as_deref()
+    }
+}
+
+impl<T: InModule> From<Option<RowEvent<T>>> for MaybeRowEvent<T> {
+    fn from(event: Option<RowEvent<T>>) -> Self {
+        Self(event.map(Box::new))
+    }
+}
+
+impl<T: InModule> Clone for MaybeRowEvent<T>
+where
+    RowEvent<T>: Clone,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T: InModule> fmt::Debug for MaybeRowEvent<T>
+where
+    RowEvent<T>: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// A [`Message`] sent when a SpacetimeDB connection is established.
 #[derive(Message, Debug)]
@@ -142,25 +179,56 @@ where
 {
     /// The row was inserted.
     Insert {
-        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        /// The SpacetimeDB event behind the change; read it with [`TableChange::event`].
         event: MaybeRowEvent<T>,
         /// The inserted row.
         row: T,
     },
     /// The row was deleted.
     Delete {
-        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        /// The SpacetimeDB event behind the change; read it with [`TableChange::event`].
         event: MaybeRowEvent<T>,
         /// The deleted row.
         row: T,
     },
     /// The row was updated.
     Update {
-        /// The SpacetimeDB event that triggered the row callback, unless the row type opted out.
+        /// The SpacetimeDB event behind the change; read it with [`TableChange::event`].
         event: MaybeRowEvent<T>,
         /// The previous row value.
         old: T,
         /// The updated row value.
         new: T,
     },
+}
+
+impl<T> TableChange<T>
+where
+    T: InModule,
+    RowEvent<T>: Send + Sync,
+{
+    /// The SpacetimeDB event that caused this change.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the row type did not opt in with
+    /// [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
+    #[track_caller]
+    pub fn event(&self) -> &RowEvent<T> {
+        self.maybe_event().get()
+    }
+
+    /// The SpacetimeDB event that caused this change, or `None` if the row type did not opt in
+    /// with [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
+    pub fn try_event(&self) -> Option<&RowEvent<T>> {
+        self.maybe_event().try_get()
+    }
+
+    fn maybe_event(&self) -> &MaybeRowEvent<T> {
+        match self {
+            Self::Insert { event, .. }
+            | Self::Delete { event, .. }
+            | Self::Update { event, .. } => event,
+        }
+    }
 }

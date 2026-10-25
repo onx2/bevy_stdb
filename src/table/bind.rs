@@ -6,7 +6,7 @@
 use super::policy::carries_event;
 use crate::{
     channel_bridge::{channel_sender, register_channel},
-    message::{RowEvent, SharedRowEvent, TableChange},
+    message::{RowEvent, TableChange},
 };
 use bevy_app::App;
 use bevy_ecs::prelude::World;
@@ -107,8 +107,7 @@ where
         let with_event = carries_event::<T::Row>(world);
         T::get(db).on_insert(move |ctx, row| {
             let _ = sender.send(TableChange::Insert {
-                event: with_event
-                    .then(|| SharedRowEvent::<T::Row>::new(event_of::<T::Row>(ctx).clone())),
+                event: with_event.then(|| event_of::<T::Row>(ctx).clone()).into(),
                 row: row.clone(),
             });
         });
@@ -129,8 +128,7 @@ where
         let with_event = carries_event::<T::Row>(world);
         T::get(db).on_delete(move |ctx, row| {
             let _ = sender.send(TableChange::Delete {
-                event: with_event
-                    .then(|| SharedRowEvent::<T::Row>::new(event_of::<T::Row>(ctx).clone())),
+                event: with_event.then(|| event_of::<T::Row>(ctx).clone()).into(),
                 row: row.clone(),
             });
         });
@@ -151,8 +149,7 @@ where
         let with_event = carries_event::<T::Row>(world);
         T::get(db).on_update(move |ctx, old, new| {
             let _ = sender.send(TableChange::Update {
-                event: with_event
-                    .then(|| SharedRowEvent::<T::Row>::new(event_of::<T::Row>(ctx).clone())),
+                event: with_event.then(|| event_of::<T::Row>(ctx).clone()).into(),
                 old: old.clone(),
                 new: new.clone(),
             });

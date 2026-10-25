@@ -13,7 +13,6 @@ use bevy_app::App;
 use bevy_stdb::prelude::*;
 use module_bindings::{DbConnection, Player, RemoteModule};
 use spacetimedb_sdk::{Event, Identity};
-use std::sync::Arc;
 
 pub type Plugin = StdbPlugin<DbConnection, RemoteModule>;
 
@@ -45,8 +44,9 @@ pub fn player(x: f32) -> Player {
     }
 }
 
+/// The event a callback attaches for a row type that opted in with `with_event`.
 pub fn event() -> MaybeRowEvent<Player> {
-    Some(Arc::new(Event::SubscribeApplied))
+    Some(Event::SubscribeApplied).into()
 }
 
 /// The sender a bound SDK row callback would hold.

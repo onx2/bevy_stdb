@@ -16,10 +16,9 @@ mod module_bindings;
 use bevy::prelude::*;
 use bevy_stdb::prelude::*;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use module_bindings::{DbConnection, Player, PlayerTableAccessor, Reducer, RemoteModule};
-use spacetimedb_sdk::{Event, Identity};
+use module_bindings::{DbConnection, Player, PlayerTableAccessor, RemoteModule};
+use spacetimedb_sdk::Identity;
 use std::hint::black_box;
-use std::sync::Arc;
 
 /// What an app binds, and therefore which row callbacks deliver anything.
 #[derive(Clone, Copy)]
@@ -111,24 +110,14 @@ fn player(x: f32) -> Player {
     }
 }
 
-/// The event every change in a run shares.
-///
-/// `ReducerEvent` is `#[non_exhaustive]` and cannot be built outside the SDK, so this is a unit
-/// variant: cloning it is free. The event clone that sharing one `Arc` avoids therefore does not
-/// appear in these numbers at all, which understates the gain rather than inflating it -- a real
-/// `Event::Reducer` carries the reducer's arguments and is cloned once per changed row.
-fn shared_event() -> Event<Reducer> {
-    Event::SubscribeApplied
-}
-
 /// The row events one frame delivers. `bind_insert` binds only `on_insert`, so nothing else
-/// reaches the channel at all; the other two see the full mix.
+/// reaches the channel at all; the other two see the full mix. They carry no event, as a row type
+/// that has not opted in with `with_event` sends.
 fn row_events(bound: Bound, n: usize) -> Vec<TableChange<Player>> {
-    let event = Arc::new(shared_event());
     (0..n)
         .map(|i| {
             let x = i as f32;
-            let event = Some(Arc::clone(&event));
+            let event = None.into();
             match (bound, i % 4) {
                 (Bound::Insert, _) | (_, 0) => TableChange::Insert {
                     event,

@@ -108,7 +108,7 @@ pub mod prelude {
         commands::{StdbCommands, StdbConnectOptions},
         connection::{StdbConnection, StdbReconnectOptions},
         message::{
-            DisconnectIntent, MaybeRowEvent, RowEvent, SharedRowEvent, StdbConnectErrorMessage,
+            DisconnectIntent, MaybeRowEvent, RowEvent, StdbConnectErrorMessage,
             StdbConnectedMessage, StdbDisconnectedMessage, StdbDriverErrorMessage,
             StdbReconnectExhaustedMessage, StdbSubscriptionAppliedMessage,
             StdbSubscriptionErrorMessage, TableChange,

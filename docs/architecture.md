@@ -58,7 +58,7 @@ sequenceDiagram
 
     M->>S: transaction diff
     loop once per changed row
-        S->>S: clone row (and event, unless opted out)
+        S->>S: clone row (and event, if opted in)
         S->>C: send TableChange::Insert / Delete / Update
     end
     Note over C: queued until the next frame

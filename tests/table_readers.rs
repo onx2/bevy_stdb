@@ -11,7 +11,6 @@ use bevy_app::App;
 use bevy_ecs::system::RunSystemOnce;
 use bevy_stdb::prelude::*;
 use spacetimedb_sdk::Event;
-use std::sync::Arc;
 use support::{
     app_with, event,
     module_bindings::{Player, PlayerTableAccessor},
@@ -206,29 +205,34 @@ fn a_change_is_read_exactly_once_across_frames() {
 }
 
 #[test]
-fn readers_borrow_one_event_rather_than_cloning_it() {
-    let mut app = app();
-    let event = Arc::new(Event::SubscribeApplied);
-
+fn readers_borrow_the_one_event_the_change_holds() {
+    let mut app = app_with(|p| {
+        p.add_table::<PlayerTableAccessor>()
+            .with_event::<PlayerTableAccessor>()
+    });
     sender(&app)
         .send(TableChange::Insert {
-            event: Some(Arc::clone(&event)),
+            event: event(),
             row: player(1.0),
         })
         .unwrap();
     app.update();
 
-    // Held here and by the one `TableChange`. Reading it through every table reader adds
-    // nothing: the readers borrow out of that single stored change.
-    let w = app.world_mut();
-    let _ = w
-        .run_system_once(|mut r: ReadInsertMessage<Player>| r.read().count())
-        .unwrap();
-    let _ = w
-        .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| r.read().count())
+    let same = app
+        .world_mut()
+        .run_system_once(
+            |mut changes: ReadTableChangeMessage<Player>,
+             mut inserts: ReadInsertMessage<Player>,
+             mut upserts: ReadInsertUpdateMessage<Player>| {
+                let stored = std::ptr::from_ref(changes.read().next().unwrap().event());
+                let inserted = std::ptr::from_ref(inserts.read().next().unwrap().event());
+                let upserted = std::ptr::from_ref(upserts.read().next().unwrap().event());
+                stored == inserted && stored == upserted
+            },
+        )
         .unwrap();
 
-    assert_eq!(Arc::strong_count(&event), 2);
+    assert!(same);
 }
 
 #[test]
@@ -305,32 +309,88 @@ fn reading_a_stream_the_table_never_bound_panics() {
 }
 
 #[test]
-fn a_row_type_without_events_yields_none_to_every_reader() {
+fn an_opted_in_event_reaches_every_reader() {
     let mut app = app_with(|p| {
         p.add_table::<PlayerTableAccessor>()
-            .without_event::<PlayerTableAccessor>()
+            .with_event::<PlayerTableAccessor>()
     });
     sender(&app)
         .send(TableChange::Insert {
-            event: None,
+            event: event(),
             row: player(1.0),
         })
         .unwrap();
     app.update();
 
     let w = app.world_mut();
+    let changes = w
+        .run_system_once(|mut r: ReadTableChangeMessage<Player>| {
+            r.read()
+                .map(|c| matches!(c.event(), Event::SubscribeApplied))
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
     let inserts = w
         .run_system_once(|mut r: ReadInsertMessage<Player>| {
-            r.read().map(|m| m.event.is_some()).collect::<Vec<_>>()
+            r.read()
+                .map(|m| matches!(m.event(), Event::SubscribeApplied))
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+
+    assert_eq!((changes, inserts), (vec![true], vec![true]));
+}
+
+/// An app whose row type did not opt in, holding one change that carries no event -- what its
+/// callbacks send.
+fn app_with_an_eventless_change() -> App {
+    let mut app = app();
+    sender(&app)
+        .send(TableChange::Insert {
+            event: None.into(),
+            row: player(1.0),
+        })
+        .unwrap();
+    app.update();
+    app
+}
+
+#[test]
+fn try_event_is_none_for_a_row_type_that_did_not_opt_in() {
+    let mut app = app_with_an_eventless_change();
+
+    let w = app.world_mut();
+    let changes = w
+        .run_system_once(|mut r: ReadTableChangeMessage<Player>| {
+            r.read()
+                .map(|c| c.try_event().is_none())
+                .collect::<Vec<_>>()
         })
         .unwrap();
     let upserts = w
         .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| {
-            r.read().map(|m| m.event.is_some()).collect::<Vec<_>>()
+            r.read()
+                .map(|m| m.try_event().is_none())
+                .collect::<Vec<_>>()
         })
         .unwrap();
 
-    assert_eq!((inserts, upserts), (vec![false], vec![false]));
+    assert_eq!((changes, upserts), (vec![true], vec![true]));
+}
+
+#[test]
+#[should_panic(expected = "opt in with `StdbPlugin::with_event`")]
+fn event_panics_naming_the_opt_in_for_a_row_type_that_did_not_opt_in() {
+    // Silently reading `None` would look like a table whose changes have no cause.
+    let mut app = app_with_an_eventless_change();
+
+    let _ = app
+        .world_mut()
+        .run_system_once(|mut r: ReadInsertMessage<Player>| {
+            for m in r.read() {
+                let _ = m.event();
+            }
+        });
 }
 
 #[test]

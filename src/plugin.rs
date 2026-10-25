@@ -296,12 +296,14 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.bind([TableCapability::<C, TTable>::insert_update()])
     }
 
-    /// Drops the SpacetimeDB event from every message for `TTable`'s row type.
+    /// Carries the SpacetimeDB event on every message for `TTable`'s row type.
     ///
-    /// The SDK invokes a row callback once per changed row, and a generated `Event` carries the
-    /// reducer that caused the change, arguments included -- so a transaction touching many rows
-    /// clones that event once per row. A row type read only for its row data can skip the clone
-    /// entirely; `event` on its messages is then `None`.
+    /// Off by default. The SDK invokes a row callback once per changed row, and a generated
+    /// `Event` carries the reducer that caused the change, arguments included -- so carrying it
+    /// clones that event once per row. Opt in for a row type whose readers need it: to see which
+    /// reducer made a change and who called it, or to tell the initial subscription rows from
+    /// live ones. Read it with `event()` or `try_event()` on [`crate::prelude::TableChange`] or on
+    /// what a table reader yields; `event()` panics for a row type that did not opt in.
     ///
     /// Applies to the row type, not the accessor: one channel carries every accessor over a row
     /// type, so a table and a view over the same row share this. Order-independent, and calling
@@ -311,10 +313,10 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     ///
     /// ```ignore
     /// .add_table::<PlayerTableAccessor>()
-    /// .without_event::<PlayerTableAccessor>()
+    /// .with_event::<PlayerTableAccessor>()
     /// ```
-    pub fn without_event<TTable: TableSource<C>>(mut self) -> Self {
-        self.table_registry.omit_event(TTable::row_type());
+    pub fn with_event<TTable: TableSource<C>>(mut self) -> Self {
+        self.table_registry.carry_event(TTable::row_type());
         self
     }
 

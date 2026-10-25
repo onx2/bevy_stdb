@@ -40,13 +40,13 @@ fn every_add_method_registers_the_change_channel() {
 }
 
 #[test]
-fn opting_out_of_events_still_registers_everything_else() {
-    // `without_event` only changes what a bound callback puts in the message; it must not
+fn opting_in_to_events_still_registers_everything_else() {
+    // `with_event` only changes what a bound callback puts in the message; it must not
     // disturb registration, and it is order-independent.
     assert_change_channel_registered(&app_with(|p| {
-        p.without_event::<PlayerTableAccessor>()
+        p.with_event::<PlayerTableAccessor>()
             .add_table::<PlayerTableAccessor>()
-            .without_event::<PlayerTableAccessor>()
+            .with_event::<PlayerTableAccessor>()
     }));
 }
 
