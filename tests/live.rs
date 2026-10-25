@@ -3,8 +3,12 @@
 //! ```sh
 //! spacetime start
 //! spacetime publish --server local --module-path examples/simple/server bevy-stdb-simple
-//! cargo test --test live -- --ignored --test-threads 1
+//! cargo test --test live -- --ignored --test-threads 1 --skip a_server_restart
 //! ```
+//!
+//! `a_server_restart_is_reported_as_lost_and_recovered_from` needs the server restarted while it
+//! runs, so it is skipped above; run it on its own with `--exact` and restart the server when it
+//! prints `connected; restart the server now`.
 // The generated bindings select their native API by target, the SDK by feature, so they cannot
 // compile natively once `--all-features` turns `browser` on.
 #![cfg(not(feature = "browser"))]

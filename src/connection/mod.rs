@@ -194,7 +194,9 @@ impl<T: DbContext> StdbConnection<T> {
     /// Closes the connection to the SpacetimeDB server.
     ///
     /// The resulting [`StdbDisconnectedMessage`](crate::prelude::StdbDisconnectedMessage) reports
-    /// [`DisconnectIntent::Requested`], so reconnect does not retry it.
+    /// [`DisconnectIntent::Requested`], so reconnect does not retry it. Only this method and
+    /// [`StdbCommands::disconnect`](crate::prelude::StdbCommands::disconnect) mark a close as
+    /// requested; a close made through an SDK context is reported as lost.
     pub fn disconnect(&self) -> Result<()> {
         // Set even if the SDK refuses: it only refuses a connection that is already closing,
         // and that close still counts as requested.

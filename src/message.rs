@@ -108,7 +108,10 @@ pub enum DisconnectIntent {
     Requested,
     /// The connection closed without being requested, as it does when the server goes away.
     ///
-    /// Reconnect retries a lost connection the same way it retries an error.
+    /// Reconnect retries a lost connection the same way it retries an error. A close made through
+    /// an SDK context, such as `ctx.disconnect()` in a reducer callback, is also reported as lost;
+    /// disconnect through [`StdbConnection::disconnect`](crate::prelude::StdbConnection::disconnect)
+    /// or [`StdbCommands::disconnect`](crate::prelude::StdbCommands::disconnect) instead.
     Lost,
 }
 
