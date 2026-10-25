@@ -21,13 +21,14 @@ pub enum RowCallback {
 
 /// A typed table binding capability used with [`crate::prelude::StdbPlugin::bind`].
 ///
-/// Construct capabilities with [`Self::insert`], [`Self::delete`],
-/// [`Self::update`], and [`Self::insert_update`]. Each constructor requires
-/// the corresponding capability trait on the generated table handle, so
-/// unsupported bindings fail at compile time.
+/// Construct capabilities with [`Self::insert`], [`Self::delete`], [`Self::update`],
+/// [`Self::insert_update`], and [`Self::ctx`]. Each callback constructor requires the corresponding
+/// capability trait on the generated table handle, so unsupported bindings fail at compile time.
 pub struct TableCapability<C: DbContext, T> {
     /// The SDK row callbacks this capability binds.
     callbacks: Vec<(RowCallback, TableBind<C>)>,
+    /// Whether changes of the row type carry the SpacetimeDB context.
+    ctx: bool,
     _marker: PhantomData<fn() -> T>,
 }
 
@@ -68,9 +69,28 @@ impl<C: DbContext, T> TableCapability<C, T> {
         ])
     }
 
+    /// Carries the SpacetimeDB context on every change of `T`'s row type, read with `ctx()` on a
+    /// [`TableChange`](crate::prelude::TableChange) or on what a table reader yields.
+    ///
+    /// Binds no callback of its own: it applies to the callbacks the other capabilities bind, for
+    /// every accessor over the same row type. Off by default, because the SDK invokes a row
+    /// callback once per changed row, so carrying the context clones its event, reducer arguments
+    /// included, once per row.
+    pub fn ctx() -> Self
+    where
+        T: TableSource<C>,
+    {
+        Self {
+            callbacks: Vec::new(),
+            ctx: true,
+            _marker: PhantomData,
+        }
+    }
+
     fn of(callbacks: Vec<(RowCallback, TableBind<C>)>) -> Self {
         Self {
             callbacks,
+            ctx: false,
             _marker: PhantomData,
         }
     }
@@ -82,19 +102,24 @@ impl<C: DbContext> TableRegistry<C> {
         &mut self,
         capabilities: impl IntoIterator<Item = TableCapability<C, T>>,
     ) {
-        for (callback, bind) in capabilities.into_iter().flat_map(|c| c.callbacks) {
-            // Channels are keyed by row type, so a table and a view over one row share a channel,
-            // which must be registered exactly once.
-            if self.ledger.claim_channel(T::row_type()) {
-                self.table_registrations.push(T::register_channel);
+        for capability in capabilities {
+            if capability.ctx {
+                self.carry_ctx(T::row_type());
             }
-            // Callbacks are keyed by accessor, since each table feeds the shared channel; a
-            // callback bound twice would send every row twice.
-            if self
-                .ledger
-                .claim_callback(TypeId::of::<T>(), T::row_type(), callback)
-            {
-                self.table_bindings.push(bind);
+            for (callback, bind) in capability.callbacks {
+                // Channels are keyed by row type, so a table and a view over one row share a
+                // channel, which must be registered exactly once.
+                if self.ledger.claim_channel(T::row_type()) {
+                    self.table_registrations.push(T::register_channel);
+                }
+                // Callbacks are keyed by accessor, since each table feeds the shared channel; a
+                // callback bound twice would send every row twice.
+                if self
+                    .ledger
+                    .claim_callback(TypeId::of::<T>(), T::row_type(), callback)
+                {
+                    self.table_bindings.push(bind);
+                }
             }
         }
     }

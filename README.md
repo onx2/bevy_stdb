@@ -185,7 +185,7 @@ There is one registration API, `bind`, which takes a list of `TableCapability` v
 | `add_event_table::<T>` | Append-only log table — exposes unified insert changes plus typed readers |
 | `add_view::<T>` | Server-computed virtual table — exposes unified insert/delete changes plus typed readers |
 | `bind::<T>`, `bind_*::<T>` | Explicit control — exposes specific message readers |
-| `with_event::<T>` | Messages for this row type carry the SpacetimeDB event behind each change — see [The event behind a change](#the-event-behind-a-change) |
+| `add_*_with_ctx::<T>` | As the matching `add_*` method, with the SpacetimeDB context on every change — see [The context behind a change](#the-context-behind-a-change) |
 
 ```rust
 // Semantic convenience APIs.
@@ -213,7 +213,7 @@ Depending on the table shape, systems consume database changes through these rea
 - `ReadUpdateMessage<T>`
 - `ReadInsertUpdateMessage<T>` — inserts and updates as one stream, for mirroring a table without caring which it was
 
-The connection and subscription readers are `MessageReader` aliases. The four table readers are views over the row type's single `TableChange<T>` stream: each filters it to the change kind it names and borrows out of it, so nothing is copied per reader and each keeps its own cursor. Values yielded by `.read()` borrow the affected row data (`Inserted`, `Deleted`, `Updated`, `InsertedOrUpdated`), and the SpacetimeDB event behind the change if the row type opted in to it.
+The connection and subscription readers are `MessageReader` aliases. The four table readers are views over the row type's single `TableChange<T>` stream: each filters it to the change kind it names and borrows out of it, so nothing is copied per reader and each keeps its own cursor. Values yielded by `.read()` borrow the affected row data (`Inserted`, `Deleted`, `Updated`, `InsertedOrUpdated`), and the SpacetimeDB context behind the change if the row type opted in to it.
 
 Reading a stream whose callback was never bound — `ReadUpdateMessage<T>` on a table registered with `add_table_without_pk`, say — panics naming the missing callback, rather than yielding nothing forever. `ReadInsertUpdateMessage<T>` needs both inserts and updates bound, however they were bound: `bind_insert_update` is shorthand for `bind_insert` plus `bind_update`.
 
@@ -242,24 +242,25 @@ Its deterministic property is limited to preserving the order in which the SDK i
 
 The stream is keyed by the **row type**, not the accessor. Binding both a table and a view over one row type merges their callbacks into it, and a change both of them see arrives twice with nothing to tell the two apart — subscribe to one accessor per row type when that matters.
 
-What it costs: one copy of the row per change, plus one clone of the event for a row type that opted in to it, no matter how many readers observe it, because the readers borrow rather than receive their own copy. The SDK callback for a given change kind runs once however many capabilities asked for it.
+What it costs: one copy of the row per change, plus one clone of the context's event for a row type that opted in to it, no matter how many readers observe it, because the readers borrow rather than receive their own copy. The SDK callback for a given change kind runs once however many capabilities asked for it.
 
-### The event behind a change
+### The context behind a change
 
-Each change can carry the SpacetimeDB `Event` that caused it: which reducer ran, with what
-arguments and for whom, or that the row arrived with the initial subscription rather than as a
-live change. It is off by default. The SDK invokes a row callback once per changed row, so
-carrying it means a transaction touching 500 rows clones that event 500 times, reducer arguments
-and all. Opt in for the row types whose readers need it:
+Each change can carry the SpacetimeDB context its row callback received: `ctx.event` says which
+reducer ran, with what arguments and for whom, or that the row arrived with the initial subscription
+rather than as a live change. It is off by default. The SDK invokes a row callback once per changed
+row, so carrying the context means a transaction touching 500 rows clones its event 500 times,
+reducer arguments and all. Opt in for the row types whose readers need it, with an `add_*_with_ctx`
+method or the `ctx` capability:
 
 ```rust
 StdbPlugin::<DbConnection, RemoteModule>::default()
     // ...
-    .add_table::<PersonTableAccessor>()
-    .with_event::<PersonTableAccessor>()
+    .add_table_with_ctx::<PersonTableAccessor>()
+    .bind::<DamageEventsTableAccessor>([TableCapability::insert(), TableCapability::ctx()])
 ```
 
-Then read it with `event()`, on a `TableChange` or on what a table reader yields:
+Then read it with `ctx()`, on a `TableChange` or on what a table reader yields:
 
 ```rust
 use crate::module_bindings::Reducer;
@@ -268,7 +269,7 @@ use spacetimedb_sdk::Event;
 
 fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
   for msg in messages.read() {
-    match msg.event() {
+    match msg.ctx().event {
       Event::Reducer(r) => {
         /* r.status, r.timestamp, r.reducer */
         if let Reducer::CreatePerson(p) = &r.reducer { /* ... */ }
@@ -279,11 +280,11 @@ fn on_person_insert(mut messages: ReadInsertMessage<PersonRow>) {
 }
 ```
 
-`event()` panics for a row type that did not opt in, naming `with_event`, rather than reading as a
-change with no cause; `try_event()` returns an `Option` for code that handles both. The setting
-applies to the row type rather than the accessor — a table and a view over one row share the
-stream, so they share the setting — and it is order-independent: declare it before or after the
-table it applies to.
+`ctx()` panics for a row type that was not bound with the `ctx` capability, naming it, rather than
+reading as a change with no cause; `try_ctx()` returns an `Option` for code that handles both. The
+setting applies to the row type rather than the accessor — a table and a view over one row share
+the stream, so they share the setting — and it is order-independent: bind it before or after the
+table's other capabilities.
 
 ## Requesting a connection
 
@@ -497,8 +498,8 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 
 ## Performance
 
-Per change, the SDK callback copies the row once into `TableChange<T>`, and clones the event only
-for a row type that opted in with `with_event`. Readers filter that one stream and borrow out of it, so
+Per change, the SDK callback copies the row once into `TableChange<T>`, and clones the context's
+event only for a row type bound with the `ctx` capability. Readers filter that one stream and borrow out of it, so
 binding more of them costs no extra copies and adds no systems to the schedule.
 
 `examples/simple/client/benches/table_streams.rs` has three groups. `frame` is what the Bevy thread
@@ -526,7 +527,7 @@ cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_stre
 ```
 
 What the bench does not cover: everything upstream of the channel send happens on the SDK's
-thread and needs a live connection, and the event clone `with_event` adds happens there, so
+thread and needs a live connection, and the event clone the `ctx` capability adds happens there, so
 neither shows up here. Nor does row size: the example's row is small and flat, and a row holding
 `String`s or `Vec`s pays for its clone in `produce`. CI compiles the bench but does not time it — shared runners are too noisy
 to gate on.

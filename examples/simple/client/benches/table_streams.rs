@@ -110,24 +110,24 @@ fn player(x: f32) -> Player {
 }
 
 /// The row events one frame delivers. `bind_insert` binds only `on_insert`, so nothing else
-/// reaches the channel at all; the other two see the full mix. They carry no event, as a row type
-/// that has not opted in with `with_event` sends.
+/// reaches the channel at all; the other two see the full mix. They carry no context, as a row
+/// type not bound with `TableCapability::ctx` sends.
 fn row_events(bound: Bound, n: usize) -> Vec<TableChange<Player>> {
     (0..n)
         .map(|i| {
             let x = i as f32;
-            let event = None.into();
+            let ctx = None.into();
             match (bound, i % 4) {
                 (Bound::Insert, _) | (_, 0) => TableChange::Insert {
-                    event,
+                    ctx,
                     row: player(x),
                 },
                 (_, 3) => TableChange::Delete {
-                    event,
+                    ctx,
                     row: player(x),
                 },
                 _ => TableChange::Update {
-                    event,
+                    ctx,
                     old: player(x),
                     new: player(x + 1.0),
                 },
@@ -226,16 +226,16 @@ fn idle(c: &mut Criterion) {
 /// delivered once.
 fn clone_change(change: &TableChange<Player>) -> TableChange<Player> {
     match change {
-        TableChange::Insert { event, row } => TableChange::Insert {
-            event: event.clone(),
+        TableChange::Insert { ctx, row } => TableChange::Insert {
+            ctx: ctx.clone(),
             row: row.clone(),
         },
-        TableChange::Delete { event, row } => TableChange::Delete {
-            event: event.clone(),
+        TableChange::Delete { ctx, row } => TableChange::Delete {
+            ctx: ctx.clone(),
             row: row.clone(),
         },
-        TableChange::Update { event, old, new } => TableChange::Update {
-            event: event.clone(),
+        TableChange::Update { ctx, old, new } => TableChange::Update {
+            ctx: ctx.clone(),
             old: old.clone(),
             new: new.clone(),
         },

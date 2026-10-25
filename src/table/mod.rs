@@ -11,7 +11,7 @@ use bevy_ecs::prelude::{Resource, World};
 pub use bind::{OnDelete, OnInsert, OnUpdate, TableSource};
 use capability::BindLedger;
 pub use capability::{BoundStreams, RowCallback, TableCapability};
-use policy::RowEventPolicy;
+use policy::RowCtxPolicy;
 use spacetimedb_sdk::__codegen::{DbConnection, DbContext, SpacetimeModule};
 use std::{any::TypeId, marker::PhantomData};
 
@@ -25,8 +25,8 @@ pub(crate) struct TableRegistry<C: DbContext> {
     table_registrations: Vec<TableRegistration>,
     table_bindings: Vec<TableBind<C>>,
     ledger: BindLedger,
-    /// Row types whose messages carry the SDK event.
-    event_policy: RowEventPolicy,
+    /// Row types whose changes carry the SpacetimeDB context.
+    ctx_policy: RowCtxPolicy,
 }
 
 impl<C: DbContext> Default for TableRegistry<C> {
@@ -35,7 +35,7 @@ impl<C: DbContext> Default for TableRegistry<C> {
             table_registrations: Vec::new(),
             table_bindings: Vec::new(),
             ledger: BindLedger::default(),
-            event_policy: RowEventPolicy::default(),
+            ctx_policy: RowCtxPolicy::default(),
         }
     }
 }
@@ -49,18 +49,18 @@ impl<C: DbContext> TableRegistry<C> {
         StdbTablePlugin {
             table_bindings: self.table_bindings.clone(),
             table_registrations: self.table_registrations.clone(),
-            event_policy: self.event_policy.clone(),
+            ctx_policy: self.ctx_policy.clone(),
             bound_streams: self.ledger.bound_streams(),
             _module: PhantomData,
         }
     }
 
-    /// Records that messages for `row_type` carry the SDK event.
+    /// Records that changes for `row_type` carry the SpacetimeDB context.
     ///
     /// Order-independent: the policy is read when a connection binds its callbacks, long after
     /// every registration has run, so this may be called before or after the table it applies to.
-    pub(crate) fn carry_event(&mut self, row_type: TypeId) {
-        self.event_policy.carry(row_type);
+    pub(crate) fn carry_ctx(&mut self, row_type: TypeId) {
+        self.ctx_policy.carry(row_type);
     }
 }
 
@@ -76,8 +76,8 @@ pub(crate) struct StdbTablePlugin<C: DbContext, M> {
     table_registrations: Vec<TableRegistration>,
     /// Bind functions invoked for each connection that goes live.
     table_bindings: Vec<TableBind<C>>,
-    /// Row types whose messages carry the SDK event.
-    event_policy: RowEventPolicy,
+    /// Row types whose changes carry the SpacetimeDB context.
+    ctx_policy: RowCtxPolicy,
     /// The row/callback pairs the table readers may read.
     bound_streams: BoundStreams,
     _module: PhantomData<fn() -> M>,
@@ -93,7 +93,7 @@ where
             register(app);
         }
 
-        app.insert_resource(self.event_policy.clone());
+        app.insert_resource(self.ctx_policy.clone());
         app.insert_resource(self.bound_streams.clone());
 
         app.insert_resource(StdbTableConfig::<C> {

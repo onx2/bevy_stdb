@@ -12,7 +12,7 @@ use bevy_ecs::system::RunSystemOnce;
 use bevy_stdb::prelude::*;
 use spacetimedb_sdk::Event;
 use support::{
-    app_with, event,
+    app_with, ctx,
     module_bindings::{Player, PlayerTableAccessor},
     player, sender,
 };
@@ -27,18 +27,18 @@ fn one_change_reaches_every_bound_reader() {
     let tx = sender(&app);
 
     tx.send(TableChange::Insert {
-        event: event(),
+        ctx: ctx(),
         row: player(1.0),
     })
     .unwrap();
     tx.send(TableChange::Update {
-        event: event(),
+        ctx: ctx(),
         old: player(1.0),
         new: player(2.0),
     })
     .unwrap();
     tx.send(TableChange::Delete {
-        event: event(),
+        ctx: ctx(),
         row: player(2.0),
     })
     .unwrap();
@@ -73,7 +73,7 @@ fn a_reader_yields_the_values_of_the_change_it_filtered() {
     let mut app = app();
     sender(&app)
         .send(TableChange::Update {
-            event: event(),
+            ctx: ctx(),
             old: player(1.0),
             new: player(2.0),
         })
@@ -103,7 +103,7 @@ fn an_insert_reaches_insert_update_with_no_old_row() {
     let mut app = app();
     sender(&app)
         .send(TableChange::Insert {
-            event: event(),
+            ctx: ctx(),
             row: player(7.0),
         })
         .unwrap();
@@ -126,7 +126,7 @@ fn a_delete_reaches_no_insert_or_insert_update_stream() {
     let mut app = app();
     sender(&app)
         .send(TableChange::Delete {
-            event: event(),
+            ctx: ctx(),
             row: player(1.0),
         })
         .unwrap();
@@ -151,12 +151,12 @@ fn the_unified_stream_keeps_callback_order() {
     for x in 0..5 {
         let _ = tx.send(if x % 2 == 0 {
             TableChange::Insert {
-                event: event(),
+                ctx: ctx(),
                 row: player(x as f32),
             }
         } else {
             TableChange::Delete {
-                event: event(),
+                ctx: ctx(),
                 row: player(x as f32),
             }
         });
@@ -189,7 +189,7 @@ fn a_change_is_read_exactly_once_across_frames() {
     let mut app = app();
     sender(&app)
         .send(TableChange::Insert {
-            event: event(),
+            ctx: ctx(),
             row: player(1.0),
         })
         .unwrap();
@@ -205,14 +205,11 @@ fn a_change_is_read_exactly_once_across_frames() {
 }
 
 #[test]
-fn readers_borrow_the_one_event_the_change_holds() {
-    let mut app = app_with(|p| {
-        p.add_table::<PlayerTableAccessor>()
-            .with_event::<PlayerTableAccessor>()
-    });
+fn readers_borrow_the_one_ctx_the_change_holds() {
+    let mut app = app_with(|p| p.add_table_with_ctx::<PlayerTableAccessor>());
     sender(&app)
         .send(TableChange::Insert {
-            event: event(),
+            ctx: ctx(),
             row: player(1.0),
         })
         .unwrap();
@@ -224,9 +221,9 @@ fn readers_borrow_the_one_event_the_change_holds() {
             |mut changes: ReadTableChangeMessage<Player>,
              mut inserts: ReadInsertMessage<Player>,
              mut upserts: ReadInsertUpdateMessage<Player>| {
-                let stored = std::ptr::from_ref(changes.read().next().unwrap().event());
-                let inserted = std::ptr::from_ref(inserts.read().next().unwrap().event());
-                let upserted = std::ptr::from_ref(upserts.read().next().unwrap().event());
+                let stored = std::ptr::from_ref(changes.read().next().unwrap().ctx().event);
+                let inserted = std::ptr::from_ref(inserts.read().next().unwrap().ctx().event);
+                let upserted = std::ptr::from_ref(upserts.read().next().unwrap().ctx().event);
                 stored == inserted && stored == upserted
             },
         )
@@ -241,7 +238,7 @@ fn a_reader_borrows_the_row_out_of_the_stream() {
     let mut app = app();
     sender(&app)
         .send(TableChange::Insert {
-            event: event(),
+            ctx: ctx(),
             row: player(3.0),
         })
         .unwrap();
@@ -278,7 +275,7 @@ fn a_borrowed_row_still_clones_into_an_owned_one() {
     let mut app = app();
     sender(&app)
         .send(TableChange::Insert {
-            event: event(),
+            ctx: ctx(),
             row: player(5.0),
         })
         .unwrap();
@@ -308,14 +305,11 @@ fn reading_a_stream_the_table_never_bound_panics() {
 }
 
 #[test]
-fn an_opted_in_event_reaches_every_reader() {
-    let mut app = app_with(|p| {
-        p.add_table::<PlayerTableAccessor>()
-            .with_event::<PlayerTableAccessor>()
-    });
+fn an_opted_in_ctx_reaches_every_reader() {
+    let mut app = app_with(|p| p.add_table_with_ctx::<PlayerTableAccessor>());
     sender(&app)
         .send(TableChange::Insert {
-            event: event(),
+            ctx: ctx(),
             row: player(1.0),
         })
         .unwrap();
@@ -325,14 +319,14 @@ fn an_opted_in_event_reaches_every_reader() {
     let changes = w
         .run_system_once(|mut r: ReadTableChangeMessage<Player>| {
             r.read()
-                .map(|c| matches!(c.event(), Event::SubscribeApplied))
+                .map(|c| matches!(c.ctx().event, Event::SubscribeApplied))
                 .collect::<Vec<_>>()
         })
         .unwrap();
     let inserts = w
         .run_system_once(|mut r: ReadInsertMessage<Player>| {
             r.read()
-                .map(|m| matches!(m.event(), Event::SubscribeApplied))
+                .map(|m| matches!(m.ctx().event, Event::SubscribeApplied))
                 .collect::<Vec<_>>()
         })
         .unwrap();
@@ -340,13 +334,13 @@ fn an_opted_in_event_reaches_every_reader() {
     assert_eq!((changes, inserts), (vec![true], vec![true]));
 }
 
-/// An app whose row type did not opt in to events, holding one change without an event, as its
-/// callbacks send.
-fn app_with_an_eventless_change() -> App {
+/// An app whose row type was not bound with `TableCapability::ctx`, holding one change without a
+/// context, as its callbacks send.
+fn app_with_a_change_without_ctx() -> App {
     let mut app = app();
     sender(&app)
         .send(TableChange::Insert {
-            event: None.into(),
+            ctx: None.into(),
             row: player(1.0),
         })
         .unwrap();
@@ -355,22 +349,18 @@ fn app_with_an_eventless_change() -> App {
 }
 
 #[test]
-fn try_event_is_none_for_a_row_type_that_did_not_opt_in() {
-    let mut app = app_with_an_eventless_change();
+fn try_ctx_is_none_for_a_row_type_that_did_not_opt_in() {
+    let mut app = app_with_a_change_without_ctx();
 
     let w = app.world_mut();
     let changes = w
         .run_system_once(|mut r: ReadTableChangeMessage<Player>| {
-            r.read()
-                .map(|c| c.try_event().is_none())
-                .collect::<Vec<_>>()
+            r.read().map(|c| c.try_ctx().is_none()).collect::<Vec<_>>()
         })
         .unwrap();
     let upserts = w
         .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| {
-            r.read()
-                .map(|m| m.try_event().is_none())
-                .collect::<Vec<_>>()
+            r.read().map(|m| m.try_ctx().is_none()).collect::<Vec<_>>()
         })
         .unwrap();
 
@@ -378,16 +368,16 @@ fn try_event_is_none_for_a_row_type_that_did_not_opt_in() {
 }
 
 #[test]
-#[should_panic(expected = "opt in with `StdbPlugin::with_event`")]
-fn event_panics_naming_the_opt_in_for_a_row_type_that_did_not_opt_in() {
+#[should_panic(expected = "bind `TableCapability::ctx()`")]
+fn ctx_panics_naming_the_opt_in_for_a_row_type_that_did_not_opt_in() {
     // Silently reading `None` would look like a table whose changes have no cause.
-    let mut app = app_with_an_eventless_change();
+    let mut app = app_with_a_change_without_ctx();
 
     let _ = app
         .world_mut()
         .run_system_once(|mut r: ReadInsertMessage<Player>| {
             for m in r.read() {
-                let _ = m.event();
+                let _ = m.ctx();
             }
         });
 }
@@ -401,7 +391,7 @@ fn inserts_and_updates_bound_separately_feed_the_insert_update_reader() {
     });
     sender(&app)
         .send(TableChange::Insert {
-            event: event(),
+            ctx: ctx(),
             row: player(1.0),
         })
         .unwrap();

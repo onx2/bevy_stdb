@@ -5,6 +5,7 @@
 mod support;
 
 use bevy_app::App;
+use bevy_stdb::prelude::TableCapability;
 use support::{app_with, module_bindings::PlayerTableAccessor, sender};
 
 /// The channel every bound capability sends into must exist before a connection binds it,
@@ -39,13 +40,13 @@ fn every_add_method_registers_the_change_channel() {
 }
 
 #[test]
-fn opting_in_to_events_still_registers_everything_else() {
-    // `with_event` only changes what a bound callback puts in the message; it must not
-    // disturb registration, and it is order-independent.
+fn binding_ctx_still_registers_everything_else() {
+    // `TableCapability::ctx` binds no callback of its own; it must not disturb registration, and
+    // it is order-independent.
     assert_change_channel_registered(&app_with(|p| {
-        p.with_event::<PlayerTableAccessor>()
+        p.bind::<PlayerTableAccessor>([TableCapability::ctx()])
             .add_table::<PlayerTableAccessor>()
-            .with_event::<PlayerTableAccessor>()
+            .add_table_with_ctx::<PlayerTableAccessor>()
     }));
 }
 

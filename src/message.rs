@@ -11,40 +11,68 @@ use std::{any::type_name, fmt};
 pub type RowEvent<T> =
     <<<T as InModule>::Module as SpacetimeModule>::EventContext as AbstractEventContext>::Event;
 
-/// The SpacetimeDB event behind one table change, carried only for row types that opted in with
-/// [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
+/// The SpacetimeDB context behind one table change: the `ctx.event` the SDK passed to its row
+/// callback.
 ///
-/// Read it with [`TableChange::event`] or `event()` on what a table reader yields, or with
-/// `try_event()` where a row type may not carry it. Build one with `Some(event).into()` or
-/// `None.into()`, as a test that sends its own `TableChange` does. It is boxed, so a change without
-/// one costs a null pointer rather than the size of the event.
-pub struct MaybeRowEvent<T: InModule>(Option<Box<RowEvent<T>>>);
+/// Only row types bound with [`TableCapability::ctx`](crate::prelude::TableCapability::ctx) carry
+/// it. Read it with [`TableChange::ctx`], or with `ctx()` on what a table reader yields.
+pub struct RowCtx<'a, T: InModule> {
+    /// The event behind the change: the reducer call that caused it, or the subscription that
+    /// delivered the row.
+    pub event: &'a RowEvent<T>,
+}
 
-impl<T: InModule> MaybeRowEvent<T> {
-    /// Returns the event, or panics naming the opt-in when there is none.
+impl<T: InModule> Clone for RowCtx<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: InModule> Copy for RowCtx<'_, T> {}
+
+impl<T: InModule> fmt::Debug for RowCtx<'_, T>
+where
+    RowEvent<T>: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RowCtx").field("event", self.event).finish()
+    }
+}
+
+/// The SpacetimeDB context a table change carries, if its row type was bound with
+/// [`TableCapability::ctx`](crate::prelude::TableCapability::ctx).
+///
+/// Read it with [`TableChange::ctx`] or `ctx()` on what a table reader yields, or with `try_ctx()`
+/// where a row type may not carry it. Build one with `Some(event).into()` or `None.into()`, as a
+/// test that sends its own `TableChange` does. The event is boxed, so a change without one costs a
+/// null pointer rather than the size of the event.
+pub struct MaybeRowCtx<T: InModule>(Option<Box<RowEvent<T>>>);
+
+impl<T: InModule> MaybeRowCtx<T> {
+    /// Returns the context, or panics naming the opt-in when there is none.
     #[track_caller]
-    pub(crate) fn get(&self) -> &RowEvent<T> {
+    pub(crate) fn get(&self) -> RowCtx<'_, T> {
         self.try_get().unwrap_or_else(|| {
             panic!(
-                "`{}` changes carry no SpacetimeDB event; opt in with `StdbPlugin::with_event` \
-                 for its table accessor, or read it with `try_event`",
+                "`{}` changes carry no SpacetimeDB ctx; bind `TableCapability::ctx()` for its \
+                 table accessor, or read it with `try_ctx`",
                 type_name::<T>(),
             )
         })
     }
 
-    pub(crate) fn try_get(&self) -> Option<&RowEvent<T>> {
-        self.0.as_deref()
+    pub(crate) fn try_get(&self) -> Option<RowCtx<'_, T>> {
+        self.0.as_deref().map(|event| RowCtx { event })
     }
 }
 
-impl<T: InModule> From<Option<RowEvent<T>>> for MaybeRowEvent<T> {
+impl<T: InModule> From<Option<RowEvent<T>>> for MaybeRowCtx<T> {
     fn from(event: Option<RowEvent<T>>) -> Self {
         Self(event.map(Box::new))
     }
 }
 
-impl<T: InModule> Clone for MaybeRowEvent<T>
+impl<T: InModule> Clone for MaybeRowCtx<T>
 where
     RowEvent<T>: Clone,
 {
@@ -53,7 +81,7 @@ where
     }
 }
 
-impl<T: InModule> fmt::Debug for MaybeRowEvent<T>
+impl<T: InModule> fmt::Debug for MaybeRowCtx<T>
 where
     RowEvent<T>: fmt::Debug,
 {
@@ -180,22 +208,22 @@ where
 {
     /// The row was inserted.
     Insert {
-        /// The SpacetimeDB event behind the change; read it with [`TableChange::event`].
-        event: MaybeRowEvent<T>,
+        /// The SpacetimeDB context behind the change; read it with [`TableChange::ctx`].
+        ctx: MaybeRowCtx<T>,
         /// The inserted row.
         row: T,
     },
     /// The row was deleted.
     Delete {
-        /// The SpacetimeDB event behind the change; read it with [`TableChange::event`].
-        event: MaybeRowEvent<T>,
+        /// The SpacetimeDB context behind the change; read it with [`TableChange::ctx`].
+        ctx: MaybeRowCtx<T>,
         /// The deleted row.
         row: T,
     },
     /// The row was updated.
     Update {
-        /// The SpacetimeDB event behind the change; read it with [`TableChange::event`].
-        event: MaybeRowEvent<T>,
+        /// The SpacetimeDB context behind the change; read it with [`TableChange::ctx`].
+        ctx: MaybeRowCtx<T>,
         /// The previous row value.
         old: T,
         /// The updated row value.
@@ -208,28 +236,26 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    /// The SpacetimeDB event that caused this change.
+    /// The SpacetimeDB context behind this change.
     ///
     /// # Panics
     ///
-    /// Panics if the row type did not opt in with
-    /// [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
+    /// Panics if the row type was not bound with
+    /// [`TableCapability::ctx`](crate::prelude::TableCapability::ctx).
     #[track_caller]
-    pub fn event(&self) -> &RowEvent<T> {
-        self.maybe_event().get()
+    pub fn ctx(&self) -> RowCtx<'_, T> {
+        self.maybe_ctx().get()
     }
 
-    /// The SpacetimeDB event that caused this change, or `None` if the row type did not opt in
-    /// with [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
-    pub fn try_event(&self) -> Option<&RowEvent<T>> {
-        self.maybe_event().try_get()
+    /// The SpacetimeDB context behind this change, or `None` if the row type was not bound with
+    /// [`TableCapability::ctx`](crate::prelude::TableCapability::ctx).
+    pub fn try_ctx(&self) -> Option<RowCtx<'_, T>> {
+        self.maybe_ctx().try_get()
     }
 
-    fn maybe_event(&self) -> &MaybeRowEvent<T> {
+    fn maybe_ctx(&self) -> &MaybeRowCtx<T> {
         match self {
-            Self::Insert { event, .. }
-            | Self::Delete { event, .. }
-            | Self::Update { event, .. } => event,
+            Self::Insert { ctx, .. } | Self::Delete { ctx, .. } | Self::Update { ctx, .. } => ctx,
         }
     }
 }

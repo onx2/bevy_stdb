@@ -3,7 +3,7 @@
 //! [`TableSource`] is implemented for every `spacetime generate` table accessor, and [`OnInsert`],
 //! [`OnDelete`], and [`OnUpdate`] for the accessors whose table reports that kind of change. The
 //! [`StdbPlugin`](crate::prelude::StdbPlugin) table methods are bounded by these traits.
-use super::policy::carries_event;
+use super::policy::carries_ctx;
 use crate::{
     channel_bridge::{channel_sender, register_channel},
     message::{RowEvent, TableChange},
@@ -104,10 +104,10 @@ where
 {
     fn bind_insert(world: &World, db: &C::DbView) {
         let sender = channel_sender::<TableChange<T::Row>>(world);
-        let with_event = carries_event::<T::Row>(world);
+        let with_ctx = carries_ctx::<T::Row>(world);
         T::get(db).on_insert(move |ctx, row| {
             let _ = sender.send(TableChange::Insert {
-                event: with_event.then(|| event_of::<T::Row>(ctx).clone()).into(),
+                ctx: with_ctx.then(|| event_of::<T::Row>(ctx).clone()).into(),
                 row: row.clone(),
             });
         });
@@ -125,10 +125,10 @@ where
 {
     fn bind_delete(world: &World, db: &C::DbView) {
         let sender = channel_sender::<TableChange<T::Row>>(world);
-        let with_event = carries_event::<T::Row>(world);
+        let with_ctx = carries_ctx::<T::Row>(world);
         T::get(db).on_delete(move |ctx, row| {
             let _ = sender.send(TableChange::Delete {
-                event: with_event.then(|| event_of::<T::Row>(ctx).clone()).into(),
+                ctx: with_ctx.then(|| event_of::<T::Row>(ctx).clone()).into(),
                 row: row.clone(),
             });
         });
@@ -146,10 +146,10 @@ where
 {
     fn bind_update(world: &World, db: &C::DbView) {
         let sender = channel_sender::<TableChange<T::Row>>(world);
-        let with_event = carries_event::<T::Row>(world);
+        let with_ctx = carries_ctx::<T::Row>(world);
         T::get(db).on_update(move |ctx, old, new| {
             let _ = sender.send(TableChange::Update {
-                event: with_event.then(|| event_of::<T::Row>(ctx).clone()).into(),
+                ctx: with_ctx.then(|| event_of::<T::Row>(ctx).clone()).into(),
                 old: old.clone(),
                 new: new.clone(),
             });

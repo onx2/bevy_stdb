@@ -58,7 +58,7 @@ sequenceDiagram
 
     M->>S: transaction diff
     loop once per changed row
-        S->>S: clone row (and event, if opted in)
+        S->>S: clone row (and ctx.event, if bound with ctx)
         S->>C: send TableChange::Insert / Delete / Update
     end
     Note over C: queued until the next frame
@@ -146,14 +146,14 @@ flowchart TB
     subgraph build["app build — StdbPlugin::build"]
         b1["callbacks recorded in BindLedger"]
         b2["register_channel::&lt;TableChange&lt;Row&gt;&gt;<br/>once per row type"]
-        b3["insert RowEventPolicy + BoundStreams"]
+        b3["insert RowCtxPolicy + BoundStreams"]
         b4["store bind callbacks in StdbTableConfig"]
     end
 
     subgraph run["when a connection becomes active"]
         r1["bind_tables<br/>called by poll_pending_connection"]
         r2["for each stored callback:<br/>table.on_insert / on_delete / on_update"]
-        r3["each closure captures its Sender<br/>and whether this row carries events"]
+        r3["each closure captures its Sender<br/>and whether this row carries ctx"]
     end
 
     b1 --> b2 --> b3 --> b4

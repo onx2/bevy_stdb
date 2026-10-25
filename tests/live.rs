@@ -13,12 +13,14 @@ mod support;
 use bevy_app::{App, First, TaskPoolPlugin, Update};
 use bevy_ecs::prelude::*;
 use bevy_stdb::prelude::*;
+use spacetimedb_sdk::Event;
 use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 use support::module_bindings::{
-    DbConnection, Player, PlayerTableAccess, PlayerTableAccessor, RemoteModule, move_player,
+    DbConnection, Player, PlayerTableAccess, PlayerTableAccessor, Reducer, RemoteModule,
+    move_player,
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -110,6 +112,57 @@ fn a_frame_driven_row_is_read_in_the_frame_its_callback_ran() {
         SDK_CALLBACK_FRAME.load(Ordering::SeqCst),
         "the reader saw the row in a later frame than the SDK callback delivered it"
     );
+}
+
+const CTX_MARKER_X: f32 = 4343.5;
+
+/// Whether the change carrying [`CTX_MARKER_X`] named the reducer that made it.
+#[derive(Resource, Default)]
+struct MarkerCtx(Option<bool>);
+
+#[test]
+#[ignore = "needs a local SpacetimeDB with the example module published"]
+fn a_row_type_bound_with_ctx_carries_the_reducer_that_changed_it() {
+    let mut app = App::new();
+    app.add_plugins(TaskPoolPlugin::default());
+    app.add_plugins(
+        support::target()
+            .with_frame_driver(DbConnection::frame_tick)
+            .with_eager_connection()
+            .with_subscriptions::<Players>()
+            .add_table_with_ctx::<PlayerTableAccessor>(),
+    );
+    app.init_resource::<MarkerCtx>();
+    app.add_systems(
+        Update,
+        (
+            subscribe_on_connect,
+            |mut applied: ReadStdbSubscriptionAppliedMessage<Players>, conn: Option<Res<Conn>>| {
+                if applied.read().count() > 0 {
+                    conn.unwrap()
+                        .reducers()
+                        .move_player(CTX_MARKER_X, 0.0)
+                        .unwrap();
+                }
+            },
+            |mut updates: ReadUpdateMessage<Player>, mut seen: ResMut<MarkerCtx>| {
+                for update in updates.read() {
+                    if update.new.x == CTX_MARKER_X {
+                        seen.0 = Some(matches!(
+                            update.ctx().event,
+                            Event::Reducer(r) if matches!(r.reducer, Reducer::MovePlayer { .. })
+                        ));
+                    }
+                }
+            },
+        ),
+    );
+
+    run_until(&mut app, Duration::from_secs(10), "the moved row", |app| {
+        app.world().resource::<MarkerCtx>().0.is_some()
+    });
+
+    assert_eq!(app.world().resource::<MarkerCtx>().0, Some(true));
 }
 
 #[derive(Resource, Default, Debug)]

@@ -4,7 +4,7 @@
 //! row type's [`TableChange`] stream to the change kind they name, and borrow each row from it.
 use crate::{
     message::{
-        MaybeRowEvent, RowEvent, StdbConnectErrorMessage, StdbConnectedMessage,
+        MaybeRowCtx, RowCtx, RowEvent, StdbConnectErrorMessage, StdbConnectedMessage,
         StdbDisconnectedMessage, StdbDriverErrorMessage, StdbReconnectExhaustedMessage,
         StdbSubscriptionAppliedMessage, StdbSubscriptionErrorMessage, TableChange,
     },
@@ -41,7 +41,7 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    event: &'a MaybeRowEvent<T>,
+    ctx: &'a MaybeRowCtx<T>,
     /// The inserted row.
     pub row: &'a T,
 }
@@ -53,7 +53,7 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    event: &'a MaybeRowEvent<T>,
+    ctx: &'a MaybeRowCtx<T>,
     /// The deleted row.
     pub row: &'a T,
 }
@@ -65,7 +65,7 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    event: &'a MaybeRowEvent<T>,
+    ctx: &'a MaybeRowCtx<T>,
     /// The previous row value.
     pub old: &'a T,
     /// The updated row value.
@@ -79,43 +79,43 @@ where
     T: InModule,
     RowEvent<T>: Send + Sync,
 {
-    event: &'a MaybeRowEvent<T>,
+    ctx: &'a MaybeRowCtx<T>,
     /// The previous row value, if this was an update.
     pub old: Option<&'a T>,
     /// The current row value.
     pub new: &'a T,
 }
 
-/// Implements `event` and `try_event` on a reader's item, borrowing the event from its
+/// Implements `ctx` and `try_ctx` on a reader's item, borrowing the context from its
 /// [`TableChange`].
-macro_rules! event_accessors {
+macro_rules! ctx_accessors {
     ($($item:ident),+) => {$(
         impl<'a, T> $item<'a, T>
         where
             T: InModule,
             RowEvent<T>: Send + Sync,
         {
-            /// The SpacetimeDB event that caused this change.
+            /// The SpacetimeDB context behind this change.
             ///
             /// # Panics
             ///
-            /// Panics if the row type did not opt in with
-            /// [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
+            /// Panics if the row type was not bound with
+            /// [`TableCapability::ctx`](crate::prelude::TableCapability::ctx).
             #[track_caller]
-            pub fn event(&self) -> &'a RowEvent<T> {
-                self.event.get()
+            pub fn ctx(&self) -> RowCtx<'a, T> {
+                self.ctx.get()
             }
 
-            /// The SpacetimeDB event that caused this change, or `None` if the row type did not
-            /// opt in with [`StdbPlugin::with_event`](crate::prelude::StdbPlugin::with_event).
-            pub fn try_event(&self) -> Option<&'a RowEvent<T>> {
-                self.event.try_get()
+            /// The SpacetimeDB context behind this change, or `None` if the row type was not bound
+            /// with [`TableCapability::ctx`](crate::prelude::TableCapability::ctx).
+            pub fn try_ctx(&self) -> Option<RowCtx<'a, T>> {
+                self.ctx.try_get()
             }
         }
     )+};
 }
 
-event_accessors!(Inserted, Deleted, Updated, InsertedOrUpdated);
+ctx_accessors!(Inserted, Deleted, Updated, InsertedOrUpdated);
 
 /// Defines a reader that filters the [`TableChange`] stream to one change kind.
 ///
@@ -168,7 +168,7 @@ table_reader!(
     ReadInsertMessage -> Inserted,
     [Insert],
     |change| match change {
-        TableChange::Insert { event, row } => Some(Inserted { event, row }),
+        TableChange::Insert { ctx, row } => Some(Inserted { ctx, row }),
         _ => None,
     }
 );
@@ -181,7 +181,7 @@ table_reader!(
     ReadDeleteMessage -> Deleted,
     [Delete],
     |change| match change {
-        TableChange::Delete { event, row } => Some(Deleted { event, row }),
+        TableChange::Delete { ctx, row } => Some(Deleted { ctx, row }),
         _ => None,
     }
 );
@@ -194,7 +194,7 @@ table_reader!(
     ReadUpdateMessage -> Updated,
     [Update],
     |change| match change {
-        TableChange::Update { event, old, new } => Some(Updated { event, old, new }),
+        TableChange::Update { ctx, old, new } => Some(Updated { ctx, old, new }),
         _ => None,
     }
 );
@@ -208,13 +208,13 @@ table_reader!(
     ReadInsertUpdateMessage -> InsertedOrUpdated,
     [Insert, Update],
     |change| match change {
-        TableChange::Insert { event, row } => Some(InsertedOrUpdated {
-            event,
+        TableChange::Insert { ctx, row } => Some(InsertedOrUpdated {
+            ctx,
             old: None,
             new: row,
         }),
-        TableChange::Update { event, old, new } => Some(InsertedOrUpdated {
-            event,
+        TableChange::Update { ctx, old, new } => Some(InsertedOrUpdated {
+            ctx,
             old: Some(old),
             new,
         }),

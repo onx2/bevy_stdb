@@ -44,8 +44,8 @@ pub fn player(x: f32) -> Player {
     }
 }
 
-/// The event a callback attaches for a row type that opted in with `with_event`.
-pub fn event() -> MaybeRowEvent<Player> {
+/// The context a callback attaches for a row type bound with `TableCapability::ctx`.
+pub fn ctx() -> MaybeRowCtx<Player> {
     Some(Event::SubscribeApplied).into()
 }
 

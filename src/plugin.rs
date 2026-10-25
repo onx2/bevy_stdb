@@ -294,30 +294,6 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.bind([TableCapability::<C, TTable>::insert_update()])
     }
 
-    /// Carries the SpacetimeDB event on every message for `TTable`'s row type.
-    ///
-    /// Off by default: the SDK invokes a row callback once per changed row, so carrying the event
-    /// clones it, reducer arguments included, once per row. Opt in for a row type whose readers
-    /// need it, for example to see which reducer made a change and who called it, or to tell
-    /// initial subscription rows from live ones. Read it with `event()` or `try_event()` on a
-    /// [`TableChange`](crate::prelude::TableChange) or on what a table reader yields; `event()`
-    /// panics for a row type that did not opt in.
-    ///
-    /// Applies to the row type, not the accessor: one channel carries every accessor over a row
-    /// type, so a table and a view over the same row share this. Order-independent, and calling
-    /// it more than once for a row type is harmless.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// .add_table::<PlayerTableAccessor>()
-    /// .with_event::<PlayerTableAccessor>()
-    /// ```
-    pub fn with_event<TTable: TableSource<C>>(mut self) -> Self {
-        self.table_registry.carry_event(TTable::row_type());
-        self
-    }
-
     /// Registers a table with a primary key: every change kind, and every reader.
     ///
     /// # Example
@@ -333,6 +309,23 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         ])
     }
 
+    /// Registers a table with a primary key, as [`Self::add_table`] does, with the SpacetimeDB
+    /// context on every change. See [`TableCapability::ctx`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// .add_table_with_ctx::<PlayerTableAccessor>()
+    /// ```
+    pub fn add_table_with_ctx<TTable: OnInsert<C> + OnDelete<C> + OnUpdate<C>>(self) -> Self {
+        self.bind::<TTable>([
+            TableCapability::insert(),
+            TableCapability::delete(),
+            TableCapability::update(),
+            TableCapability::ctx(),
+        ])
+    }
+
     /// Registers a table without a primary key: inserts and deletes. Without a key the SDK
     /// cannot pair an old row with a new one, so there are no updates to read.
     ///
@@ -343,6 +336,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// ```
     pub fn add_table_without_pk<TTable: OnInsert<C> + OnDelete<C>>(self) -> Self {
         self.bind::<TTable>([TableCapability::insert(), TableCapability::delete()])
+    }
+
+    /// Registers a table without a primary key, as [`Self::add_table_without_pk`] does, with the
+    /// SpacetimeDB context on every change. See [`TableCapability::ctx`].
+    pub fn add_table_without_pk_with_ctx<TTable: OnInsert<C> + OnDelete<C>>(self) -> Self {
+        self.bind::<TTable>([
+            TableCapability::insert(),
+            TableCapability::delete(),
+            TableCapability::ctx(),
+        ])
     }
 
     /// Registers a view: inserts and deletes.
@@ -356,6 +359,16 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
         self.bind::<TTable>([TableCapability::insert(), TableCapability::delete()])
     }
 
+    /// Registers a view, as [`Self::add_view`] does, with the SpacetimeDB context on every change.
+    /// See [`TableCapability::ctx`].
+    pub fn add_view_with_ctx<TTable: OnInsert<C> + OnDelete<C>>(self) -> Self {
+        self.bind::<TTable>([
+            TableCapability::insert(),
+            TableCapability::delete(),
+            TableCapability::ctx(),
+        ])
+    }
+
     /// Registers an event table: inserts only.
     ///
     /// # Example
@@ -365,6 +378,12 @@ impl<C: DbConnection<Module = M> + DbContext + Send + Sync, M: SpacetimeModule<D
     /// ```
     pub fn add_event_table<TTable: OnInsert<C>>(self) -> Self {
         self.bind::<TTable>([TableCapability::insert()])
+    }
+
+    /// Registers an event table, as [`Self::add_event_table`] does, with the SpacetimeDB context on
+    /// every inserted row. See [`TableCapability::ctx`].
+    pub fn add_event_table_with_ctx<TTable: OnInsert<C>>(self) -> Self {
+        self.bind::<TTable>([TableCapability::insert(), TableCapability::ctx()])
     }
 
     /// Registers a bridged message channel for `T`.
