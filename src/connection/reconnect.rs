@@ -57,17 +57,17 @@ impl Default for StdbReconnectOptions {
 #[derive(Resource, Clone)]
 struct ReconnectConfig {
     options: StdbReconnectOptions,
-    /// Queues a connection attempt. A plain function so the timer systems carry none of the
-    /// connection generics, and a test can watch for the attempt without a connection type.
+    /// Queues a connection attempt. Stored as a function so the reconnect systems don't depend on
+    /// the connection type.
     start_attempt: fn(&mut Commands),
 }
 
-/// What [`ReconnectBackoff::arm`] decided.
+/// The outcome of [`ReconnectBackoff::arm`].
 #[derive(Debug, PartialEq, Eq)]
 enum Armed {
     /// The timer is counting down to the next attempt.
     Waiting,
-    /// Every allowed attempt has been made, so no timer was armed.
+    /// Every allowed attempt has been made, and no timer is running.
     Exhausted,
 }
 
@@ -78,7 +78,7 @@ enum Armed {
 struct ReconnectBackoff {
     /// Number of reconnect attempts made in the current cycle.
     attempts: u32,
-    /// Delay that will be used for the next reconnect attempt. Zero until the cycle first arms.
+    /// The delay before the next reconnect attempt, or zero before the first one is armed.
     current_delay: Duration,
     /// Countdown timer for the next reconnect attempt.
     timer: Option<Timer>,
@@ -161,8 +161,8 @@ impl<
         });
         app.init_resource::<ReconnectBackoff>();
 
-        // Chained so a connection that is made and lost within one frame is retried: the reset
-        // for the connect must not land after, and wipe, the timer armed for the loss.
+        // Chained so a connection made and lost in the same frame still arms the timer: the
+        // reset from `on_connect` runs first.
         app.add_systems(
             PreUpdate,
             (
@@ -179,10 +179,11 @@ impl<
     }
 }
 
-/// Ends any reconnect cycle in progress, as an explicit connect, reconnect, or disconnect does.
+/// Ends any reconnect cycle in progress.
 ///
-/// What the app asks for supersedes the cycle: a disconnect must not be undone by a retry that was
-/// already counting down, and a connect after the cycle gave up starts with the full budget.
+/// [`StdbCommands`](crate::prelude::StdbCommands) calls this on an explicit connect, reconnect, or
+/// disconnect, so a pending retry never undoes a disconnect and a new connect starts with the full
+/// attempt budget.
 pub(crate) fn end_reconnect_cycle(world: &mut World) {
     if let Some(mut backoff) = world.get_resource_mut::<ReconnectBackoff>() {
         *backoff = ReconnectBackoff::default();
@@ -198,9 +199,8 @@ fn on_connect(mut msgs: ReadStdbConnectedMessage, mut backoff: ResMut<ReconnectB
 
 /// Arms the reconnect timer when a connection is lost or an attempt fails.
 ///
-/// Only a disconnect this client asked for is left alone. The SDK reports a server going away as
-/// a disconnect with no error, exactly as it reports a requested one, so the absence of an error
-/// says nothing; [`StdbDisconnectedMessage::was_requested`] is what tells them apart.
+/// Disconnects this client requested are ignored, as reported by
+/// [`StdbDisconnectedMessage::was_requested`].
 ///
 /// [`StdbDisconnectedMessage::was_requested`]: crate::message::StdbDisconnectedMessage::was_requested
 fn arm_reconnect_timer(
@@ -229,9 +229,7 @@ fn arm_reconnect_timer(
 
 /// Ticks the reconnect timer and requests a connection attempt when it fires.
 ///
-/// Counts wall-clock time. The default `Time` here is `Time<Virtual>`, which stops while the game
-/// is paused, scales with game speed, and clamps a long frame to a quarter of a second; a network
-/// retry should do none of those.
+/// Uses [`Time<Real>`], so pausing or speeding up the game doesn't change reconnect timing.
 fn tick_reconnect_timer(
     time: Res<Time<Real>>,
     mut backoff: ResMut<ReconnectBackoff>,
@@ -263,7 +261,7 @@ mod tests {
         }
     }
 
-    /// Counts the attempts the timer asked for, standing in for `StartConnectCommand`.
+    /// Counts the connection attempts the timer requests.
     #[derive(Resource, Default)]
     struct Attempts(u32);
 
@@ -345,8 +343,7 @@ mod tests {
 
     #[test]
     fn a_lost_connection_is_retried_even_though_the_sdk_reports_no_error() {
-        // The SDK bug this works around: a server going away arrives as a disconnect with no
-        // error, which used to read as intentional and was never retried.
+        // The SDK reports a server going away as a disconnect with no error.
         let mut app = app(0);
         disconnect(&mut app, Ok(DisconnectIntent::Lost));
         app.update();
@@ -379,8 +376,7 @@ mod tests {
 
     #[test]
     fn a_connection_lost_in_the_frame_it_was_made_is_retried() {
-        // Both messages are read by the same update. Were the reset for the connect to run after
-        // the timer was armed for the loss, it would wipe that timer and nothing would retry.
+        // Both messages are read in the same update, and the loss must still arm the timer.
         let mut app = app(0);
         app.world_mut().write_message(StdbConnectedMessage {
             identity: Identity::from_byte_array([0; 32]),
@@ -395,7 +391,7 @@ mod tests {
 
     #[test]
     fn ending_the_cycle_cancels_a_retry_that_was_counting_down() {
-        // A disconnect asked for while a lost connection waits to be retried must stay asked for.
+        // A disconnect requested while a retry is pending cancels the retry.
         let mut app = app(0);
         // Short steps, so the one second delay is still counting down when the cycle ends.
         app.insert_resource(TimeUpdateStrategy::ManualDuration(SECOND / 10));
@@ -412,8 +408,8 @@ mod tests {
 
     #[test]
     fn ending_the_cycle_after_it_gave_up_restores_the_budget() {
-        // `StdbCommands::connect` ends the cycle, so a connect after exhaustion that fails is
-        // retried rather than reported exhausted at once.
+        // `StdbCommands::connect` ends the cycle, so a failed connect after exhaustion gets a
+        // fresh budget.
         let mut app = app(1);
         disconnect(&mut app, Ok(DisconnectIntent::Lost));
         app.update();
@@ -475,8 +471,8 @@ mod tests {
 
     #[test]
     fn the_backoff_runs_on_real_time_so_a_paused_game_still_reconnects() {
-        // `Time` in `PreUpdate` is `Time<Virtual>`. A pause menu pauses it, and a connection lost
-        // behind that menu must still come back.
+        // `Time` defaults to `Time<Virtual>`, which a pause menu stops. A connection lost while
+        // paused still reconnects.
         let mut app = app(0);
         app.world_mut().resource_mut::<Time<Virtual>>().pause();
         disconnect(&mut app, Ok(DisconnectIntent::Lost));
@@ -490,7 +486,7 @@ mod tests {
 
     #[test]
     fn the_backoff_ignores_game_speed() {
-        // At 10x a one second delay would otherwise elapse in a tenth of a second.
+        // At 10x speed, virtual time covers a one second delay in a tenth of a second.
         let mut app = app(0);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(SECOND / 10));
         app.world_mut()

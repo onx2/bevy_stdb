@@ -26,10 +26,10 @@ struct SubscriptionEntry<H> {
     queued: bool,
 }
 
-/// The part of an SDK subscription handle the intent bookkeeping depends on, so that bookkeeping
-/// can be tested without a connection to mint real handles.
+/// The subscription handle state [`Intents`] reads, implemented for SDK handles and for test
+/// doubles.
 trait HandleState {
-    /// Whether the subscription is over, by `unsubscribe` or by an error.
+    /// Returns `true` if the subscription ended, through `unsubscribe` or an error.
     fn is_ended(&self) -> bool;
 }
 
@@ -58,7 +58,7 @@ impl<K: Eq + Hash, H: HandleState> Intents<K, H> {
     /// Stores `sql` for `key` and queues it, unless that exact query is already queued or live.
     fn subscribe(&mut self, key: K, sql: String) {
         if let Some(entry) = self.entries.get_mut(&key) {
-            // An ended handle is not a subscription: a query that failed must be retryable.
+            // An ended handle doesn't count as live, so a failed query can be subscribed again.
             let live = entry.handle.as_ref().is_some_and(|h| !h.is_ended());
             if entry.sql == sql && (entry.queued || live) {
                 return;
@@ -91,8 +91,8 @@ impl<K: Eq + Hash, H: HandleState> Intents<K, H> {
 
     /// Drops every handle and queues every intent again.
     ///
-    /// A handle belongs to the connection that issued it, and the SDK does not end it when that
-    /// connection goes, so it would otherwise still read as active.
+    /// Handles belong to the connection that issued them, and the SDK doesn't end them when that
+    /// connection closes.
     fn requeue_all(&mut self) {
         for entry in self.entries.values_mut() {
             entry.handle = None;
@@ -138,8 +138,8 @@ where
 
     /// Stores a SQL query for `key` and queues it to be applied.
     ///
-    /// Does nothing when `key` already holds this exact query and it is queued or live. A query
-    /// whose subscription ended -- it failed, say -- is queued again.
+    /// Does nothing if `key` already holds this exact query and it is queued or live. A query whose
+    /// subscription ended, for example because it failed, is queued again.
     pub fn subscribe_sql(&mut self, key: K, sql: impl Into<String>) {
         self.intents.subscribe(key, sql.into());
     }
@@ -298,8 +298,8 @@ where
         app.add_systems(
             PreUpdate,
             (|conn: Option<Res<StdbConnection<C>>>, mut subs: ResMut<StdbSubscriptions<K, M>>| {
-                // The guards only read, so a frame with nothing to do leaves `StdbSubscriptions`
-                // unchanged for change detection.
+                // The match guards only read, so an idle frame doesn't mark `StdbSubscriptions`
+                // as changed.
                 match conn {
                     Some(conn) if conn.is_added() => {
                         subs.intents.requeue_all();
@@ -357,8 +357,8 @@ mod tests {
 
     #[test]
     fn a_new_connection_gets_every_subscription_again() {
-        // Including a connection that replaced another with no disconnect ever reported, which
-        // is what a requested reconnect of a frame-driven connection looks like.
+        // This covers a frame-driven connection replaced by `StdbCommands::reconnect`, which never
+        // reports a disconnect.
         let mut intents = subscribed();
 
         intents.requeue_all();
@@ -396,8 +396,7 @@ mod tests {
 
     #[test]
     fn a_query_whose_subscription_ended_can_be_retried() {
-        // A failed subscription keeps its handle. Treating that as live made retrying the same
-        // query a no-op for ever.
+        // A failed subscription keeps its ended handle, which must not block a retry.
         let mut intents = subscribed();
         intents.entries.get_mut("players").unwrap().handle = Some(FakeHandle { ended: true });
 

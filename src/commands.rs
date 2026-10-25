@@ -12,19 +12,17 @@ use spacetimedb_sdk::{
 };
 use std::marker::PhantomData;
 
-/// Overrides for the connection settings, applied when a connection attempt starts.
+/// Connection settings to override when a connection attempt starts.
 ///
-/// Every field that is `Some` replaces the stored setting, and stays replaced: later attempts,
-/// automatic reconnects included, go to the same place with the same token. That is what keeps a
-/// reconnect on the server the player chose rather than the one the plugin was built with. Leave
-/// a field `None` to keep the current setting.
+/// Each field that is `Some` replaces the stored setting for this attempt and every later one,
+/// including automatic reconnects. Fields left `None` keep the current setting.
 #[derive(Clone, Debug, Default)]
 pub struct StdbConnectOptions {
-    /// Access token to connect with from now on.
+    /// The access token to connect with.
     pub token: Option<String>,
-    /// URI to connect to from now on.
+    /// The URI to connect to.
     pub uri: Option<String>,
-    /// Database name to connect to from now on.
+    /// The database name to connect to.
     pub database_name: Option<String>,
 }
 
@@ -84,10 +82,9 @@ where
 {
     /// Requests a SpacetimeDB connection attempt using [`StdbConnectOptions`].
     ///
-    /// Starts no attempt if a [`StdbConnection`] exists or an attempt is already in flight. Either
-    /// way the reconnect cycle starts over, so a failure is retried with the full
-    /// [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions) budget, even after an
-    /// earlier cycle gave up.
+    /// Does nothing if a [`StdbConnection`] exists or an attempt is already in flight. Either way,
+    /// this resets the reconnect cycle, so a failed attempt is retried with the full
+    /// [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions) budget.
     pub fn connect(&mut self, options: StdbConnectOptions) {
         self.commands.queue(move |world: &mut World| {
             end_reconnect_cycle(world);
@@ -105,9 +102,8 @@ where
 
     /// Requests disconnection from the active SpacetimeDB connection.
     ///
-    /// Reported as [`DisconnectIntent::Requested`](crate::prelude::DisconnectIntent), which the
-    /// reconnect cycle leaves alone. A retry that was already counting down for an earlier lost
-    /// connection is cancelled.
+    /// The close is reported as [`DisconnectIntent::Requested`](crate::prelude::DisconnectIntent)
+    /// and is not retried. This also cancels any pending reconnect attempt.
     pub fn disconnect(&mut self) {
         self.commands.queue(DisconnectCommand::<C>::new());
     }

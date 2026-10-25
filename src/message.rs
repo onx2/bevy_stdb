@@ -22,12 +22,13 @@ pub struct StdbConnectedMessage {
 /// Why a SpacetimeDB connection closed without an SDK error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisconnectIntent {
-    /// This client asked for the close, through
+    /// This client closed the connection, through
     /// [`StdbConnection::disconnect`](crate::prelude::StdbConnection::disconnect) or
     /// [`StdbCommands`](crate::prelude::StdbCommands).
     Requested,
-    /// The connection closed on its own and the SDK reported no error -- which is what the SDK
-    /// reports when the server goes away, so this is retried like an error.
+    /// The connection closed without being requested, as it does when the server goes away.
+    ///
+    /// Reconnect retries a lost connection the same way it retries an error.
     Lost,
 }
 
@@ -39,7 +40,7 @@ pub struct StdbDisconnectedMessage {
 }
 
 impl StdbDisconnectedMessage {
-    /// Returns `true` when this client asked for the disconnect, so nothing should retry it.
+    /// Returns `true` if this client requested the disconnect.
     pub fn was_requested(&self) -> bool {
         matches!(self.result, Ok(DisconnectIntent::Requested))
     }
@@ -52,22 +53,23 @@ pub struct StdbConnectErrorMessage {
     pub err: Error,
 }
 
-/// A [`Message`] sent when the reconnect cycle gives up.
+/// A [`Message`] sent when reconnecting gives up.
 ///
 /// Sent once [`StdbReconnectOptions::max_attempts`](crate::prelude::StdbReconnectOptions::max_attempts)
-/// attempts have failed. Nothing retries after this until a connection succeeds or is requested
-/// again with [`StdbCommands::connect`](crate::prelude::StdbCommands::connect).
+/// attempts have failed. No further attempt is made until one is requested with
+/// [`StdbCommands::connect`](crate::prelude::StdbCommands::connect) or
+/// [`StdbCommands::reconnect`](crate::prelude::StdbCommands::reconnect).
 #[derive(Message, Clone, Debug)]
 pub struct StdbReconnectExhaustedMessage {
-    /// The number of attempts that were made.
+    /// The number of attempts made.
     pub attempts: u32,
 }
 
 /// A [`Message`] sent when a frame-driven connection fails to advance.
 ///
 /// Only a connection configured with
-/// [`StdbPlugin::with_frame_driver`](crate::prelude::StdbPlugin::with_frame_driver) sends this. An
-/// error that ends the connection is not reported here; it arrives through
+/// [`StdbPlugin::with_frame_driver`](crate::prelude::StdbPlugin::with_frame_driver) sends this.
+/// Errors that end the connection are reported through
 /// [`ReadStdbDisconnectedMessage`](crate::prelude::ReadStdbDisconnectedMessage), or through
 /// [`ReadStdbConnectErrorMessage`](crate::prelude::ReadStdbConnectErrorMessage) if the connection
 /// never finished connecting.
