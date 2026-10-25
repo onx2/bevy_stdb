@@ -81,8 +81,9 @@ Two consequences worth knowing:
 
 A capability is not a stream. It decides which SDK callbacks get bound, and a reader is allowed
 once the callbacks it needs are. There are three callbacks and nothing else: `insert_update` is
-`insert` plus `update`, not a fourth thing. Binding is idempotent, so however many capabilities
-need a callback it is bound once.
+`insert` plus `update`, not a fourth thing. `ctx` binds no callback; it makes the callbacks bound
+for the row type carry the SpacetimeDB context. Binding is idempotent, so however many
+capabilities need a callback it is bound once.
 
 ```mermaid
 flowchart LR
@@ -91,6 +92,7 @@ flowchart LR
         cd["TableCapability::delete"]
         cu["TableCapability::update"]
         ciu["TableCapability::insert_update"]
+        cc["TableCapability::ctx"]
     end
 
     subgraph cbs["SDK callbacks — bound once per accessor"]
@@ -113,6 +115,7 @@ flowchart LR
     ciu --> ou
     cu --> ou
     cd --> od
+    cc -. "ctx.event on every change" .-> stream
 
     oi --> stream
     od --> stream
@@ -124,11 +127,12 @@ flowchart LR
     stream --> riu
 ```
 
-A reader checks for the callbacks it needs the first time it is read: `ReadInsertMessage` needs
+A reader checks for the callbacks it needs whenever it is read: `ReadInsertMessage` needs
 `on_insert`, `ReadInsertUpdateMessage` needs `on_insert` and `on_update`, and so on.
 
 `add_table` binds all three callbacks; `add_table_without_pk` and `add_view` bind insert and
-delete; `add_event_table` binds insert only. Reading a view whose callback was never bound
+delete; `add_event_table` binds insert only. Each `add_*_with_ctx` method binds the same callbacks
+plus `ctx`. Reading a view whose callback was never bound
 panics naming it — because a filtered view of a stream nobody fed would otherwise read as a table
 that simply never changes.
 
