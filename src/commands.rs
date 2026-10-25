@@ -1,11 +1,11 @@
 use crate::connection::{
-    PendingConnection, StdbConnection, StdbConnectionConfig, end_reconnect_cycle,
+    PendingConnection, StdbConnection, StdbConnectionConfig, cancel_retry, close_connection,
+    end_reconnect_cycle, start_attempt,
 };
 use bevy_ecs::{
     prelude::{Command, Commands, World},
     system::SystemParam,
 };
-use bevy_tasks::IoTaskPool;
 use spacetimedb_sdk::{
     __codegen::{DbConnection, SpacetimeModule},
     DbContext,
@@ -82,12 +82,14 @@ where
 {
     /// Requests a SpacetimeDB connection attempt using [`StdbConnectOptions`].
     ///
-    /// Does nothing if a [`StdbConnection`] exists or an attempt is already in flight. Either way,
-    /// this resets the reconnect cycle, so a failed attempt is retried with the full
-    /// [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions) budget.
+    /// This ends any reconnect cycle in progress, including a retry attempt in flight, so the new
+    /// attempt uses `options` and a failure is retried with the full
+    /// [`StdbReconnectOptions`](crate::prelude::StdbReconnectOptions) budget. Does nothing more if
+    /// a [`StdbConnection`] exists or another attempt is already in flight.
     pub fn connect(&mut self, options: StdbConnectOptions) {
         self.commands.queue(move |world: &mut World| {
             end_reconnect_cycle(world);
+            cancel_retry::<C>(world);
             StartConnectCommand::<C, M>::new(options).apply(world);
         });
     }
@@ -105,7 +107,7 @@ where
     /// The close is reported as [`DisconnectIntent::Requested`](crate::prelude::DisconnectIntent)
     /// and is not retried. This also cancels any pending reconnect attempt.
     pub fn disconnect(&mut self) {
-        self.commands.queue(DisconnectCommand::<C>::new());
+        self.commands.queue(DisconnectCommand::<C, M>::new());
     }
 
     /// Sets the authentication token in the SpacetimeDB connection config.
@@ -125,6 +127,8 @@ where
 /// A command that starts a SpacetimeDB connection attempt.
 pub(crate) struct StartConnectCommand<C, M> {
     options: StdbConnectOptions,
+    /// Whether the reconnect timer asked for this attempt.
+    retry: bool,
     _marker: PhantomData<fn() -> (C, M)>,
 }
 
@@ -133,6 +137,16 @@ impl<C, M> StartConnectCommand<C, M> {
     pub(crate) fn new(options: StdbConnectOptions) -> Self {
         Self {
             options,
+            retry: false,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Creates [`StartConnectCommand`] for an attempt the reconnect timer asked for.
+    pub(crate) fn retry() -> Self {
+        Self {
+            options: StdbConnectOptions::default(),
+            retry: true,
             _marker: PhantomData,
         }
     }
@@ -151,7 +165,7 @@ where
             return;
         }
 
-        spawn_connection_task::<C, M>(world, self.options);
+        start_attempt::<C, M>(world, self.options, self.retry);
     }
 }
 
@@ -176,16 +190,16 @@ where
 {
     type Out = ();
     fn apply(self, world: &mut World) {
-        disconnect_connection::<C>(world);
-        spawn_connection_task::<C, M>(world, self.options);
+        close_connection::<C, M>(world);
+        start_attempt::<C, M>(world, self.options, false);
     }
 }
 
-struct DisconnectCommand<C> {
-    _marker: PhantomData<fn() -> C>,
+struct DisconnectCommand<C, M> {
+    _marker: PhantomData<fn() -> (C, M)>,
 }
 
-impl<C> DisconnectCommand<C> {
+impl<C, M> DisconnectCommand<C, M> {
     fn new() -> Self {
         Self {
             _marker: PhantomData,
@@ -193,51 +207,13 @@ impl<C> DisconnectCommand<C> {
     }
 }
 
-impl<C> Command for DisconnectCommand<C>
-where
-    C: DbContext + Send + Sync + 'static,
-{
-    type Out = ();
-    fn apply(self, world: &mut World) {
-        disconnect_connection::<C>(world);
-    }
-}
-
-fn spawn_connection_task<C, M>(world: &mut World, options: StdbConnectOptions)
+impl<C, M> Command for DisconnectCommand<C, M>
 where
     C: DbConnection<Module = M> + DbContext + Send + Sync + 'static,
     M: SpacetimeModule<DbConnection = C> + 'static,
 {
-    let config = {
-        let mut config = world.resource_mut::<StdbConnectionConfig<C, M>>();
-
-        if let Some(uri) = options.uri {
-            config.uri = uri;
-        }
-        if let Some(database_name) = options.database_name {
-            config.database_name = database_name;
-        }
-        if let Some(token) = options.token {
-            config.token = Some(token);
-        }
-
-        config.clone()
-    };
-
-    let task = IoTaskPool::get().spawn(async move { config.build_connection().await });
-    world.insert_resource(PendingConnection::<C>(task));
-}
-
-/// Closes the active connection and drops any attempt in flight, ending the reconnect cycle.
-fn disconnect_connection<C>(world: &mut World)
-where
-    C: DbContext + Send + Sync + 'static,
-{
-    end_reconnect_cycle(world);
-    if let Some(conn) = world.get_resource::<StdbConnection<C>>() {
-        let _ = conn.disconnect();
+    type Out = ();
+    fn apply(self, world: &mut World) {
+        close_connection::<C, M>(world);
     }
-
-    world.remove_resource::<StdbConnection<C>>();
-    world.remove_resource::<PendingConnection<C>>();
 }

@@ -8,7 +8,7 @@
 use super::{PendingConnection, StdbConnection};
 use crate::{
     alias::{ReadStdbConnectErrorMessage, ReadStdbConnectedMessage, ReadStdbDisconnectedMessage},
-    commands::{StartConnectCommand, StdbConnectOptions},
+    commands::StartConnectCommand,
     message::StdbReconnectExhaustedMessage,
     set::StdbSet,
 };
@@ -150,13 +150,10 @@ impl<
 > Plugin for ReconnectPlugin<C, M>
 {
     fn build(&self, app: &mut App) {
-        app.add_message::<StdbReconnectExhaustedMessage>();
         app.insert_resource(ReconnectConfig {
             options: self.reconnect_options.clone(),
             start_attempt: |commands| {
-                commands.queue(StartConnectCommand::<C, M>::new(
-                    StdbConnectOptions::default(),
-                ));
+                commands.queue(StartConnectCommand::<C, M>::retry());
             },
         });
         app.init_resource::<ReconnectBackoff>();

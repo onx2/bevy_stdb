@@ -206,7 +206,7 @@ fn requested_reconnect_subscribes_once(mut app: App) {
     });
 
     let log = app.world().resource::<Log>();
-    assert!(log.disconnects.iter().all(|d| d == "Ok(Requested)"));
+    assert_eq!(log.disconnects, ["Ok(Requested)"], "one requested close");
     assert_eq!(log.applied, 2, "one subscription per connection");
 }
 
