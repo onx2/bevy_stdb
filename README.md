@@ -497,43 +497,6 @@ fn example_system(conn: Res<StdbConn>, mut subs: ResMut<StdbSubs>) {
 }
 ```
 
-
-## Performance
-
-Per change, the SDK callback copies the row once into `TableChange<T>`, and clones the context's
-event only for a row type bound with the `ctx` capability. Readers filter that one stream and borrow out of it, so
-binding more of them costs no extra copies and adds no systems to the schedule.
-
-`examples/simple/client/benches/table_streams.rs` has three groups. `frame` is what the Bevy thread
-pays: `n` changes are already in the channel when the clock starts, so an iteration is
-`app.update()` alone — the drain, then every reader. `produce` is what the SDK's thread pays per
-change downstream of the SDK, building the `TableChange` and sending it; in an app that is off the
-frame, which is why it is measured apart. `idle` is a frame with nothing to deliver, with and
-without a hundred extra channels, so the fixed cost of a registered channel is visible.
-
-For scale, on one development machine a frame delivering 10,000 changes of the example's 48-byte
-row costs about 0.29 ms, within 3% whether one reader or four consume it; producing those changes
-costs the SDK thread about 0.23 ms; and a hundred idle channels add about 2 µs to a frame.
-
-```sh
-cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams
-```
-
-Criterion baselines are the way to track it across a change:
-
-```sh
-# on the commit you are comparing against
-cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams -- --save-baseline before
-# on your change
-cargo bench --manifest-path examples/simple/client/Cargo.toml --bench table_streams -- --baseline before
-```
-
-What the bench does not cover: everything upstream of the channel send happens on the SDK's
-thread and needs a live connection, and the event clone the `ctx` capability adds happens there, so
-neither shows up here. Nor does row size: the example's row is small and flat, and a row holding
-`String`s or `Vec`s pays for its clone in `produce`. CI compiles the bench but does not time it — shared runners are too noisy
-to gate on.
-
 ## Compatibility
 
 | bevy_stdb   | bevy | spacetimedb_sdk | MSRV   |
