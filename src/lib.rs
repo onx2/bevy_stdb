@@ -75,6 +75,8 @@
 //! for detailed guides on connection driving, table registration,
 //! subscriptions, and delayed connections.
 
+#![forbid(unsafe_code)]
+
 #[cfg(all(
     target_arch = "wasm32",
     target_os = "unknown",
