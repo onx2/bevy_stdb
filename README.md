@@ -15,6 +15,9 @@ A [Bevy](https://bevy.org/) integration for [SpacetimeDB](https://spacetimedb.co
 
 `bevy_stdb` adapts SpacetimeDB's connection and callback model into Bevy-style resources, systems, plugins, and messages.
 
+[`docs/architecture.md`](docs/architecture.md) has diagrams of the pieces, the path one row
+change takes from the module to a system, and what a capability actually binds.
+
 ## Features
 
 - **Builder-style setup** via `StdbPlugin`
