@@ -11,6 +11,7 @@ use crate::{
     table::{BoundStreams, RowCallback},
 };
 use bevy_ecs::{
+    message::{MessageCursor, MessageId, Messages},
     prelude::{Local, MessageReader, Res},
     system::SystemParam,
 };
@@ -119,8 +120,8 @@ ctx_accessors!(Inserted, Deleted, Updated, InsertedOrUpdated);
 
 /// Defines a reader that filters the [`TableChange`] stream to one change kind.
 ///
-/// The first `read` in each system checks that the callbacks the reader needs were bound, and the
-/// `Local` records that the check passed.
+/// The reader has [`MessageReader`]'s methods, each limited to its change kind. It keeps its own
+/// [`MessageCursor`] so that `len` and `is_empty` can look at unread changes without reading them.
 macro_rules! table_reader {
     (
         $(#[$doc:meta])*
@@ -133,9 +134,10 @@ macro_rules! table_reader {
             T: Send + Sync + InModule + 'static,
             RowEvent<T>: Send + Sync,
         {
-            changes: MessageReader<'w, 's, TableChange<T>>,
+            cursor: Local<'s, MessageCursor<TableChange<T>>>,
+            #[system_param(validation_message = "Table changes for this row type are not registered")]
+            changes: Res<'w, Messages<TableChange<T>>>,
             bound: Res<'w, BoundStreams>,
-            checked: Local<'s, bool>,
         }
 
         impl<T> $reader<'_, '_, T>
@@ -143,18 +145,75 @@ macro_rules! table_reader {
             T: Send + Sync + InModule + 'static,
             RowEvent<T>: Send + Sync,
         {
-            /// Returns the changes of this kind that arrived since this reader last read.
+            /// Iterates over the changes of this kind this reader has not seen yet, marking them
+            /// as read.
             ///
             /// # Panics
             ///
             /// Panics if a callback this reader needs was never bound for the row type.
+            #[track_caller]
             pub fn read(&mut self) -> impl Iterator<Item = $item<'_, T>> {
-                if !*self.checked {
-                    self.bound.assert_bound::<T>(&[$(RowCallback::$needs),+]);
-                    *self.checked = true;
-                }
+                self.check();
+                self.cursor.read(&self.changes).filter_map(Self::project)
+            }
 
-                self.changes.read().filter_map(|$change| $project)
+            /// Like [`Self::read`], also returning the [`MessageId`] of each change.
+            ///
+            /// # Panics
+            ///
+            /// Panics if a callback this reader needs was never bound for the row type.
+            #[track_caller]
+            pub fn read_with_id(
+                &mut self,
+            ) -> impl Iterator<Item = ($item<'_, T>, MessageId<TableChange<T>>)> {
+                self.check();
+                self.cursor
+                    .read_with_id(&self.changes)
+                    .filter_map(|(change, id)| Self::project(change).map(|item| (item, id)))
+            }
+
+            /// Returns the number of changes of this kind this reader has not seen yet.
+            ///
+            /// The row type's stream holds every change kind, so this scans the unread changes
+            /// rather than counting them in constant time as [`MessageReader::len`] does.
+            ///
+            /// # Panics
+            ///
+            /// Panics if a callback this reader needs was never bound for the row type.
+            #[track_caller]
+            pub fn len(&self) -> usize {
+                self.check();
+                MessageCursor::clone(&self.cursor)
+                    .read(&self.changes)
+                    .filter_map(Self::project)
+                    .count()
+            }
+
+            /// Returns `true` if there are no changes of this kind this reader has not seen yet.
+            ///
+            /// # Panics
+            ///
+            /// Panics if a callback this reader needs was never bound for the row type.
+            #[track_caller]
+            pub fn is_empty(&self) -> bool {
+                self.check();
+                !MessageCursor::clone(&self.cursor)
+                    .read(&self.changes)
+                    .any(|change| Self::project(change).is_some())
+            }
+
+            /// Marks every change this reader has not seen yet as read, of any kind.
+            pub fn clear(&mut self) {
+                self.cursor.clear(&self.changes);
+            }
+
+            fn project($change: &TableChange<T>) -> Option<$item<'_, T>> {
+                $project
+            }
+
+            #[track_caller]
+            fn check(&self) {
+                self.bound.assert_bound::<T>(&[$(RowCallback::$needs),+]);
             }
         }
     };

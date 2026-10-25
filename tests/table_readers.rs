@@ -414,3 +414,105 @@ fn the_insert_update_reader_needs_updates_as_well_as_inserts() {
         .world_mut()
         .run_system_once(|mut r: ReadInsertUpdateMessage<Player>| r.read().count());
 }
+
+/// Sends an insert of `x`, an update from `x`, a delete, and a second insert: two inserts, one
+/// update, and one delete, in that order.
+fn app_with_every_kind_of_change() -> App {
+    let mut app = app();
+    let tx = sender(&app);
+    for change in [
+        TableChange::Insert {
+            ctx: ctx(),
+            row: player(1.0),
+        },
+        TableChange::Update {
+            ctx: ctx(),
+            old: player(1.0),
+            new: player(2.0),
+        },
+        TableChange::Delete {
+            ctx: ctx(),
+            row: player(2.0),
+        },
+        TableChange::Insert {
+            ctx: ctx(),
+            row: player(3.0),
+        },
+    ] {
+        tx.send(change).unwrap();
+    }
+    app.update();
+    app
+}
+
+#[test]
+fn len_and_is_empty_count_their_kind_without_reading_it() {
+    let mut app = app_with_every_kind_of_change();
+
+    let counts = app
+        .world_mut()
+        .run_system_once(
+            |mut inserts: ReadInsertMessage<Player>,
+             deletes: ReadDeleteMessage<Player>,
+             upserts: ReadInsertUpdateMessage<Player>| {
+                let before = (
+                    inserts.len(),
+                    deletes.len(),
+                    upserts.len(),
+                    inserts.is_empty(),
+                );
+                let read = inserts.read().count();
+                (before, read, inserts.len(), inserts.is_empty())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(counts, ((2, 1, 3, false), 2, 0, true));
+}
+
+#[test]
+fn clear_marks_every_unread_change_as_read() {
+    let mut app = app_with_every_kind_of_change();
+
+    let after = app
+        .world_mut()
+        .run_system_once(|mut inserts: ReadInsertMessage<Player>| {
+            inserts.clear();
+            (inserts.is_empty(), inserts.read().count())
+        })
+        .unwrap();
+
+    assert_eq!(after, (true, 0));
+}
+
+#[test]
+fn read_with_id_yields_the_ids_of_its_kind() {
+    let mut app = app_with_every_kind_of_change();
+
+    let (all, inserts) = app
+        .world_mut()
+        .run_system_once(
+            |mut changes: ReadTableChangeMessage<Player>,
+             mut inserts: ReadInsertMessage<Player>| {
+                let all = changes.read_with_id().map(|(_, id)| id).collect::<Vec<_>>();
+                let inserts = inserts
+                    .read_with_id()
+                    .map(|(insert, id)| (insert.row.x, id))
+                    .collect::<Vec<_>>();
+                (all, inserts)
+            },
+        )
+        .unwrap();
+
+    assert_eq!(inserts, vec![(1.0, all[0]), (3.0, all[3])]);
+}
+
+#[test]
+#[should_panic(expected = "no `Update` callback is bound")]
+fn len_panics_like_read_for_a_kind_the_table_never_bound() {
+    let mut app = app_with(|p| p.add_table_without_pk::<PlayerTableAccessor>());
+
+    let _ = app
+        .world_mut()
+        .run_system_once(|r: ReadUpdateMessage<Player>| r.len());
+}

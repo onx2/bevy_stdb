@@ -185,6 +185,7 @@ impl BoundStreams {
     /// # Panics
     ///
     /// Panics unless every callback in `needs` was bound for `TRow`.
+    #[track_caller]
     pub fn assert_bound<TRow: 'static>(&self, needs: &[RowCallback]) {
         for callback in needs {
             assert!(
