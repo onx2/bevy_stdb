@@ -109,7 +109,7 @@ jobs:
       - name: Install Bevy system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev libwayland-dev
 
       # No format check: `cargo fmt` would also rewrite the committed
       # `spacetime generate` output under `src/module_bindings/`.
